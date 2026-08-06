@@ -1,0 +1,75 @@
+@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Tableau de bord";
+}
+
+@if (TempData["Message"] is string message)
+{
+    <div class="toast-message">@message</div>
+}
+
+<section class="hero">
+    <div>
+        <span class="eyebrow">LEMONCORP · PROJECT ZOMBOID</span>
+        <h1>Vos serveurs. Vos versions. Votre cadence.</h1>
+        <p>Regroupez les mods d'un serveur sous un seul Workshop ID, conservez chaque Mod ID intact et choisissez vous-même le moment des mises à jour.</p>
+    </div>
+    <div class="hero-mark">PZ<span>ASM</span></div>
+</section>
+
+<div class="legal-banner">
+    <strong>Responsabilité de l'éditeur du pack</strong>
+    <span>PZ Advanced Server Manager ne donne aucun droit de redistribution. Même pour un pack non listé ou réservé à un serveur, vérifiez l'autorisation de chaque auteur. LemonCorp n'est pas responsable des packs créés par les utilisateurs.</span>
+</div>
+
+<section class="dashboard-grid">
+    <article class="panel">
+        <div class="panel-heading">
+            <div><span class="eyebrow">INSTALLATION LOCALE</span><h2>Project Zomboid détecté</h2></div>
+            <form method="post" asp-page-handler="RefreshDiscovery"><button class="button ghost" type="submit">Actualiser</button></form>
+        </div>
+        <dl class="path-list">
+            <dt>Jeu</dt><dd>@(Model.Installation.ClientRoot ?? "Non détecté")</dd>
+            <dt>Serveur dédié</dt><dd>@(Model.Installation.DedicatedServerRoot ?? "Non détecté")</dd>
+            <dt>Workshop 108600</dt><dd>@(Model.Installation.WorkshopRoot ?? "Non détecté")</dd>
+            <dt>Données PZASM</dt><dd>@Model.DataRoot</dd>
+        </dl>
+        <a class="button secondary" asp-page="/Server/Index">Gérer les configurations serveur</a>
+    </article>
+
+    <article class="panel create-panel">
+        <span class="eyebrow">NOUVEAU PROJET</span>
+        <h2>Créer un pack stable</h2>
+        <p>Le suffixe unique du projet restera identique à chaque réouverture et mise à jour.</p>
+        <form method="post" asp-page-handler="Create" class="stack-form">
+            <label for="name">Nom du pack</label>
+            <input id="name" name="name" required maxlength="120" placeholder="Ex. Lemon Valley — serveur principal" />
+            <button class="button primary" type="submit">Créer le pack</button>
+        </form>
+    </article>
+</section>
+
+<section class="section-heading">
+    <div><span class="eyebrow">PROJETS ENREGISTRÉS</span><h2>Reprendre ou mettre à jour un pack</h2></div>
+    <span class="count-pill">@Model.Projects.Count</span>
+</section>
+
+@if (Model.Projects.Count == 0)
+{
+    <div class="empty-state"><h3>Aucun pack pour le moment</h3><p>Créez le premier projet ci-dessus. Il sera enregistré automatiquement dans les données locales de PZASM.</p></div>
+}
+else
+{
+    <div class="project-grid">
+        @foreach (var project in Model.Projects)
+        {
+            <a class="project-card" asp-page="/Projects/Edit" asp-route-id="@project.Id">
+                <div class="project-top"><span class="mode-badge">@(project.Mode == PackageMode.Bundle ? "BUNDLE CONSEILLÉ" : "FUSION STRICTE")</span><span>@project.UpdatedAt.LocalDateTime.ToString("dd/MM HH:mm")</span></div>
+                <h3>@project.Name</h3>
+                <p>@project.Description</p>
+                <div class="project-meta"><span>@project.Mods.Count(x => x.Enabled) mods</span><span>Workshop: @(project.PublishedWorkshopId == 0 ? "à créer" : project.PublishedWorkshopId)</span></div>
+            </a>
+        }
+    </div>
+}

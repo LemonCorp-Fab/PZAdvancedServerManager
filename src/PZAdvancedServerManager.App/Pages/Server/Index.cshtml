@@ -1,0 +1,66 @@
+@page
+@model PZAdvancedServerManager.App.Pages.Server.IndexModel
+@{
+    ViewData["Title"] = "Configurations serveur";
+}
+
+<a class="back-link" asp-page="/Index">← Tableau de bord</a>
+@if (TempData["Message"] is string message) { <div class="toast-message">@message</div> }
+@if (TempData["Error"] is string error) { <div class="error-message">@error</div> }
+
+<section class="project-hero">
+    <div><span class="eyebrow">SERVEURS PROJECT ZOMBOID</span><h1>Configurations locales</h1><p>Édition complète des fichiers <code>Zomboid/Server/*.ini</code>, avec sauvegarde automatique avant chaque écriture.</p></div>
+</section>
+
+<div class="server-layout">
+    <aside class="panel server-sidebar">
+        <span class="eyebrow">PROFILS DÉTECTÉS</span>
+        <nav>
+            @foreach (var config in Model.Configs)
+            {
+                <a class="@(Model.Selected?.Key == config.Key ? "active" : "")" asp-route-key="@config.Key"><strong>@config.Name</strong><small>@config.Path</small></a>
+            }
+        </nav>
+        <form method="post" asp-page-handler="Create" class="stack-form">
+            <label><span>Nouveau profil</span><input name="serverName" required placeholder="monserveur" /></label>
+            <button class="button secondary" type="submit">Créer</button>
+        </form>
+    </aside>
+
+    <div class="server-content">
+    @if (Model.Selected is null)
+    {
+        <div class="empty-state"><h2>Aucune configuration trouvée</h2><p>Créez un premier profil serveur dans le panneau de gauche.</p></div>
+    }
+    else
+    {
+        <section class="panel">
+            <div class="panel-heading"><div><span class="eyebrow">@Model.Selected.Name</span><h2>Résumé des listes PZ</h2></div></div>
+            <div class="summary-columns">
+                <div><strong>Workshop items</strong><span>@Model.WorkshopItems.Count</span><p>@string.Join(" · ", Model.WorkshopItems.Take(8))</p></div>
+                <div><strong>Mod IDs</strong><span>@Model.Mods.Count</span><p>@string.Join(" · ", Model.Mods.Take(8))</p></div>
+                <div><strong>Cartes</strong><span>@Model.Maps.Count</span><p>@string.Join(" · ", Model.Maps.Take(8))</p></div>
+            </div>
+        </section>
+        <section class="panel">
+            <div class="panel-heading"><div><span class="eyebrow">APPLICATION SÛRE</span><h2>Installer un pack sur ce serveur</h2></div></div>
+            <form method="post" asp-page-handler="ApplyPack" asp-route-key="@Model.Selected.Key" class="add-mod-row" onsubmit="return confirm('Remplacer les listes WorkshopItems, Mods et Map de ce serveur par celles du pack ? Une sauvegarde sera créée.');">
+                <select name="projectId" required>
+                    <option value="">Choisir un pack déjà construit et publié…</option>
+                    @foreach (var project in Model.Projects)
+                    {
+                        <option value="@project.Id">@project.Name — Workshop @(project.PublishedWorkshopId == 0 ? "non publié" : project.PublishedWorkshopId) — @project.Mods.Count(x => x.Enabled) mods</option>
+                    }
+                </select>
+                <button class="button secondary" type="submit">Appliquer au serveur</button>
+            </form>
+            <p class="fine-print">Seules les clés <code>WorkshopItems</code>, <code>Mods</code> et <code>Map</code> sont remplacées. Toutes les autres options serveur sont conservées.</p>
+        </section>
+        <form method="post" asp-page-handler="Save" asp-route-key="@Model.Selected.Key" class="panel editor-form">
+            <div class="panel-heading"><div><span class="eyebrow">ÉDITEUR COMPLET</span><h2>@Model.Selected.Path</h2></div><button class="button primary" type="submit" onclick="return confirm('Enregistrer cette configuration ? Une sauvegarde horodatée sera créée.');">Enregistrer avec sauvegarde</button></div>
+            <textarea asp-for="RawContent" class="config-editor" spellcheck="false"></textarea>
+            <p class="fine-print">Les clés inconnues et commentaires sont conservés. Pour appliquer un pack, copiez les trois lignes de son fichier généré <code>server-config.txt</code> : <code>WorkshopItems</code>, <code>Mods</code> et <code>Map</code>.</p>
+        </form>
+    }
+    </div>
+</div>

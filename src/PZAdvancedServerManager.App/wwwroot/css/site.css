@@ -131,6 +131,10 @@ label small { display: block; margin-top: 6px; color: var(--muted); font-weight:
 .summary-columns strong { color: var(--muted); }
 .summary-columns span { display: block; margin: 5px 0; color: var(--green); font-size: 1.8rem; font-weight: 850; }
 .summary-columns p { margin: 0; overflow-wrap: anywhere; font-size: .75rem; }
+.server-status { padding: 6px 10px; border: 1px solid var(--line); border-radius: 99px; color: var(--muted); font-size: .7rem; font-weight: 850; letter-spacing: .08em; }
+.server-status.online { color: #c5e995; border-color: #466238; background: #152011; }
+.server-status.offline { color: #d3b87b; border-color: #594a2c; background: #1b170f; }
+.server-controls { padding-top: 18px; margin-top: 18px; border-top: 1px solid var(--line); }
 .config-editor { min-height: 650px; resize: vertical; color: #d8e3d1; font: 13px/1.55 Consolas, "Cascadia Code", monospace; tab-size: 4; }
 
 .app-footer { padding: 30px 0; margin-top: 60px; color: #737e73; border-top: 1px solid var(--line); font-size: .8rem; }

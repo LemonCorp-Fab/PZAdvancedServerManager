@@ -15,7 +15,10 @@ public sealed partial class PzDiscoveryService
         var steamCmd = FindFirstExisting(steamLibraries.SelectMany(x => new[]
         {
             Path.Combine(x, "steamcmd", "steamcmd.exe"),
-            Path.Combine(x, "steamapps", "common", "SteamCMD", "steamcmd.exe")
+            Path.Combine(x, "steamapps", "common", "SteamCMD", "steamcmd.exe"),
+            Path.Combine(x, "steamcmd.sh"),
+            Path.Combine(x, "steamcmd", "steamcmd.sh"),
+            Path.Combine(x, "steamapps", "common", "SteamCMD", "steamcmd.sh")
         }));
 
         return new PzInstallation
@@ -105,6 +108,13 @@ public sealed partial class PzDiscoveryService
     private static IEnumerable<string> DiscoverSteamLibraries()
     {
         var candidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var userHome = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!OperatingSystem.IsWindows())
+        {
+            candidates.Add(Path.Combine(userHome, ".steam", "steam"));
+            candidates.Add(Path.Combine(userHome, ".steam", "root"));
+            candidates.Add(Path.Combine(userHome, ".local", "share", "Steam"));
+        }
         var registryPath = OperatingSystem.IsWindows()
             ? Registry.GetValue(@"HKEY_CURRENT_USER\Software\Valve\Steam", "SteamPath", null) as string
             : null;

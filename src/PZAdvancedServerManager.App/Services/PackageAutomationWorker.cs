@@ -3,6 +3,7 @@ using PZAdvancedServerManager.Core.Domain;
 using PZAdvancedServerManager.Core.Infrastructure;
 using PZAdvancedServerManager.Core.Packaging;
 using PZAdvancedServerManager.Core.Publishing;
+using PZAdvancedServerManager.Core.Pz;
 
 namespace PZAdvancedServerManager.App.Services;
 
@@ -11,6 +12,8 @@ public sealed class PackageAutomationWorker(
     PackageValidator validator,
     PackageBuildService builder,
     SteamCmdService steamCmd,
+    ServerOrchestrationService serverOrchestration,
+    DiscoveryCache discovery,
     ILogger<PackageAutomationWorker> logger) : BackgroundService
 {
     private readonly SemaphoreSlim _executionLock = new(1, 1);
@@ -44,6 +47,8 @@ public sealed class PackageAutomationWorker(
     private async Task ExecuteProject(PackageProject project, CancellationToken cancellationToken)
     {
         if (!await _executionLock.WaitAsync(0, cancellationToken)) return;
+        var mustRestartServer = false;
+        string? coordinatedIniPath = null;
         try
         {
             project.Automation.LastAttemptAt = DateTimeOffset.Now;
@@ -61,6 +66,14 @@ public sealed class PackageAutomationWorker(
             var build = builder.Build(project);
             if (project.Automation.PublishAfterBuild)
             {
+                if (string.IsNullOrWhiteSpace(project.Automation.CoordinatedServerName))
+                    throw new InvalidOperationException("Publication automatique refusée sans profil serveur coordonné.");
+                coordinatedIniPath = Path.Combine(discovery.Installation.UserZomboidRoot, "Server", project.Automation.CoordinatedServerName + ".ini");
+                if (await serverOrchestration.IsOnlineAsync(coordinatedIniPath, cancellationToken))
+                {
+                    await serverOrchestration.StopGracefullyAsync(coordinatedIniPath, cancellationToken);
+                    mustRestartServer = true;
+                }
                 var publish = await steamCmd.PublishAsync(project, build, cancellationToken);
                 if (!publish.Success) throw new InvalidOperationException("Publication SteamCMD échouée : " + Tail(publish.CombinedOutput));
                 project.Automation.LastResult = Tail(publish.CombinedOutput);
@@ -76,7 +89,24 @@ public sealed class PackageAutomationWorker(
             store.Save(project);
             logger.LogError(exception, "Automatisation échouée pour le pack {ProjectName}", project.Name);
         }
-        finally { _executionLock.Release(); }
+        finally
+        {
+            if (mustRestartServer && coordinatedIniPath is not null)
+            {
+                try
+                {
+                    var dedicatedRoot = discovery.Installation.DedicatedServerRoot ?? throw new DirectoryNotFoundException("Serveur dédié Project Zomboid introuvable.");
+                    serverOrchestration.Start(Path.GetFileNameWithoutExtension(coordinatedIniPath), dedicatedRoot);
+                }
+                catch (Exception restartException)
+                {
+                    project.Automation.LastResult += Environment.NewLine + "REDÉMARRAGE SERVEUR ÉCHOUÉ : " + restartException.Message;
+                    store.Save(project);
+                    logger.LogCritical(restartException, "Redémarrage échoué pour {ServerName}", project.Automation.CoordinatedServerName);
+                }
+            }
+            _executionLock.Release();
+        }
     }
 
     private static string Tail(string value) => value.Length <= 3000 ? value : value[^3000..];

@@ -14,7 +14,8 @@ public sealed class SteamCmdService(PackageValidator validator)
         var workshopIds = project.Mods.Where(x => x.Enabled && x.WorkshopId != 0).Select(x => x.WorkshopId).Distinct().ToArray();
         if (workshopIds.Length == 0) return new SteamCmdResult(0, "Aucune source Workshop à actualiser.", string.Empty);
 
-        var arguments = new List<string> { "+login", project.Automation.SteamUsername };
+        var login = string.IsNullOrWhiteSpace(project.Automation.SteamUsername) ? "anonymous" : project.Automation.SteamUsername;
+        var arguments = new List<string> { "+login", login };
         foreach (var id in workshopIds)
         {
             arguments.Add("+workshop_download_item");
@@ -97,8 +98,9 @@ public sealed class SteamCmdService(PackageValidator validator)
 
     private static void ValidateExecutable(string path)
     {
-        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path) || !Path.GetFileName(path).Equals("steamcmd.exe", StringComparison.OrdinalIgnoreCase))
-            throw new FileNotFoundException("SteamCMD est introuvable. Indiquez le chemin exact vers steamcmd.exe.", path);
+        var fileName = Path.GetFileName(path);
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path) || (!fileName.Equals("steamcmd.exe", StringComparison.OrdinalIgnoreCase) && !fileName.Equals("steamcmd.sh", StringComparison.OrdinalIgnoreCase)))
+            throw new FileNotFoundException("SteamCMD est introuvable. Indiquez le chemin exact vers steamcmd.exe ou steamcmd.sh.", path);
     }
 }
 

@@ -17,6 +17,7 @@ builder.Services.AddSingleton<DiscoveryCache>();
 builder.Services.AddSingleton<PackageValidator>();
 builder.Services.AddSingleton<PackageBuildService>();
 builder.Services.AddSingleton<SteamCmdService>();
+builder.Services.AddSingleton<ServerOrchestrationService>();
 builder.Services.AddHostedService<PackageAutomationWorker>();
 
 var app = builder.Build();
@@ -35,12 +36,16 @@ app.MapStaticAssets();
 app.MapRazorPages()
    .WithStaticAssets();
 
-if (openBrowser && OperatingSystem.IsWindows())
+if (openBrowser)
 {
     app.Lifetime.ApplicationStarted.Register(() =>
     {
         var url = app.Urls.FirstOrDefault(x => x.StartsWith("http://", StringComparison.OrdinalIgnoreCase)) ?? "http://127.0.0.1:5160";
-        try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); }
+        try
+        {
+            if (OperatingSystem.IsWindows()) Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            else Process.Start(new ProcessStartInfo("xdg-open", url) { UseShellExecute = false, CreateNoWindow = true });
+        }
         catch { /* L'URL reste indiquée dans la console si aucun navigateur n'est associé. */ }
     });
 }

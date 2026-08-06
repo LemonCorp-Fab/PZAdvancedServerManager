@@ -7,6 +7,7 @@ using PZAdvancedServerManager.Core.Domain;
 using PZAdvancedServerManager.Core.Infrastructure;
 using PZAdvancedServerManager.Core.Packaging;
 using PZAdvancedServerManager.Core.Publishing;
+using PZAdvancedServerManager.Core.Pz;
 
 namespace PZAdvancedServerManager.App.Pages.Projects;
 
@@ -15,12 +16,14 @@ public class EditModel(
     DiscoveryCache discovery,
     PackageValidator validator,
     PackageBuildService builder,
-    SteamCmdService steamCmd) : PageModel
+    SteamCmdService steamCmd,
+    ServerOrchestrationService serverOrchestration) : PageModel
 {
     public PackageProject Project { get; private set; } = new();
     public IReadOnlyList<DiscoveredMod> InstalledMods { get; private set; } = [];
     public PackageValidationResult Validation { get; private set; } = new();
     public string WorkshopDescription { get; private set; } = string.Empty;
+    public IReadOnlyList<string> ServerConfigNames { get; private set; } = [];
 
     [BindProperty] public ProjectForm Form { get; set; } = new();
 
@@ -54,7 +57,7 @@ public class EditModel(
             TempData["Error"] = "La source choisie n'existe plus. Actualisez la détection.";
             return RedirectToPage(new { id });
         }
-        var added = AddWithDependencies(project, selected, discovered);
+        var added = PackageProjectComposer.AddWithDependencies(project, selected, discovered);
         if (added > 0)
         {
             store.Save(project);
@@ -130,9 +133,19 @@ public class EditModel(
     {
         var project = store.Get(id);
         if (project is null) return NotFound();
+        var restartServer = false;
         try
         {
             var build = builder.Build(project);
+            if (!string.IsNullOrWhiteSpace(project.Automation.CoordinatedServerName))
+            {
+                var ini = Path.Combine(discovery.Installation.UserZomboidRoot, "Server", project.Automation.CoordinatedServerName + ".ini");
+                if (await serverOrchestration.IsOnlineAsync(ini, cancellationToken))
+                {
+                    await serverOrchestration.StopGracefullyAsync(ini, cancellationToken);
+                    restartServer = true;
+                }
+            }
             var result = await steamCmd.PublishAsync(project, build, cancellationToken);
             project.Automation.LastResult = Limit(result.CombinedOutput, 4000);
             store.Save(project);
@@ -142,6 +155,20 @@ public class EditModel(
         catch (Exception exception)
         {
             TempData["Error"] = exception.Message;
+        }
+        finally
+        {
+            if (restartServer)
+            {
+                try
+                {
+                    serverOrchestration.Start(project.Automation.CoordinatedServerName, discovery.Installation.DedicatedServerRoot ?? throw new DirectoryNotFoundException("Serveur dédié Project Zomboid introuvable."));
+                }
+                catch (Exception exception)
+                {
+                    TempData["Error"] = (TempData["Error"] is string existing ? existing + " " : string.Empty) + "Le pack a été traité, mais le redémarrage du serveur a échoué : " + exception.Message;
+                }
+            }
         }
         return RedirectToPage(new { id });
     }
@@ -154,6 +181,10 @@ public class EditModel(
         InstalledMods = discovery.GetMods(project.TargetPzVersion, refresh);
         Validation = validator.Validate(project);
         WorkshopDescription = WorkshopDescriptionGenerator.Generate(project);
+        var serverRoot = Path.Combine(discovery.Installation.UserZomboidRoot, "Server");
+        ServerConfigNames = Directory.Exists(serverRoot)
+            ? Directory.EnumerateFiles(serverRoot, "*.ini").Select(Path.GetFileNameWithoutExtension).Where(x => !string.IsNullOrWhiteSpace(x)).Cast<string>().OrderBy(x => x).ToList()
+            : [];
     }
 
     private void ApplyForm(PackageProject project)
@@ -176,6 +207,7 @@ public class EditModel(
         project.Automation.Enabled = Form.AutomationEnabled;
         project.Automation.RefreshWorkshopSourcesBeforeBuild = Form.RefreshSources;
         project.Automation.PublishAfterBuild = Form.PublishAfterBuild;
+        project.Automation.CoordinatedServerName = Form.CoordinatedServerName?.Trim() ?? string.Empty;
         project.Automation.DailyTimes = (Form.DailyTimes ?? string.Empty).Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     }
 
@@ -201,6 +233,7 @@ public class EditModel(
         public bool AutomationEnabled { get; set; }
         public bool RefreshSources { get; set; }
         public bool PublishAfterBuild { get; set; }
+        public string? CoordinatedServerName { get; set; }
         public string? DailyTimes { get; set; }
 
         public static ProjectForm From(PackageProject project) => new()
@@ -212,41 +245,8 @@ public class EditModel(
             Tags = string.Join(", ", project.Tags), LegalWarningAccepted = project.LegalWarningAccepted,
             SteamCmdPath = project.Automation.SteamCmdPath, SteamUsername = project.Automation.SteamUsername,
             AutomationEnabled = project.Automation.Enabled, RefreshSources = project.Automation.RefreshWorkshopSourcesBeforeBuild,
-            PublishAfterBuild = project.Automation.PublishAfterBuild, DailyTimes = string.Join(", ", project.Automation.DailyTimes)
+            PublishAfterBuild = project.Automation.PublishAfterBuild, DailyTimes = string.Join(", ", project.Automation.DailyTimes),
+            CoordinatedServerName = project.Automation.CoordinatedServerName
         };
-    }
-
-    private static int AddWithDependencies(PackageProject project, DiscoveredMod root, IReadOnlyList<DiscoveredMod> discovered)
-    {
-        var added = 0;
-        var queue = new Queue<DiscoveredMod>();
-        queue.Enqueue(root);
-        while (queue.Count > 0)
-        {
-            var current = queue.Dequeue();
-            if (project.Mods.Any(x => x.ModId.Equals(current.ModId, StringComparison.OrdinalIgnoreCase))) continue;
-            project.Mods.Add(new PackageModReference
-            {
-                WorkshopId = current.WorkshopId,
-                ModId = current.ModId,
-                Name = current.Name,
-                Author = current.Author,
-                SourceModRoot = current.ModRoot,
-                SelectedVersionFolder = current.SelectedVersionFolder,
-                SourceUrl = current.WorkshopUrl,
-                RequiredModIds = current.RequiredModIds,
-                MapFolders = current.MapFolders,
-                Order = project.Mods.Count
-            });
-            foreach (var map in current.MapFolders)
-                if (!project.MapOrder.Contains(map, StringComparer.OrdinalIgnoreCase)) project.MapOrder.Add(map);
-            added++;
-            foreach (var required in current.RequiredModIds)
-            {
-                var dependency = discovered.FirstOrDefault(x => x.ModId.Equals(required, StringComparison.OrdinalIgnoreCase));
-                if (dependency is not null) queue.Enqueue(dependency);
-            }
-        }
-        return added;
     }
 }

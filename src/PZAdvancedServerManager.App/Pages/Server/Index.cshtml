@@ -35,11 +35,16 @@
     else
     {
         <section class="panel">
-            <div class="panel-heading"><div><span class="eyebrow">@Model.Selected.Name</span><h2>Résumé des listes PZ</h2></div></div>
+            <div class="panel-heading"><div><span class="eyebrow">@Model.Selected.Name</span><h2>Résumé des listes PZ</h2></div><span class="server-status @(Model.SelectedServerOnline ? "online" : "offline")">@(Model.SelectedServerOnline ? "EN LIGNE" : "ARRÊTÉ / RCON INDISPONIBLE")</span></div>
             <div class="summary-columns">
                 <div><strong>Workshop items</strong><span>@Model.WorkshopItems.Count</span><p>@string.Join(" · ", Model.WorkshopItems.Take(8))</p></div>
                 <div><strong>Mod IDs</strong><span>@Model.Mods.Count</span><p>@string.Join(" · ", Model.Mods.Take(8))</p></div>
                 <div><strong>Cartes</strong><span>@Model.Maps.Count</span><p>@string.Join(" · ", Model.Maps.Take(8))</p></div>
+            </div>
+            <div class="action-row server-controls">
+                <form method="post" asp-page-handler="Start" asp-route-key="@Model.Selected.Key"><button class="button primary" type="submit" disabled="@Model.SelectedServerOnline">Démarrer le serveur</button></form>
+                <form method="post" asp-page-handler="Stop" asp-route-key="@Model.Selected.Key" onsubmit="return confirm('Exécuter save puis quit par RCON ? Aucun arrêt forcé ne sera utilisé.');"><button class="button danger" type="submit" disabled="@(!Model.SelectedServerOnline)">Sauvegarder et arrêter</button></form>
+                <span class="fine-print">L'arrêt propre exige <code>RCONPassword</code>. Windows : StartServer64.bat · Linux : start-server.sh.</span>
             </div>
         </section>
         <section class="panel">

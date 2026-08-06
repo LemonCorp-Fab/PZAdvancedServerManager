@@ -8,7 +8,10 @@ on:
 
 jobs:
   test:
-    runs-on: windows-latest
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -16,9 +19,27 @@ jobs:
           dotnet-version: 9.0.x
       - run: dotnet restore PZAdvancedServerManager.sln
       - run: dotnet test PZAdvancedServerManager.sln -c Release --no-restore
-      - name: Publish standalone Windows build
-        run: dotnet publish src/PZAdvancedServerManager.App -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish/win-x64
+
+  publish:
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            runtime: win-x64
+          - os: ubuntu-latest
+            runtime: linux-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+      - name: Publish local UI
+        run: dotnet publish src/PZAdvancedServerManager.App -c Release -r ${{ matrix.runtime }} --self-contained true -p:PublishSingleFile=true -o publish/${{ matrix.runtime }}/ui
+      - name: Publish headless CLI
+        run: dotnet publish src/PZAdvancedServerManager.Cli -c Release -r ${{ matrix.runtime }} --self-contained true -p:PublishSingleFile=true -o publish/${{ matrix.runtime }}/cli
       - uses: actions/upload-artifact@v4
         with:
-          name: PZAdvancedServerManager-win-x64
-          path: publish/win-x64/
+          name: PZAdvancedServerManager-${{ matrix.runtime }}
+          path: publish/${{ matrix.runtime }}/

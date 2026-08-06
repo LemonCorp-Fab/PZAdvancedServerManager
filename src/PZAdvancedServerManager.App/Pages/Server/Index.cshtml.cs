@@ -8,19 +8,24 @@ using PZAdvancedServerManager.Core.Pz;
 
 namespace PZAdvancedServerManager.App.Pages.Server;
 
-public class IndexModel(DiscoveryCache discovery, PackageProjectStore projectStore, ApplicationPaths applicationPaths) : PageModel
+public class IndexModel(DiscoveryCache discovery, PackageProjectStore projectStore, ApplicationPaths applicationPaths, ServerOrchestrationService orchestration) : PageModel
 {
     public IReadOnlyList<ServerConfigEntry> Configs { get; private set; } = [];
     public ServerConfigEntry? Selected { get; private set; }
     public IReadOnlyList<PackageProject> Projects { get; private set; } = [];
+    public bool SelectedServerOnline { get; private set; }
     [BindProperty] public string RawContent { get; set; } = string.Empty;
 
-    public void OnGet(string? key)
+    public async Task OnGetAsync(string? key, CancellationToken cancellationToken)
     {
         LoadConfigs();
         Projects = projectStore.GetAll();
         Selected = Configs.FirstOrDefault(x => x.Key == key) ?? Configs.FirstOrDefault();
-        if (Selected is not null) RawContent = ReadPreservingEncoding(Selected.Path).Text;
+        if (Selected is not null)
+        {
+            RawContent = ReadPreservingEncoding(Selected.Path).Text;
+            SelectedServerOnline = await orchestration.IsOnlineAsync(Selected.Path, cancellationToken);
+        }
     }
 
     public IActionResult OnPostSave(string key)
@@ -59,12 +64,51 @@ public class IndexModel(DiscoveryCache discovery, PackageProjectStore projectSto
         return RedirectToPage(new { key = Encode(path) });
     }
 
-    public IActionResult OnPostApplyPack(string key, Guid projectId)
+    public IActionResult OnPostStart(string key)
+    {
+        LoadConfigs();
+        var selected = Configs.FirstOrDefault(x => x.Key == key);
+        if (selected is null) return BadRequest("Configuration serveur non reconnue.");
+        var dedicatedRoot = discovery.Installation.DedicatedServerRoot;
+        if (string.IsNullOrWhiteSpace(dedicatedRoot))
+        {
+            TempData["Error"] = "Installation Project Zomboid Dedicated Server introuvable.";
+            return RedirectToPage(new { key });
+        }
+        try
+        {
+            orchestration.Start(selected.Name, dedicatedRoot);
+            TempData["Message"] = $"Démarrage de « {selected.Name} » demandé. Le statut RCON apparaîtra après l'initialisation du serveur.";
+        }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
+        return RedirectToPage(new { key });
+    }
+
+    public async Task<IActionResult> OnPostStopAsync(string key, CancellationToken cancellationToken)
+    {
+        LoadConfigs();
+        var selected = Configs.FirstOrDefault(x => x.Key == key);
+        if (selected is null) return BadRequest("Configuration serveur non reconnue.");
+        try
+        {
+            await orchestration.StopGracefullyAsync(selected.Path, cancellationToken);
+            TempData["Message"] = $"Serveur « {selected.Name} » sauvegardé puis arrêté proprement par RCON.";
+        }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
+        return RedirectToPage(new { key });
+    }
+
+    public async Task<IActionResult> OnPostApplyPackAsync(string key, Guid projectId, CancellationToken cancellationToken)
     {
         LoadConfigs();
         var selected = Configs.FirstOrDefault(x => x.Key == key);
         var project = projectStore.Get(projectId);
         if (selected is null || project is null) return BadRequest("Serveur ou pack non reconnu.");
+        if (await orchestration.IsOnlineAsync(selected.Path, cancellationToken))
+        {
+            TempData["Error"] = "Arrêtez d'abord le serveur proprement. PZASM n'applique jamais un nouveau pack à un profil encore en ligne.";
+            return RedirectToPage(new { key });
+        }
         var snippetPath = Path.Combine(applicationPaths.BuildRoot(project.Id), "server-config.txt");
         if (!System.IO.File.Exists(snippetPath))
         {

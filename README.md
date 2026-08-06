@@ -2,7 +2,7 @@
 
 PZ Advanced Server Manager (PZASM) est un gestionnaire local pour Project Zomboid et Project Zomboid Dedicated Server. Son objectif principal est de distribuer un ensemble cohérent de mods sous **un seul Workshop ID**, afin que le contrôle de version Workshop du serveur porte sur le pack et non sur chacun des items sources.
 
-> Statut : première version fonctionnelle. Le mode Bundle, la persistance des projets, l'analyse locale, la construction, la publication SteamCMD, la planification, la fenêtre de connexion et l'édition des configurations serveur sont implémentés. Une publication réelle doit toujours être testée sur un item privé avant utilisation en production.
+> Statut : première version fonctionnelle Windows et Linux. Le mode Bundle, la persistance multi-projets, l'analyse locale, la construction, la publication SteamCMD, la planification coordonnée, la fenêtre de connexion, l'édition des configurations serveur et le CLI headless sont implémentés. Une publication réelle doit toujours être testée sur un item privé avant utilisation en production.
 
 ## Verdict technique
 
@@ -35,15 +35,24 @@ L'analyse complète est dans [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - planification quotidienne optionnelle : actualisation SteamCMD, reconstruction et publication ;
 - éditeur complet des fichiers `Zomboid/Server/*.ini`, préservation de l'encodage et sauvegarde horodatée ;
 - application d'un pack publié à un serveur en remplaçant uniquement `WorkshopItems`, `Mods` et `Map`.
+- orchestration sûre : statut RCON, `save`, `quit`, démarrage Windows/Linux et redémarrage autour d'une publication planifiée ;
+- CLI Windows/Linux pour les machines sans bureau ou administrées par SSH.
 
 ## Démarrage
 
-Prérequis : Windows et le SDK [.NET 9](https://dotnet.microsoft.com/download/dotnet/9.0). SteamCMD n'est requis que pour actualiser/publier.
+Prérequis depuis les sources : Windows ou Linux et le SDK [.NET 9](https://dotnet.microsoft.com/download/dotnet/9.0). Les artefacts autonomes de la CI n'exigent pas le runtime .NET. SteamCMD n'est requis que pour actualiser/publier.
 
 Double-cliquer sur `Start-PZASM.cmd` (le navigateur s'ouvre quand le service est prêt), ou :
 
 ```powershell
 dotnet run --project src/PZAdvancedServerManager.App -- --open-browser
+```
+
+Sous Linux :
+
+```bash
+chmod +x Start-PZASM.sh
+./Start-PZASM.sh
 ```
 
 L'interface écoute uniquement sur la machine locale par défaut, à `http://localhost:5160`. Les données utilisateur sont conservées dans :
@@ -66,6 +75,34 @@ Les sources Steam et les configurations PZ ne sont jamais modifiées pendant un 
 8. Tester un serveur de staging avant de mettre l'item sur le serveur principal.
 9. Appliquer le pack depuis l'écran Serveurs ; PZASM crée d'abord une sauvegarde du `.ini`.
 
+## Mode CLI headless
+
+Le CLI manipule les mêmes projets que l'UI. Chaque `project create` crée un pack global séparé qui recevra son propre Workshop ID ; `project publish` met ensuite ce même item à jour.
+
+```bash
+# inventaire local
+dotnet run --project src/PZAdvancedServerManager.Cli -- scan
+
+# créer et enrichir un pack
+dotnet run --project src/PZAdvancedServerManager.Cli -- project create --name "Serveur principal"
+dotnet run --project src/PZAdvancedServerManager.Cli -- project add --id <guid> --mod-id damnlib
+dotnet run --project src/PZAdvancedServerManager.Cli -- project validate --id <guid>
+dotnet run --project src/PZAdvancedServerManager.Cli -- project build --id <guid>
+
+# programmer ce même pack depuis une session SSH
+dotnet run --project src/PZAdvancedServerManager.Cli -- project configure --id <guid> --server servertest --automation true --schedule "04:00,16:00"
+
+# publication volontaire uniquement
+dotnet run --project src/PZAdvancedServerManager.Cli -- project publish --id <guid> --yes
+
+# serveur Linux/Windows
+dotnet run --project src/PZAdvancedServerManager.Cli -- server status --name servertest
+dotnet run --project src/PZAdvancedServerManager.Cli -- server stop --name servertest --yes
+dotnet run --project src/PZAdvancedServerManager.Cli -- server set --name servertest --key MaxPlayers --value 32 --yes
+```
+
+Exécutez `pzasm help` ou le binaire CLI sans argument pour la liste complète. Les opérations de publication, d'arrêt et d'application exigent `--yes`. Rien ne se met à jour automatiquement sans activation explicite de l'administrateur.
+
 ## Droits et responsabilité
 
 PZASM est un outil technique. Il ne donne aucun droit sur les mods inclus et ne transforme pas une redistribution non autorisée en utilisation permise.
@@ -86,7 +123,7 @@ dotnet test PZAdvancedServerManager.sln
 dotnet publish src/PZAdvancedServerManager.App -c Release -o publish
 ```
 
-La CI GitHub exécute les tests et produit aussi un artefact Windows x64 autonome en un seul exécutable. Lancez cet exécutable avec `--open-browser`. N'exposez pas le port PZASM à Internet : l'interface est un outil d'administration local et n'implémente pas d'authentification réseau.
+La CI GitHub exécute les tests puis produit deux artefacts autonomes (`win-x64` et `linux-x64`), chacun avec l'UI locale et le CLI headless. Lancez l'UI avec `--open-browser`. N'exposez pas le port PZASM à Internet : l'interface est un outil d'administration local et n'implémente pas d'authentification réseau.
 
 Le projet cible .NET 9 et n'a pas besoin d'une base de données. Les écritures JSON sont atomiques et les builds sont préparés dans un dossier temporaire avant remplacement.
 

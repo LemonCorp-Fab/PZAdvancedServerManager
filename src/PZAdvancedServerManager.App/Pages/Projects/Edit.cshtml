@@ -19,7 +19,7 @@
     </div>
     <div class="action-row">
         <form method="post" asp-page-handler="Build"><button class="button secondary" type="submit">Construire localement</button></form>
-        <form method="post" asp-page-handler="Publish" onsubmit="return confirm('Publier ou mettre à jour cet item Workshop maintenant ?');"><button class="button primary" type="submit" disabled="@(!Model.Validation.CanPublish)">Publier avec SteamCMD</button></form>
+        <form method="post" asp-page-handler="Publish" onsubmit="return confirm('Publier ou mettre à jour cet item Workshop maintenant ? Si le serveur coordonné est en ligne, PZASM exécutera save/quit puis le redémarrera.');"><button class="button primary" type="submit" disabled="@(!Model.Validation.CanPublish)">Publier avec SteamCMD</button></form>
     </div>
 </section>
 
@@ -60,16 +60,18 @@
     <div class="subsection">
         <span class="eyebrow">STEAMCMD ET PLANIFICATION</span><h3>Mises à jour du même item Workshop</h3>
         <div class="form-grid two">
-            <label><span>Chemin steamcmd.exe</span><input asp-for="Form.SteamCmdPath" placeholder="C:\SteamCMD\steamcmd.exe" /></label>
+            <label><span>Chemin SteamCMD</span><input asp-for="Form.SteamCmdPath" placeholder="steamcmd.exe ou /opt/steamcmd/steamcmd.sh" /></label>
             <label><span>Compte Steam</span><input asp-for="Form.SteamUsername" autocomplete="username" /><small>Aucun mot de passe n'est stocké. Authentifiez SteamCMD une première fois manuellement.</small></label>
             <label><span>Heures quotidiennes</span><input asp-for="Form.DailyTimes" placeholder="04:00, 16:00" /></label>
+            <label><span>Serveur coordonné</span><input asp-for="Form.CoordinatedServerName" list="server-config-names" placeholder="servertest" /><small>Obligatoire pour une publication planifiée : PZASM exécute save/quit par RCON, publie, puis redémarre si le serveur était actif.</small></label>
+            <datalist id="server-config-names">@foreach (var serverName in Model.ServerConfigNames) { <option value="@serverName"></option> }</datalist>
             <div class="check-stack">
                 <label><input asp-for="Form.AutomationEnabled" /> Activer la planification</label>
                 <label><input asp-for="Form.RefreshSources" /> Actualiser les sources Workshop avant le build</label>
                 <label><input asp-for="Form.PublishAfterBuild" /> Publier après validation et build</label>
             </div>
         </div>
-        <p class="fine-print">La planification est enregistrée dans le projet. Elle ne s'exécute que lorsque le service PZASM est lancé. Les droits incomplets bloquent toujours la publication automatique.</p>
+        <p class="fine-print">Rien n'est automatique par défaut : l'administrateur déclenche la publication ou active lui-même ces horaires. La planification ne s'exécute que lorsque le service PZASM est lancé. Les droits incomplets et l'absence de coordination serveur bloquent la publication automatique.</p>
     </div>
 </form>
 

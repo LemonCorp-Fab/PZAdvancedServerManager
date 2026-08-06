@@ -70,6 +70,7 @@ public sealed class PackageAutomationSettings
     public string SteamUsername { get; set; } = string.Empty;
     public bool RefreshWorkshopSourcesBeforeBuild { get; set; } = true;
     public bool PublishAfterBuild { get; set; } = true;
+    public string CoordinatedServerName { get; set; } = string.Empty;
     public DateTimeOffset? LastAttemptAt { get; set; }
     public DateTimeOffset? LastSuccessAt { get; set; }
     public string LastResult { get; set; } = string.Empty;

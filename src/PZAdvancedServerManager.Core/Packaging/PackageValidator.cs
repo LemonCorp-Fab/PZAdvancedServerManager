@@ -18,6 +18,8 @@ public sealed class PackageValidator
             result.Issues.Add(new("NO_MODS", "Ajoutez au moins un mod activé au pack.", true));
         if (!project.LegalWarningAccepted)
             result.Issues.Add(new("LEGAL_ACK", "L'avertissement sur les droits et autorisations doit être accepté.", true));
+        if (project.Automation.Enabled && project.Automation.PublishAfterBuild && string.IsNullOrWhiteSpace(project.Automation.CoordinatedServerName))
+            result.Issues.Add(new("AUTOMATION_SERVER", "La publication planifiée exige un profil serveur coordonné afin d'éviter un mismatch pendant que l'ancienne version est en mémoire.", true));
 
         foreach (var duplicate in project.Mods.Where(x => x.Enabled).GroupBy(x => x.ModId, StringComparer.OrdinalIgnoreCase).Where(x => x.Count() > 1))
             result.Issues.Add(new("DUPLICATE_MOD_ID", $"Le Mod ID « {duplicate.Key} » apparaît plusieurs fois.", true));

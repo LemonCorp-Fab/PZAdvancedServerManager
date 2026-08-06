@@ -136,7 +136,24 @@ Un mod PZ s'exécute dans le contexte et le cycle de vie du jeu. Il n'est pas un
 - planifier une mise à jour quand aucun jeu n'est lancé ;
 - éditer et sauvegarder proprement plusieurs profils serveur.
 
-PZASM est donc une application ASP.NET Core locale avec un worker d'arrière-plan. Le seul composant exécuté par Project Zomboid est le mod de notice généré.
+PZASM est donc une application ASP.NET Core locale avec un worker d'arrière-plan, complétée par un CLI headless qui utilise exactement le même cœur et le même format de projet. Les deux sont publiés pour Windows x64 et Linux x64. Le seul composant exécuté par Project Zomboid est le mod de notice généré.
+
+## Modèle multi-projets
+
+Un projet correspond à un mod global/pack Workshop indépendant :
+
+- GUID et suffixe PZASM propres ;
+- un `publishedfileid` propre, créé à la première publication ;
+- sources, versions, droits, cartes et serveur associé propres ;
+- mises à jour suivantes envoyées exclusivement sur ce même Workshop ID.
+
+Créer un autre projet crée donc un autre pack sans écraser ni coupler le premier. L'UI et le CLI affichent et rouvrent le même catalogue de projets.
+
+## Windows, Linux et headless
+
+Le cœur .NET détecte les bibliothèques Steam classiques des deux systèmes, `steamcmd.exe` ou `steamcmd.sh`, `StartServer64.bat` ou `start-server.sh`, et conserve ses données dans le répertoire applicatif local de l'OS. L'UI web locale ne dépend pas d'un framework graphique natif et fonctionne donc de manière identique sous Linux.
+
+Le CLI couvre l'inventaire, les projets, les droits, la validation, le build, la publication volontaire avec `--yes`, ainsi que le statut/démarrage/arrêt/application serveur. Il convient aux serveurs administrés par SSH, aux conteneurs persistants et aux services systemd.
 
 ## Sécurité, droits et publication
 

@@ -11,7 +11,7 @@ public sealed partial class PzDiscoveryService
         var steamLibraries = DiscoverSteamLibraries().Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var client = FindFirstExisting(steamLibraries.Select(x => Path.Combine(x, "steamapps", "common", "ProjectZomboid")));
         var dedicated = FindFirstExisting(steamLibraries.Select(x => Path.Combine(x, "steamapps", "common", "Project Zomboid Dedicated Server")));
-        var workshop = FindFirstExisting(steamLibraries.Select(x => Path.Combine(x, "steamapps", "workshop", "content", "108600")));
+        var workshop = FindFirstExisting(steamLibraries.Select(x => Path.Combine(x, "steamapps", "workshop", "content", PzasmConstants.ProjectZomboidSteamAppId)));
         var steamCmd = FindFirstExisting(steamLibraries.SelectMany(x => new[]
         {
             Path.Combine(x, "steamcmd", "steamcmd.exe"),
@@ -31,7 +31,7 @@ public sealed partial class PzDiscoveryService
         };
     }
 
-    public IReadOnlyList<DiscoveredMod> DiscoverMods(PzInstallation installation, string targetVersion = "42.20.2")
+    public IReadOnlyList<DiscoveredMod> DiscoverMods(PzInstallation installation, string targetVersion = PzasmConstants.DefaultTargetVersion)
     {
         var roots = new List<(string ModsRoot, ulong WorkshopId)>();
         if (Directory.Exists(installation.WorkshopRoot))
@@ -50,6 +50,18 @@ public sealed partial class PzDiscoveryService
         if (installation.ClientRoot is not null) AddLocalMods(roots, installation.ClientRoot);
         if (installation.DedicatedServerRoot is not null) AddLocalMods(roots, installation.DedicatedServerRoot);
 
+        return DiscoverRoots(roots, targetVersion);
+    }
+
+    public IReadOnlyList<DiscoveredMod> DiscoverWorkshopItem(string itemRoot, ulong workshopId, string targetVersion = PzasmConstants.DefaultTargetVersion)
+    {
+        var modsRoot = Path.Combine(itemRoot, "mods");
+        if (!Directory.Exists(modsRoot)) modsRoot = Path.Combine(itemRoot, "Contents", "mods");
+        return Directory.Exists(modsRoot) ? DiscoverRoots([(modsRoot, workshopId)], targetVersion) : [];
+    }
+
+    private static IReadOnlyList<DiscoveredMod> DiscoverRoots(IReadOnlyList<(string ModsRoot, ulong WorkshopId)> roots, string targetVersion)
+    {
         var result = new List<DiscoveredMod>();
         foreach (var (modsRoot, workshopId) in roots)
         {

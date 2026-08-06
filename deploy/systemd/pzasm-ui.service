@@ -1,0 +1,20 @@
+[Unit]
+Description=PZ Advanced Server Manager - local web UI
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=pzasm
+Group=pzasm
+WorkingDirectory=/opt/pzasm/ui
+Environment=ASPNETCORE_ENVIRONMENT=Production
+ExecStart=/opt/pzasm/ui/PZAdvancedServerManager --urls http://127.0.0.1:5160 --data-root /var/lib/pzasm
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

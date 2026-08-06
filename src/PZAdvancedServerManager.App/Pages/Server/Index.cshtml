@@ -18,7 +18,7 @@
         <nav>
             @foreach (var config in Model.Configs)
             {
-                <a class="@(Model.Selected?.Key == config.Key ? "active" : "")" asp-route-key="@config.Key"><strong>@config.Name</strong><small>@config.Path</small></a>
+                <a class="@(Model.Selected?.Name == config.Name ? "active" : "")" asp-route-name="@config.Name"><strong>@config.Name</strong><small>@config.Path</small></a>
             }
         </nav>
         <form method="post" asp-page-handler="Create" class="stack-form">
@@ -42,26 +42,26 @@
                 <div><strong>Cartes</strong><span>@Model.Maps.Count</span><p>@string.Join(" · ", Model.Maps.Take(8))</p></div>
             </div>
             <div class="action-row server-controls">
-                <form method="post" asp-page-handler="Start" asp-route-key="@Model.Selected.Key"><button class="button primary" type="submit" disabled="@Model.SelectedServerOnline">Démarrer le serveur</button></form>
-                <form method="post" asp-page-handler="Stop" asp-route-key="@Model.Selected.Key" onsubmit="return confirm('Exécuter save puis quit par RCON ? Aucun arrêt forcé ne sera utilisé.');"><button class="button danger" type="submit" disabled="@(!Model.SelectedServerOnline)">Sauvegarder et arrêter</button></form>
+                <form method="post" asp-page-handler="Start" asp-route-name="@Model.Selected.Name"><button class="button primary" type="submit" disabled="@Model.SelectedServerOnline">Démarrer le serveur</button></form>
+                <form method="post" asp-page-handler="Stop" asp-route-name="@Model.Selected.Name" onsubmit="return confirm('Exécuter save puis quit par RCON ? Aucun arrêt forcé ne sera utilisé.');"><button class="button danger" type="submit" disabled="@(!Model.SelectedServerOnline)">Sauvegarder et arrêter</button></form>
                 <span class="fine-print">L'arrêt propre exige <code>RCONPassword</code>. Windows : StartServer64.bat · Linux : start-server.sh.</span>
             </div>
         </section>
         <section class="panel">
             <div class="panel-heading"><div><span class="eyebrow">APPLICATION SÛRE</span><h2>Installer un pack sur ce serveur</h2></div></div>
-            <form method="post" asp-page-handler="ApplyPack" asp-route-key="@Model.Selected.Key" class="add-mod-row" onsubmit="return confirm('Remplacer les listes WorkshopItems, Mods et Map de ce serveur par celles du pack ? Une sauvegarde sera créée.');">
+            <form method="post" asp-page-handler="ApplyPack" asp-route-name="@Model.Selected.Name" class="add-mod-row" onsubmit="return confirm('Remplacer les listes WorkshopItems, Mods et Map de ce serveur par celles du pack ? Une sauvegarde sera créée.');">
                 <select name="projectId" required>
                     <option value="">Choisir un pack déjà construit et publié…</option>
                     @foreach (var project in Model.Projects)
                     {
-                        <option value="@project.Id">@project.Name — Workshop @(project.PublishedWorkshopId == 0 ? "non publié" : project.PublishedWorkshopId) — @project.Mods.Count(x => x.Enabled) mods</option>
+                        <option value="@project.Id" disabled="@(project.PublishedWorkshopId == 0 || project.LastBuiltAt is null)">@project.Name — Workshop @(project.PublishedWorkshopId == 0 ? "non publié" : project.PublishedWorkshopId) — @project.Mods.Count(x => x.Enabled) mods</option>
                     }
                 </select>
                 <button class="button secondary" type="submit">Appliquer au serveur</button>
             </form>
             <p class="fine-print">Seules les clés <code>WorkshopItems</code>, <code>Mods</code> et <code>Map</code> sont remplacées. Toutes les autres options serveur sont conservées.</p>
         </section>
-        <form method="post" asp-page-handler="Save" asp-route-key="@Model.Selected.Key" class="panel editor-form">
+        <form method="post" asp-page-handler="Save" asp-route-name="@Model.Selected.Name" class="panel editor-form">
             <div class="panel-heading"><div><span class="eyebrow">ÉDITEUR COMPLET</span><h2>@Model.Selected.Path</h2></div><button class="button primary" type="submit" onclick="return confirm('Enregistrer cette configuration ? Une sauvegarde horodatée sera créée.');">Enregistrer avec sauvegarde</button></div>
             <textarea asp-for="RawContent" class="config-editor" spellcheck="false"></textarea>
             <p class="fine-print">Les clés inconnues et commentaires sont conservés. Pour appliquer un pack, copiez les trois lignes de son fichier généré <code>server-config.txt</code> : <code>WorkshopItems</code>, <code>Mods</code> et <code>Map</code>.</p>

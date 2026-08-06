@@ -1,9 +1,8 @@
 using PZAdvancedServerManager.Core.Domain;
-using PZAdvancedServerManager.Core.Pz;
 
-namespace PZAdvancedServerManager.App.Services;
+namespace PZAdvancedServerManager.Core.Pz;
 
-public sealed class DiscoveryCache(PzDiscoveryService discovery)
+public sealed class PzEnvironmentService(PzDiscoveryService discovery)
 {
     private readonly object _sync = new();
     private PzInstallation? _installation;
@@ -12,13 +11,10 @@ public sealed class DiscoveryCache(PzDiscoveryService discovery)
 
     public PzInstallation Installation
     {
-        get
-        {
-            lock (_sync) return _installation ??= discovery.DiscoverInstallation();
-        }
+        get { lock (_sync) return _installation ??= discovery.DiscoverInstallation(); }
     }
 
-    public IReadOnlyList<DiscoveredMod> GetMods(string targetVersion = "42.20.2", bool refresh = false)
+    public IReadOnlyList<DiscoveredMod> GetMods(string targetVersion = PzasmConstants.DefaultTargetVersion, bool refresh = false)
     {
         lock (_sync)
         {
@@ -33,6 +29,11 @@ public sealed class DiscoveryCache(PzDiscoveryService discovery)
 
     public void Invalidate()
     {
-        lock (_sync) { _installation = null; _mods = null; _targetVersion = string.Empty; }
+        lock (_sync)
+        {
+            _installation = null;
+            _mods = null;
+            _targetVersion = string.Empty;
+        }
     }
 }

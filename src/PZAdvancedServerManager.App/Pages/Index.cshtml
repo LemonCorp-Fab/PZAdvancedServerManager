@@ -64,12 +64,18 @@ else
     <div class="project-grid">
         @foreach (var project in Model.Projects)
         {
-            <a class="project-card" asp-page="/Projects/Edit" asp-route-id="@project.Id">
-                <div class="project-top"><span class="mode-badge">@(project.Mode == PackageMode.Bundle ? "BUNDLE CONSEILLÉ" : "FUSION STRICTE")</span><span>@project.UpdatedAt.LocalDateTime.ToString("dd/MM HH:mm")</span></div>
-                <h3>@project.Name</h3>
-                <p>@project.Description</p>
-                <div class="project-meta"><span>@project.Mods.Count(x => x.Enabled) mods</span><span>Workshop: @(project.PublishedWorkshopId == 0 ? "à créer" : project.PublishedWorkshopId)</span></div>
-            </a>
+            <article class="project-card">
+                <a class="project-card-main" asp-page="/Projects/Edit" asp-route-id="@project.Id">
+                    <div class="project-top"><span class="mode-badge">@(project.Mode == PackageMode.Bundle ? "BUNDLE CONSEILLÉ" : "FUSION STRICTE")</span><span>@project.UpdatedAt.LocalDateTime.ToString("dd/MM HH:mm")</span></div>
+                    <h3>@project.Name</h3>
+                    <p>@project.Description</p>
+                    <div class="project-meta"><span>@project.Mods.Count(x => x.Enabled) mods</span><span>Workshop: @(project.PublishedWorkshopId == 0 ? "à créer" : project.PublishedWorkshopId)</span></div>
+                </a>
+                <div class="project-card-actions">
+                    <form method="post" asp-page-handler="Duplicate"><input type="hidden" name="id" value="@project.Id" /><button class="button ghost" type="submit">Dupliquer</button></form>
+                    <form method="post" asp-page-handler="Delete" onsubmit="return confirm('Supprimer ce projet, ses snapshots et ses builds locaux ? Le Workshop et les mods originaux ne seront pas supprimés.');"><input type="hidden" name="id" value="@project.Id" /><button class="button danger" type="submit">Supprimer</button></form>
+                </div>
+            </article>
         }
     </div>
 }

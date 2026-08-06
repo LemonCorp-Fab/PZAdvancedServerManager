@@ -27,6 +27,28 @@ public sealed class ProjectStoreTests : IDisposable
         Assert.Equal(2, store.GetAll().Count);
     }
 
+    [Fact]
+    public void OldProjectSchemaIsMigratedOnRead()
+    {
+        var paths = new ApplicationPaths(_root);
+        var id = Guid.NewGuid();
+        var source = Path.Combine(_root, "LegacyFolder");
+        Directory.CreateDirectory(source);
+        File.WriteAllText(paths.ProjectFile(id), $$"""
+        {
+          "id": "{{id}}",
+          "schemaVersion": 1,
+          "name": "Legacy",
+          "mods": [{ "id": "{{Guid.NewGuid()}}", "modId": "legacy", "sourceModRoot": "{{source.Replace("\\", "\\\\")}}" }]
+        }
+        """);
+
+        var project = new PackageProjectStore(paths).Get(id)!;
+
+        Assert.Equal(PZAdvancedServerManager.Core.Domain.PzasmConstants.CurrentProjectSchemaVersion, project.SchemaVersion);
+        Assert.Equal("LegacyFolder", project.Mods[0].SourceFolderName);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root)) Directory.Delete(_root, true);

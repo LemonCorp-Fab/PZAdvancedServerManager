@@ -31,13 +31,13 @@ public enum WorkshopVisibility
 public sealed class PackageProject
 {
     public Guid Id { get; set; } = Guid.NewGuid();
-    public int SchemaVersion { get; set; } = 1;
+    public int SchemaVersion { get; set; } = PzasmConstants.CurrentProjectSchemaVersion;
     public string Name { get; set; } = "Nouveau pack serveur";
     public string Description { get; set; } = string.Empty;
     public PackageMode Mode { get; set; } = PackageMode.Bundle;
-    public string TargetPzVersion { get; set; } = "42.20.2";
+    public string TargetPzVersion { get; set; } = PzasmConstants.DefaultTargetVersion;
     public bool InjectConnectionNotice { get; set; } = true;
-    public string NoticeTitle { get; set; } = "PZ Advanced Server Manager";
+    public string NoticeTitle { get; set; } = PzasmConstants.ProductName;
     public ulong PublishedWorkshopId { get; set; }
     public WorkshopVisibility Visibility { get; set; } = WorkshopVisibility.Unlisted;
     public string[] Tags { get; set; } = ["Mod", "Build 42"];
@@ -84,6 +84,10 @@ public sealed class PackageModReference
     public string Name { get; set; } = string.Empty;
     public string Author { get; set; } = string.Empty;
     public string SourceModRoot { get; set; } = string.Empty;
+    public string SourceFolderName { get; set; } = string.Empty;
+    public string PinnedSourceRoot { get; set; } = string.Empty;
+    public DateTimeOffset? PinnedAt { get; set; }
+    public string PinnedContentHash { get; set; } = string.Empty;
     public string SelectedVersionFolder { get; set; } = string.Empty;
     public string SourceUrl { get; set; } = string.Empty;
     public int Order { get; set; }
@@ -91,6 +95,14 @@ public sealed class PackageModReference
     public string[] RequiredModIds { get; set; } = [];
     public string[] MapFolders { get; set; } = [];
     public PermissionEvidence Permission { get; set; } = new();
+
+    [JsonIgnore]
+    public string BuildSourceRoot => Directory.Exists(PinnedSourceRoot) ? PinnedSourceRoot : SourceModRoot;
+
+    [JsonIgnore]
+    public string EffectiveFolderName => string.IsNullOrWhiteSpace(SourceFolderName)
+        ? Path.GetFileName(Path.TrimEndingDirectorySeparator(SourceModRoot))
+        : SourceFolderName;
 }
 
 public sealed class PermissionEvidence
@@ -103,13 +115,27 @@ public sealed class PermissionEvidence
     public DateOnly? GrantedOn { get; set; }
 }
 
-public sealed record PackageValidationIssue(string Code, string Message, bool IsError, Guid? ModReferenceId = null);
+public enum ValidationScope
+{
+    BuildAndPublish,
+    PublishOnly,
+    AutomationOnly,
+    Warning
+}
+
+public sealed record PackageValidationIssue(
+    string Code,
+    string Message,
+    bool IsError,
+    Guid? ModReferenceId = null,
+    ValidationScope Scope = ValidationScope.BuildAndPublish);
 
 public sealed class PackageValidationResult
 {
     public List<PackageValidationIssue> Issues { get; } = [];
-    public bool CanBuild => Issues.All(x => !x.IsError || x.Code == "RIGHTS_UNKNOWN");
-    public bool CanPublish => Issues.All(x => !x.IsError);
+    public bool CanBuild => Issues.All(x => !x.IsError || x.Scope is ValidationScope.PublishOnly or ValidationScope.AutomationOnly or ValidationScope.Warning);
+    public bool CanPublish => Issues.All(x => !x.IsError || x.Scope is ValidationScope.AutomationOnly or ValidationScope.Warning);
+    public bool CanAutomate => Issues.All(x => !x.IsError || x.Scope == ValidationScope.Warning);
 }
 
 public sealed class PackageBuildResult
@@ -124,3 +150,12 @@ public sealed class PackageBuildResult
     public int CopiedFiles { get; init; }
     public long CopiedBytes { get; init; }
 }
+
+public sealed record PackageOperationResult(
+    PackageBuildResult Build,
+    string Output,
+    bool Published,
+    bool ServerWasRunning,
+    bool ServerRestarted);
+
+public sealed record AutomationRunResult(Guid ProjectId, string ProjectName, bool Success, string Message);

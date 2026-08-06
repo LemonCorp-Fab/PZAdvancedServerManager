@@ -40,6 +40,21 @@ public sealed class PzParsingTests : IDisposable
         Assert.Equal(1234567890UL, SteamCmdService.ReadPublishedFileId(path));
     }
 
+    [Fact]
+    public void ServerConfigPreservesLatin1AndCrLfWhenSaving()
+    {
+        var path = Path.Combine(_root, "latin1.ini");
+        Directory.CreateDirectory(_root);
+        File.WriteAllBytes(path, System.Text.Encoding.Latin1.GetBytes("PublicDescription=Serveur privé\r\nMods=one\r\n"));
+        var config = ServerConfigDocument.Load(path);
+        config.Set("Mods", "pack;notice");
+        config.Save(path);
+
+        var bytes = File.ReadAllBytes(path);
+        Assert.Contains((byte)0xe9, bytes);
+        Assert.Contains("Serveur privé\r\nMods=pack;notice\r\n", System.Text.Encoding.Latin1.GetString(bytes));
+    }
+
     private string Write(string relative, string content)
     {
         var path = Path.Combine(_root, relative);

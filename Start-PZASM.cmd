@@ -7,5 +7,5 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-dotnet run --project src\PZAdvancedServerManager.App --configuration Release -- --open-browser
+dotnet run --project src\PZAdvancedServerManager.App --configuration Release -- --open-browser %*
 endlocal

@@ -19,6 +19,7 @@
     </div>
     <div class="action-row">
         <form method="post" asp-page-handler="Build"><button class="button secondary" type="submit">Construire localement</button></form>
+        <form method="post" asp-page-handler="RefreshSources" onsubmit="return confirm('Télécharger les versions actuelles des sources Workshop et remplacer les snapshots figés de ce pack ? Aucun publish ne sera effectué.');"><button class="button ghost" type="submit">Actualiser les sources figées</button></form>
         <form method="post" asp-page-handler="Publish" onsubmit="return confirm('Publier ou mettre à jour cet item Workshop maintenant ? Si le serveur coordonné est en ligne, PZASM exécutera save/quit puis le redémarrera.');"><button class="button primary" type="submit" disabled="@(!Model.Validation.CanPublish)">Publier avec SteamCMD</button></form>
     </div>
 </section>
@@ -26,7 +27,7 @@
 @if (Model.Validation.Issues.Count > 0)
 {
     <section class="validation-box @(Model.Validation.CanPublish ? "ok" : "warning")">
-        <div><strong>@(Model.Validation.CanPublish ? "Prêt à publier" : "Points à corriger")</strong><span>Construction locale : @(Model.Validation.CanBuild ? "possible" : "bloquée") · Publication : @(Model.Validation.CanPublish ? "possible" : "bloquée")</span></div>
+        <div><strong>@(Model.Validation.CanPublish ? "Prêt à publier" : "Points à corriger")</strong><span>Construction : @(Model.Validation.CanBuild ? "possible" : "bloquée") · Publication : @(Model.Validation.CanPublish ? "possible" : "bloquée") · Planification : @(!Model.Project.Automation.Enabled ? "désactivée" : Model.Validation.CanAutomate ? "valide" : "à corriger")</span></div>
         <ul>@foreach (var issue in Model.Validation.Issues) { <li class="@(issue.IsError ? "issue-error" : "")">@issue.Message</li> }</ul>
     </section>
 }
@@ -76,9 +77,15 @@
 </form>
 
 <section class="panel">
-    <div class="panel-heading"><div><span class="eyebrow">SOURCES LOCALES ET WORKSHOP</span><h2>Mods inclus</h2></div><a class="button ghost" asp-page="/Projects/Edit" asp-route-id="@Model.Project.Id" asp-route-refresh="true">Relancer la détection</a></div>
+    <div class="panel-heading"><div><span class="eyebrow">SOURCES LOCALES ET WORKSHOP</span><h2>Mods inclus</h2></div><div class="action-row"><a class="button ghost" href="https://steamcommunity.com/workshop/browse/?appid=108600" target="_blank" rel="noreferrer">Parcourir le Workshop ↗</a><a class="button ghost" asp-page="/Projects/Edit" asp-route-id="@Model.Project.Id" asp-route-refresh="true">Relancer la détection</a></div></div>
+    <form method="post" asp-page-handler="ImportWorkshop" class="add-mod-row">
+        <input name="workshopId" type="number" min="1" required placeholder="Workshop ID à télécharger avec SteamCMD" />
+        <button class="button secondary" type="submit">Télécharger et figer l'item</button>
+    </form>
+    <p class="fine-print">L'import utilise le chemin SteamCMD enregistré plus haut, analyse tous les <code>mod.info</code> de l'item et ajoute les dépendances disponibles. Aucun item n'est publié pendant cette opération.</p>
+    <input class="mod-filter" type="search" data-mod-filter placeholder="Filtrer par nom, Mod ID ou Workshop ID…" autocomplete="off" />
     <form method="post" asp-page-handler="AddMod" class="add-mod-row">
-        <select name="selectionKey" required>
+        <select name="selectionKey" required data-mod-select>
             <option value="">Choisir parmi @Model.InstalledMods.Count mods détectés…</option>
             @foreach (var mod in Model.InstalledMods.Where(x => !selectedIds.Contains(x.ModId)))
             {
@@ -104,7 +111,8 @@
                     <span class="rights-badge @mod.Permission.Status.ToString().ToLowerInvariant()">@mod.Permission.Status</span>
                 </summary>
                 <div class="mod-details">
-                    <p class="source-path">@mod.SourceModRoot</p>
+                    <p class="source-path"><strong>Origine :</strong> @mod.SourceModRoot</p>
+                    <p class="fine-print"><strong>Snapshot figé :</strong> @(Directory.Exists(mod.PinnedSourceRoot) ? $"{mod.PinnedAt?.LocalDateTime:dd/MM/yyyy HH:mm} · SHA-256 {mod.PinnedContentHash[..Math.Min(12, mod.PinnedContentHash.Length)]}…" : "sera créé au prochain build")</p>
                     @if (mod.RequiredModIds.Length > 0) { <p class="fine-print"><strong>Dépendances :</strong> @string.Join(", ", mod.RequiredModIds)</p> }
                     @if (mod.MapFolders.Length > 0) { <p class="fine-print"><strong>Cartes :</strong> @string.Join(", ", mod.MapFolders)</p> }
                     @if (!string.IsNullOrWhiteSpace(mod.SourceUrl)) { <a href="@mod.SourceUrl" target="_blank" rel="noreferrer">Voir le mod d'origine sur Steam ↗</a> }

@@ -1,166 +1,94 @@
-using System.Text;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
-using PZAdvancedServerManager.App.Services;
 using PZAdvancedServerManager.Core.Domain;
 using PZAdvancedServerManager.Core.Infrastructure;
 using PZAdvancedServerManager.Core.Pz;
 
 namespace PZAdvancedServerManager.App.Pages.Server;
 
-public class IndexModel(DiscoveryCache discovery, PackageProjectStore projectStore, ApplicationPaths applicationPaths, ServerOrchestrationService orchestration) : PageModel
+public class IndexModel(
+    PackageProjectStore projectStore,
+    ServerProfileService servers) : PageModel
 {
     public IReadOnlyList<ServerConfigEntry> Configs { get; private set; } = [];
     public ServerConfigEntry? Selected { get; private set; }
+    public ServerConfigSummary Summary { get; private set; } = new([], [], []);
     public IReadOnlyList<PackageProject> Projects { get; private set; } = [];
     public bool SelectedServerOnline { get; private set; }
     [BindProperty] public string RawContent { get; set; } = string.Empty;
 
-    public async Task OnGetAsync(string? key, CancellationToken cancellationToken)
+    public async Task OnGetAsync(string? name, CancellationToken cancellationToken)
     {
-        LoadConfigs();
+        Configs = servers.List();
         Projects = projectStore.GetAll();
-        Selected = Configs.FirstOrDefault(x => x.Key == key) ?? Configs.FirstOrDefault();
-        if (Selected is not null)
-        {
-            RawContent = ReadPreservingEncoding(Selected.Path).Text;
-            SelectedServerOnline = await orchestration.IsOnlineAsync(Selected.Path, cancellationToken);
-        }
+        Selected = Configs.FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) ?? Configs.FirstOrDefault();
+        if (Selected is null) return;
+        RawContent = servers.ReadRaw(Selected.Name);
+        Summary = servers.ReadSummary(Selected.Name);
+        SelectedServerOnline = await servers.IsOnlineAsync(Selected.Name, cancellationToken);
     }
 
-    public IActionResult OnPostSave(string key)
+    public IActionResult OnPostSave(string name)
     {
-        LoadConfigs();
-        var selected = Configs.FirstOrDefault(x => x.Key == key);
-        if (selected is null) return BadRequest("Configuration serveur non reconnue.");
-        var backup = selected.Path + $".pzasm.{DateTime.Now:yyyyMMdd-HHmmss}.bak";
-        System.IO.File.Copy(selected.Path, backup, false);
-        var temp = selected.Path + ".pzasm.tmp";
-        var encoding = ReadPreservingEncoding(selected.Path).Encoding;
-        System.IO.File.WriteAllText(temp, RawContent.Replace("\r\n", "\n").Replace("\n", Environment.NewLine), encoding);
-        System.IO.File.Move(temp, selected.Path, true);
-        TempData["Message"] = $"Configuration enregistrée. Sauvegarde : {backup}";
-        return RedirectToPage(new { key });
+        try
+        {
+            var backup = servers.SaveRaw(name, RawContent);
+            TempData["Message"] = $"Configuration enregistrée. Sauvegarde : {backup}";
+        }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
+        return RedirectToPage(new { name });
     }
 
     public IActionResult OnPostCreate(string serverName)
     {
-        var safeName = string.Concat((serverName ?? string.Empty).Where(c => char.IsLetterOrDigit(c) || c is '-' or '_')).Trim();
-        if (string.IsNullOrWhiteSpace(safeName))
-        {
-            TempData["Error"] = "Choisissez un nom composé de lettres, chiffres, tirets ou underscores.";
-            return RedirectToPage();
-        }
-        var serverRoot = GetServerRoot();
-        Directory.CreateDirectory(serverRoot);
-        var path = Path.Combine(serverRoot, safeName + ".ini");
-        if (System.IO.File.Exists(path))
-        {
-            TempData["Error"] = "Cette configuration existe déjà.";
-            return RedirectToPage();
-        }
-        var template = $"# Créé par PZ Advanced Server Manager\nPublicName={safeName}\nPublicDescription=\nPassword=\nDefaultPort=16261\nMaxPlayers=16\nPauseEmpty=true\nDoLuaChecksum=true\nWorkshopItems=\nMods=\nMap=Muldraugh, KY\n";
-        System.IO.File.WriteAllText(path, template.Replace("\n", Environment.NewLine), new UTF8Encoding(false));
-        return RedirectToPage(new { key = Encode(path) });
-    }
-
-    public IActionResult OnPostStart(string key)
-    {
-        LoadConfigs();
-        var selected = Configs.FirstOrDefault(x => x.Key == key);
-        if (selected is null) return BadRequest("Configuration serveur non reconnue.");
-        var dedicatedRoot = discovery.Installation.DedicatedServerRoot;
-        if (string.IsNullOrWhiteSpace(dedicatedRoot))
-        {
-            TempData["Error"] = "Installation Project Zomboid Dedicated Server introuvable.";
-            return RedirectToPage(new { key });
-        }
         try
         {
-            orchestration.Start(selected.Name, dedicatedRoot);
-            TempData["Message"] = $"Démarrage de « {selected.Name} » demandé. Le statut RCON apparaîtra après l'initialisation du serveur.";
+            var profile = servers.Create(serverName);
+            return RedirectToPage(new { name = profile.Name });
         }
-        catch (Exception exception) { TempData["Error"] = exception.Message; }
-        return RedirectToPage(new { key });
+        catch (Exception exception)
+        {
+            TempData["Error"] = exception.Message;
+            return RedirectToPage();
+        }
     }
 
-    public async Task<IActionResult> OnPostStopAsync(string key, CancellationToken cancellationToken)
+    public IActionResult OnPostStart(string name)
     {
-        LoadConfigs();
-        var selected = Configs.FirstOrDefault(x => x.Key == key);
-        if (selected is null) return BadRequest("Configuration serveur non reconnue.");
         try
         {
-            await orchestration.StopGracefullyAsync(selected.Path, cancellationToken);
-            TempData["Message"] = $"Serveur « {selected.Name} » sauvegardé puis arrêté proprement par RCON.";
+            servers.Start(name);
+            TempData["Message"] = $"Démarrage de « {name} » demandé. Le statut RCON apparaîtra après l'initialisation.";
         }
         catch (Exception exception) { TempData["Error"] = exception.Message; }
-        return RedirectToPage(new { key });
+        return RedirectToPage(new { name });
     }
 
-    public async Task<IActionResult> OnPostApplyPackAsync(string key, Guid projectId, CancellationToken cancellationToken)
+    public async Task<IActionResult> OnPostStopAsync(string name, CancellationToken cancellationToken)
     {
-        LoadConfigs();
-        var selected = Configs.FirstOrDefault(x => x.Key == key);
+        try
+        {
+            await servers.StopAsync(name, cancellationToken);
+            TempData["Message"] = $"Serveur « {name} » sauvegardé puis arrêté proprement par RCON.";
+        }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
+        return RedirectToPage(new { name });
+    }
+
+    public async Task<IActionResult> OnPostApplyPackAsync(string name, Guid projectId, CancellationToken cancellationToken)
+    {
         var project = projectStore.Get(projectId);
-        if (selected is null || project is null) return BadRequest("Serveur ou pack non reconnu.");
-        if (await orchestration.IsOnlineAsync(selected.Path, cancellationToken))
-        {
-            TempData["Error"] = "Arrêtez d'abord le serveur proprement. PZASM n'applique jamais un nouveau pack à un profil encore en ligne.";
-            return RedirectToPage(new { key });
-        }
-        var snippetPath = Path.Combine(applicationPaths.BuildRoot(project.Id), "server-config.txt");
-        if (!System.IO.File.Exists(snippetPath))
-        {
-            TempData["Error"] = "Construisez d'abord ce pack afin de générer sa configuration serveur.";
-            return RedirectToPage(new { key });
-        }
-        if (project.PublishedWorkshopId == 0)
-        {
-            TempData["Error"] = "Publiez d'abord le pack : le serveur a besoin de son Workshop ID réel.";
-            return RedirectToPage(new { key });
-        }
-
-        var backup = selected.Path + $".pzasm.{DateTime.Now:yyyyMMdd-HHmmss}.bak";
-        System.IO.File.Copy(selected.Path, backup, false);
-        var source = ServerConfigDocument.Load(snippetPath);
-        var target = ServerConfigDocument.Load(selected.Path);
-        target.Set("WorkshopItems", source.Get("WorkshopItems"));
-        target.Set("Mods", source.Get("Mods"));
-        target.Set("Map", source.Get("Map"));
-        target.Save(selected.Path);
-        TempData["Message"] = $"Pack « {project.Name} » appliqué : un Workshop ID, {source.GetList("Mods").Count} Mod IDs. Sauvegarde : {backup}";
-        return RedirectToPage(new { key });
-    }
-
-    public IReadOnlyList<string> Mods => Selected is null ? [] : ServerConfigDocument.Load(Selected.Path).GetList("Mods");
-    public IReadOnlyList<string> WorkshopItems => Selected is null ? [] : ServerConfigDocument.Load(Selected.Path).GetList("WorkshopItems");
-    public IReadOnlyList<string> Maps => Selected is null ? [] : ServerConfigDocument.Load(Selected.Path).GetList("Map");
-
-    private void LoadConfigs()
-    {
-        var root = GetServerRoot();
-        Configs = Directory.Exists(root)
-            ? Directory.EnumerateFiles(root, "*.ini").OrderBy(x => x).Select(x => new ServerConfigEntry(Path.GetFileNameWithoutExtension(x), x, Encode(x))).ToList()
-            : [];
-    }
-
-    private string GetServerRoot() => Path.Combine(discovery.Installation.UserZomboidRoot, "Server");
-    private static string Encode(string path) => Convert.ToBase64String(Encoding.UTF8.GetBytes(Path.GetFullPath(path)));
-    private static (string Text, Encoding Encoding) ReadPreservingEncoding(string path)
-    {
-        var bytes = System.IO.File.ReadAllBytes(path);
-        if (bytes.Length >= 3 && bytes[0] == 0xef && bytes[1] == 0xbb && bytes[2] == 0xbf)
-            return (Encoding.UTF8.GetString(bytes[3..]), new UTF8Encoding(true));
+        if (project is null) return BadRequest("Pack non reconnu.");
         try
         {
-            var strictUtf8 = new UTF8Encoding(false, true);
-            return (strictUtf8.GetString(bytes), new UTF8Encoding(false));
+            var result = await servers.ApplyPackageAsync(name, project, cancellationToken);
+            TempData["Message"] = $"Pack « {project.Name} » appliqué : {result.WorkshopItems.Count} Workshop ID, {result.Mods.Count} Mod IDs. Sauvegarde : {result.BackupPath}";
         }
-        catch (DecoderFallbackException)
-        {
-            return (Encoding.Latin1.GetString(bytes), Encoding.Latin1);
-        }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
+        return RedirectToPage(new { name });
     }
-    public sealed record ServerConfigEntry(string Name, string Path, string Key);
+
+    public IReadOnlyList<string> Mods => Summary.Mods;
+    public IReadOnlyList<string> WorkshopItems => Summary.WorkshopItems;
+    public IReadOnlyList<string> Maps => Summary.Maps;
 }

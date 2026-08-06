@@ -6,18 +6,28 @@ using PZAdvancedServerManager.Core.Pz;
 using System.Diagnostics;
 
 var openBrowser = args.Contains("--open-browser", StringComparer.OrdinalIgnoreCase);
+var dataRootIndex = Array.FindIndex(args, x => x.Equals("--data-root", StringComparison.OrdinalIgnoreCase));
+var dataRoot = dataRootIndex >= 0 && dataRootIndex + 1 < args.Length ? args[dataRootIndex + 1] : null;
 var builder = WebApplication.CreateBuilder(args);
+if (string.IsNullOrWhiteSpace(builder.Configuration["urls"]))
+    builder.WebHost.UseUrls("http://127.0.0.1:5160");
 
 // Add services to the container.
 builder.Services.AddRazorPages();
-builder.Services.AddSingleton<ApplicationPaths>();
+builder.Services.AddSingleton(new ApplicationPaths(dataRoot));
 builder.Services.AddSingleton<PackageProjectStore>();
 builder.Services.AddSingleton<PzDiscoveryService>();
-builder.Services.AddSingleton<DiscoveryCache>();
+builder.Services.AddSingleton<PzEnvironmentService>();
 builder.Services.AddSingleton<PackageValidator>();
 builder.Services.AddSingleton<PackageBuildService>();
 builder.Services.AddSingleton<SteamCmdService>();
 builder.Services.AddSingleton<ServerOrchestrationService>();
+builder.Services.AddSingleton<ServerProfileService>();
+builder.Services.AddSingleton<PackageSourceSnapshotService>();
+builder.Services.AddSingleton<PackageProjectService>();
+builder.Services.AddSingleton<PackageLifecycleService>();
+builder.Services.AddSingleton<PackageAutomationService>();
+builder.Services.AddSingleton<WorkshopImportService>();
 builder.Services.AddHostedService<PackageAutomationWorker>();
 
 var app = builder.Build();
@@ -29,6 +39,14 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseRouting();
+
+app.Use(async (context, next) =>
+{
+    context.Response.Headers.XContentTypeOptions = "nosniff";
+    context.Response.Headers.XFrameOptions = "DENY";
+    context.Response.Headers["Referrer-Policy"] = "no-referrer";
+    await next();
+});
 
 app.UseAuthorization();
 
@@ -46,7 +64,7 @@ if (openBrowser)
             if (OperatingSystem.IsWindows()) Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
             else Process.Start(new ProcessStartInfo("xdg-open", url) { UseShellExecute = false, CreateNoWindow = true });
         }
-        catch { /* L'URL reste indiquée dans la console si aucun navigateur n'est associé. */ }
+        catch { /* The URL remains visible in the console when no browser handler is available. */ }
     });
 }
 

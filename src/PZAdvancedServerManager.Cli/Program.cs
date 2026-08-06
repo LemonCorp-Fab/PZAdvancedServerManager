@@ -11,9 +11,6 @@ return await new PzasmCli().RunAsync(args);
 
 internal sealed class PzasmCli
 {
-    private readonly PzDiscoveryService _discovery = new();
-    private readonly PackageValidator _validator = new();
-    private readonly ServerOrchestrationService _servers = new();
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     public async Task<int> RunAsync(string[] args)
@@ -23,13 +20,14 @@ internal sealed class PzasmCli
             if (args.Length == 0 || args[0] is "help" or "--help" or "-h") return Help();
             var parsed = CliArguments.Parse(args);
             var paths = new ApplicationPaths(parsed.Get("data-root"));
-            var store = new PackageProjectStore(paths);
+            var services = new CliServices(paths);
             return args[0].ToLowerInvariant() switch
             {
-                "scan" => Scan(parsed),
-                "projects" => ListProjects(store, parsed),
-                "project" => await ProjectAsync(args, parsed, paths, store),
-                "server" => await ServerAsync(args, parsed, paths, store),
+                "scan" => Scan(services, parsed),
+                "projects" => ListProjects(services.Store, parsed),
+                "project" => await ProjectAsync(args, parsed, services),
+                "server" => await ServerAsync(args, parsed, services),
+                "automation" => await AutomationAsync(args, parsed, services),
                 _ => Fail($"Commande inconnue : {args[0]}")
             };
         }
@@ -40,10 +38,10 @@ internal sealed class PzasmCli
         }
     }
 
-    private int Scan(CliArguments args)
+    private static int Scan(CliServices services, CliArguments args)
     {
-        var installation = _discovery.DiscoverInstallation();
-        var mods = _discovery.DiscoverMods(installation, args.Get("target") ?? "42.20.2");
+        var installation = services.Environment.Installation;
+        var mods = services.Environment.GetMods(args.Get("target") ?? "42.20.2");
         if (args.Has("json"))
         {
             WriteJson(new { installation, count = mods.Count, mods });
@@ -71,205 +69,210 @@ internal sealed class PzasmCli
         return 0;
     }
 
-    private async Task<int> ProjectAsync(string[] raw, CliArguments args, ApplicationPaths paths, PackageProjectStore store)
+    private static async Task<int> ProjectAsync(string[] raw, CliArguments args, CliServices services)
     {
-        if (raw.Length < 2) return Fail("Sous-commande requise : create, show, add, remove, rights, configure, refresh, validate, build ou publish.");
+        if (raw.Length < 2) return Fail("Sous-commande requise : create, show, duplicate, delete, add, import-workshop, remove, rights, configure, refresh, validate, build ou publish.");
         var action = raw[1].ToLowerInvariant();
         if (action == "create")
         {
-            var project = store.Create(args.Require("name"));
+            var project = services.Projects.Create(args.Require("name"));
             if (args.Get("mode") is { } mode) project.Mode = ParseMode(mode);
-            store.Save(project);
-            WriteJson(new { project.Id, project.Name, project.Mode, project.StableSuffix, projectFile = paths.ProjectFile(project.Id) });
+            services.Store.Save(project);
+            WriteJson(new { project.Id, project.Name, project.Mode, project.StableSuffix, projectFile = services.Paths.ProjectFile(project.Id) });
             return 0;
         }
 
-        var current = RequireProject(store, args);
+        var current = RequireProject(services.Store, args);
         switch (action)
         {
             case "show":
                 WriteJson(current);
                 return 0;
+            case "duplicate":
+                {
+                    var clone = services.Projects.Duplicate(current.Id, args.Get("name"));
+                    WriteJson(new { clone.Id, clone.Name, clone.StableSuffix, workshopId = clone.PublishedWorkshopId });
+                    return 0;
+                }
+            case "delete":
+                if (!args.Has("yes")) return Fail("Suppression non exécutée. Ajoutez --yes pour supprimer le projet, ses snapshots et ses builds locaux.", 3);
+                services.Projects.Delete(current.Id);
+                Console.WriteLine("Projet PZASM supprimé. Les sources d'origine et le Workshop n'ont pas été touchés.");
+                return 0;
             case "add":
-            {
-                var installation = _discovery.DiscoverInstallation();
-                var discovered = _discovery.DiscoverMods(installation, current.TargetPzVersion);
-                var modId = args.Require("mod-id");
-                var workshopId = args.GetUlong("workshop-id");
-                var selected = discovered.FirstOrDefault(x => x.ModId.Equals(modId, StringComparison.OrdinalIgnoreCase) && (workshopId is null || x.WorkshopId == workshopId))
-                    ?? throw new InvalidOperationException("Mod source introuvable. Exécutez scan et vérifiez --mod-id/--workshop-id.");
-                var count = PackageProjectComposer.AddWithDependencies(current, selected, discovered);
-                store.Save(current);
-                Console.WriteLine($"{count} mod(s) ajouté(s), dépendances comprises. Total: {current.Mods.Count}.");
-                return 0;
-            }
+                {
+                    var discovered = services.Environment.GetMods(current.TargetPzVersion);
+                    var modId = args.Require("mod-id");
+                    var workshopId = args.GetUlong("workshop-id");
+                    var selected = discovered.FirstOrDefault(x => x.ModId.Equals(modId, StringComparison.OrdinalIgnoreCase) && (workshopId is null || x.WorkshopId == workshopId))
+                        ?? throw new InvalidOperationException("Mod source introuvable. Exécutez scan et vérifiez --mod-id/--workshop-id.");
+                    var count = services.Projects.AddWithDependencies(current, selected, discovered);
+                    Console.WriteLine($"{count} mod(s) ajouté(s), dépendances comprises. Total: {current.Mods.Count}.");
+                    return 0;
+                }
+            case "import-workshop":
+                {
+                    var workshopId = args.GetUlong("workshop-id") ?? throw new ArgumentException("Option --workshop-id requise.");
+                    var result = await services.WorkshopImport.ImportAsync(current, workshopId);
+                    WriteJson(result);
+                    return 0;
+                }
             case "remove":
-            {
-                var mod = current.Mods.FirstOrDefault(x => x.ModId.Equals(args.Require("mod-id"), StringComparison.OrdinalIgnoreCase))
-                    ?? throw new InvalidOperationException("Mod absent du projet.");
-                current.Mods.Remove(mod);
-                foreach (var map in mod.MapFolders.Where(map => current.Mods.All(x => !x.MapFolders.Contains(map, StringComparer.OrdinalIgnoreCase))))
-                    current.MapOrder.RemoveAll(x => x.Equals(map, StringComparison.OrdinalIgnoreCase));
-                store.Save(current);
-                Console.WriteLine($"Mod {mod.ModId} retiré du projet.");
-                return 0;
-            }
+                {
+                    var mod = current.Mods.FirstOrDefault(x => x.ModId.Equals(args.Require("mod-id"), StringComparison.OrdinalIgnoreCase))
+                        ?? throw new InvalidOperationException("Mod absent du projet.");
+                    services.Projects.Remove(current, mod.Id);
+                    Console.WriteLine($"Mod {mod.ModId} retiré du projet.");
+                    return 0;
+                }
             case "rights":
-            {
-                var mod = current.Mods.FirstOrDefault(x => x.ModId.Equals(args.Require("mod-id"), StringComparison.OrdinalIgnoreCase))
-                    ?? throw new InvalidOperationException("Mod absent du projet.");
-                mod.Permission.Status = Enum.Parse<PermissionStatus>(args.Require("status"), true);
-                mod.Permission.RightsHolder = args.Get("holder") ?? mod.Permission.RightsHolder;
-                mod.Permission.PublicEvidenceUrl = args.Get("evidence-url") ?? mod.Permission.PublicEvidenceUrl;
-                mod.Permission.PrivateAttachmentPath = args.Get("private-proof") ?? mod.Permission.PrivateAttachmentPath;
-                mod.Permission.Notes = args.Get("notes") ?? mod.Permission.Notes;
-                store.Save(current);
-                Console.WriteLine($"Droits mis à jour pour {mod.ModId}: {mod.Permission.Status}.");
-                return 0;
-            }
+                {
+                    var mod = current.Mods.FirstOrDefault(x => x.ModId.Equals(args.Require("mod-id"), StringComparison.OrdinalIgnoreCase))
+                        ?? throw new InvalidOperationException("Mod absent du projet.");
+                    mod.Permission.Status = Enum.Parse<PermissionStatus>(args.Require("status"), true);
+                    mod.Permission.RightsHolder = args.Get("holder") ?? mod.Permission.RightsHolder;
+                    mod.Permission.PublicEvidenceUrl = args.Get("evidence-url") ?? mod.Permission.PublicEvidenceUrl;
+                    mod.Permission.PrivateAttachmentPath = args.Get("private-proof") ?? mod.Permission.PrivateAttachmentPath;
+                    mod.Permission.Notes = args.Get("notes") ?? mod.Permission.Notes;
+                    services.Store.Save(current);
+                    Console.WriteLine($"Droits mis à jour pour {mod.ModId}: {mod.Permission.Status}.");
+                    return 0;
+                }
             case "configure":
                 Configure(current, args);
-                store.Save(current);
+                services.Store.Save(current);
                 Console.WriteLine("Projet configuré.");
                 return 0;
             case "refresh":
-            {
-                var refresh = await new SteamCmdService(_validator).RefreshSourcesAsync(current);
-                current.Automation.LastResult = refresh.CombinedOutput;
-                store.Save(current);
-                Console.WriteLine(refresh.CombinedOutput);
-                return refresh.Success ? 0 : refresh.ExitCode;
-            }
+                {
+                    var refresh = await services.Lifecycle.RefreshSourcesAsync(current);
+                    current.Automation.LastResult = refresh.CombinedOutput;
+                    services.Store.Save(current);
+                    Console.WriteLine(refresh.CombinedOutput);
+                    return refresh.Success ? 0 : refresh.ExitCode;
+                }
             case "validate":
-            {
-                var validation = _validator.Validate(current);
-                WriteValidation(validation);
-                return validation.CanPublish ? 0 : 2;
-            }
+                {
+                    var validation = services.Validator.Validate(current);
+                    WriteValidation(validation);
+                    return validation.CanPublish ? 0 : 2;
+                }
             case "build":
-            {
-                var result = new PackageBuildService(paths, _validator).Build(current);
-                store.Save(current);
-                WriteJson(new { result.BuildRoot, result.CopiedFiles, result.CopiedBytes, result.ServerConfigSnippetPath, canPublish = result.Validation.CanPublish });
-                return 0;
-            }
+                {
+                    var result = services.Lifecycle.Build(current);
+                    WriteJson(new { result.BuildRoot, result.CopiedFiles, result.CopiedBytes, result.ServerConfigSnippetPath, canPublish = result.Validation.CanPublish });
+                    return 0;
+                }
             case "publish":
-            {
-                if (!args.Has("yes")) return Fail("Publication non exécutée. Ajoutez --yes pour confirmer l'envoi vers Steam Workshop.", 3);
-                var result = new PackageBuildService(paths, _validator).Build(current);
-                var steam = new SteamCmdService(_validator);
-                var restart = false;
-                try
                 {
-                    if (!string.IsNullOrWhiteSpace(current.Automation.CoordinatedServerName))
-                    {
-                        var installation = _discovery.DiscoverInstallation();
-                        var ini = Path.Combine(installation.UserZomboidRoot, "Server", current.Automation.CoordinatedServerName + ".ini");
-                        if (await _servers.IsOnlineAsync(ini))
-                        {
-                            await _servers.StopGracefullyAsync(ini);
-                            restart = true;
-                        }
-                    }
-                    else Console.Error.WriteLine("ATTENTION: aucun serveur coordonné; l'administrateur confirme avec --yes que le serveur concerné est déjà arrêté ou sera redémarré.");
-
-                    var publish = await steam.PublishAsync(current, result);
-                    current.Automation.LastResult = publish.CombinedOutput;
-                    store.Save(current);
-                    Console.WriteLine(publish.CombinedOutput);
+                    if (!args.Has("yes")) return Fail("Publication non exécutée. Ajoutez --yes pour confirmer l'envoi vers Steam Workshop.", 3);
+                    if (string.IsNullOrWhiteSpace(current.Automation.CoordinatedServerName))
+                        Console.Error.WriteLine("ATTENTION: aucun serveur coordonné; --yes confirme que l'administrateur gère lui-même le redémarrage.");
+                    var result = await services.Lifecycle.PublishAsync(current, refreshSources: false, requireCoordinatedServer: false);
+                    current.Automation.LastResult = result.Output;
+                    services.Store.Save(current);
+                    Console.WriteLine(result.Output);
                     Console.WriteLine($"Workshop ID: {current.PublishedWorkshopId}");
-                    return publish.Success ? 0 : publish.ExitCode;
+                    return 0;
                 }
-                finally
-                {
-                    if (restart)
-                    {
-                        var installation = _discovery.DiscoverInstallation();
-                        _servers.Start(current.Automation.CoordinatedServerName, installation.DedicatedServerRoot ?? throw new DirectoryNotFoundException("Installation du serveur dédié introuvable pour le redémarrage."));
-                    }
-                }
-            }
             default:
                 return Fail($"Sous-commande project inconnue : {action}");
         }
     }
 
-    private async Task<int> ServerAsync(string[] raw, CliArguments args, ApplicationPaths paths, PackageProjectStore store)
+    private static async Task<int> ServerAsync(string[] raw, CliArguments args, CliServices services)
     {
         if (raw.Length < 2) return Fail("Sous-commande requise : list, create, show, set, status, start, stop ou apply.");
-        var installation = _discovery.DiscoverInstallation();
-        var serverRoot = Path.Combine(installation.UserZomboidRoot, "Server");
         var action = raw[1].ToLowerInvariant();
         if (action == "list")
         {
-            var configs = Directory.Exists(serverRoot) ? Directory.EnumerateFiles(serverRoot, "*.ini").OrderBy(x => x).ToArray() : [];
-            if (args.Has("json")) WriteJson(configs.Select(x => new { name = Path.GetFileNameWithoutExtension(x), path = x }));
-            else foreach (var file in configs) Console.WriteLine($"{Path.GetFileNameWithoutExtension(file),-30} {file}");
+            var configs = services.Servers.List();
+            if (args.Has("json")) WriteJson(configs);
+            else foreach (var profile in configs) Console.WriteLine($"{profile.Name,-30} {profile.Path}");
             return 0;
         }
 
-        var name = ValidateServerName(args.Require("name"));
-        var ini = Path.Combine(serverRoot, name + ".ini");
+        var name = args.Require("name");
         if (action == "create")
         {
-            if (File.Exists(ini)) throw new IOException("Ce profil serveur existe déjà.");
-            Directory.CreateDirectory(serverRoot);
-            File.WriteAllText(ini, $"# Créé par PZ Advanced Server Manager{Environment.NewLine}PublicName={name}{Environment.NewLine}PublicDescription={Environment.NewLine}Password={Environment.NewLine}DefaultPort=16261{Environment.NewLine}MaxPlayers=16{Environment.NewLine}PauseEmpty=true{Environment.NewLine}DoLuaChecksum=true{Environment.NewLine}WorkshopItems={Environment.NewLine}Mods={Environment.NewLine}Map=Muldraugh, KY{Environment.NewLine}", new UTF8Encoding(false));
-            Console.WriteLine($"Profil créé : {ini}");
+            var profile = services.Servers.Create(name);
+            Console.WriteLine($"Profil créé : {profile.Path}");
             return 0;
         }
-        if (!File.Exists(ini)) throw new FileNotFoundException("Profil serveur introuvable.", ini);
         switch (action)
         {
             case "show":
-                Console.WriteLine(File.ReadAllText(ini));
+                Console.WriteLine(services.Servers.ReadRaw(name));
                 return 0;
             case "set":
-            {
-                if (!args.Has("yes")) return Fail("Modification non exécutée. Ajoutez --yes pour confirmer la sauvegarde et l'écriture.", 3);
-                var key = args.Require("key").Trim();
-                if (string.IsNullOrWhiteSpace(key) || key.Contains('=') || key.Any(char.IsControl)) throw new ArgumentException("Clé de configuration invalide.");
-                var backup = Backup(ini);
-                var config = ServerConfigDocument.Load(ini);
-                config.Set(key, args.Get("value") ?? string.Empty);
-                config.Save(ini);
-                Console.WriteLine($"{key} mis à jour. Sauvegarde: {backup}");
-                return 0;
-            }
+                {
+                    if (!args.Has("yes")) return Fail("Modification non exécutée. Ajoutez --yes pour confirmer la sauvegarde et l'écriture.", 3);
+                    var key = args.Require("key").Trim();
+                    if (string.IsNullOrWhiteSpace(key) || key.Contains('=') || key.Any(char.IsControl)) throw new ArgumentException("Clé de configuration invalide.");
+                    var backup = services.Servers.Set(name, key, args.Get("value") ?? string.Empty);
+                    Console.WriteLine($"{key} mis à jour. Sauvegarde: {backup}");
+                    return 0;
+                }
             case "status":
-                var online = await _servers.IsOnlineAsync(ini);
+                var online = await services.Servers.IsOnlineAsync(name);
                 Console.WriteLine(online ? "online" : "offline");
                 return online ? 0 : 4;
             case "start":
-                _servers.Start(name, installation.DedicatedServerRoot ?? throw new DirectoryNotFoundException("Installation du serveur dédié introuvable."));
+                services.Servers.Start(name);
                 Console.WriteLine($"Démarrage demandé pour {name}.");
                 return 0;
             case "stop":
                 if (!args.Has("yes")) return Fail("Arrêt non exécuté. Ajoutez --yes pour confirmer save/quit par RCON.", 3);
-                await _servers.StopGracefullyAsync(ini);
+                await services.Servers.StopAsync(name);
                 Console.WriteLine($"{name} sauvegardé et arrêté proprement.");
                 return 0;
             case "apply":
-            {
-                if (!args.Has("yes")) return Fail("Application non exécutée. Ajoutez --yes pour remplacer WorkshopItems, Mods et Map avec sauvegarde.", 3);
-                if (await _servers.IsOnlineAsync(ini)) throw new InvalidOperationException("Arrêtez d'abord le serveur : PZASM refuse d'appliquer un pack pendant qu'il est en ligne.");
-                var project = RequireProject(store, args);
-                if (project.PublishedWorkshopId == 0) throw new InvalidOperationException("Le pack doit être publié avant son application au serveur.");
-                var snippetPath = Path.Combine(paths.BuildRoot(project.Id), "server-config.txt");
-                if (!File.Exists(snippetPath)) throw new FileNotFoundException("Construisez le pack avant de l'appliquer.", snippetPath);
-                var backup = Backup(ini);
-                var source = ServerConfigDocument.Load(snippetPath);
-                var target = ServerConfigDocument.Load(ini);
-                target.Set("WorkshopItems", source.Get("WorkshopItems"));
-                target.Set("Mods", source.Get("Mods"));
-                target.Set("Map", source.Get("Map"));
-                target.Save(ini);
-                Console.WriteLine($"Pack appliqué. Sauvegarde: {backup}");
-                return 0;
-            }
+                {
+                    if (!args.Has("yes")) return Fail("Application non exécutée. Ajoutez --yes pour remplacer WorkshopItems, Mods et Map avec sauvegarde.", 3);
+                    var project = RequireProject(services.Store, args);
+                    var result = await services.Servers.ApplyPackageAsync(name, project);
+                    Console.WriteLine($"Pack appliqué. Sauvegarde: {result.BackupPath}");
+                    return 0;
+                }
             default:
                 return Fail($"Sous-commande server inconnue : {action}");
         }
+    }
+
+    private static async Task<int> AutomationAsync(string[] raw, CliArguments args, CliServices services)
+    {
+        if (raw.Length < 2) return Fail("Sous-commande requise : once, execute ou run.");
+        var action = raw[1].ToLowerInvariant();
+        if (action == "execute")
+        {
+            var project = RequireProject(services.Store, args);
+            var result = await services.Automation.RunProjectAsync(project);
+            WriteJson(result);
+            return result.Success ? 0 : 2;
+        }
+        if (action == "once")
+        {
+            var results = await services.Automation.RunDueAsync(DateTimeOffset.Now);
+            WriteJson(results);
+            return results.All(x => x.Success) ? 0 : 2;
+        }
+        if (action != "run") return Fail($"Sous-commande automation inconnue : {action}");
+
+        var interval = Math.Clamp(args.GetInt("interval") ?? 30, 10, 3600);
+        using var cancellation = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, eventArgs) => { eventArgs.Cancel = true; cancellation.Cancel(); };
+        Console.WriteLine($"Planificateur PZASM actif (intervalle {interval}s). Ctrl+C pour arrêter.");
+        try
+        {
+            while (!cancellation.IsCancellationRequested)
+            {
+                foreach (var result in await services.Automation.RunDueAsync(DateTimeOffset.Now, cancellation.Token))
+                    Console.WriteLine($"{DateTimeOffset.Now:O} {(result.Success ? "OK" : "ERROR")} {result.ProjectName}: {result.Message}");
+                await Task.Delay(TimeSpan.FromSeconds(interval), cancellation.Token);
+            }
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        return 0;
     }
 
     private static void Configure(PackageProject project, CliArguments args)
@@ -303,20 +306,6 @@ internal sealed class PzasmCli
         return store.Get(id) ?? throw new InvalidOperationException("Projet PZASM introuvable.");
     }
 
-    private static string ValidateServerName(string name)
-    {
-        if (string.IsNullOrWhiteSpace(name) || name.Any(c => !char.IsLetterOrDigit(c) && c is not '-' and not '_'))
-            throw new ArgumentException("Le nom du profil serveur ne peut contenir que lettres, chiffres, tirets et underscores.");
-        return name;
-    }
-
-    private static string Backup(string path)
-    {
-        var backup = path + $".pzasm.{DateTime.Now:yyyyMMdd-HHmmss-fff}.bak";
-        File.Copy(path, backup, false);
-        return backup;
-    }
-
     private static PackageMode ParseMode(string value) => value.ToLowerInvariant() switch
     {
         "bundle" => PackageMode.Bundle,
@@ -344,7 +333,10 @@ Chaque projet représente un pack global indépendant avec son propre Workshop I
   pzasm projects [--json]
   pzasm project create --name "Mon pack" [--mode bundle]
   pzasm project show --id <guid>
+  pzasm project duplicate --id <guid> [--name "Copie"]
+  pzasm project delete --id <guid> --yes
   pzasm project add --id <guid> --mod-id <id> [--workshop-id <id>]
+  pzasm project import-workshop --id <guid> --workshop-id <id>
   pzasm project remove --id <guid> --mod-id <id>
   pzasm project rights --id <guid> --mod-id <id> --status <Unknown|AuthorOwned|ExplicitPermission|CompatibleLicense|Denied> [--evidence-url <url>] [--private-proof <path>] [--notes <texte>]
   pzasm project configure --id <guid> [--description <texte>] [--workshop-id <id>] [--steamcmd <path>] [--steam-user <nom>] [--server <profil>] [--automation true] [--schedule 04:00,16:00] [--accept-legal]
@@ -360,6 +352,9 @@ Chaque projet représente un pack global indépendant avec son propre Workshop I
   pzasm server start --name <profil>
   pzasm server stop --name <profil> --yes
   pzasm server apply --name <profil> --id <guid> --yes
+  pzasm automation once
+  pzasm automation execute --id <guid>
+  pzasm automation run [--interval 30]
 
 Option globale : --data-root <dossier>. Sans cette option, PZASM utilise le dossier applicatif local de l'OS.
 La construction est locale. La publication et les opérations destructrices exigent toujours --yes.
@@ -389,4 +384,36 @@ internal sealed class CliArguments
     public string? Get(string key) => _options.TryGetValue(key, out var value) ? value : null;
     public string Require(string key) => Get(key) ?? throw new ArgumentException($"Option --{key} requise.");
     public ulong? GetUlong(string key) => Get(key) is { } value ? ulong.Parse(value) : null;
+    public int? GetInt(string key) => Get(key) is { } value ? int.Parse(value) : null;
+}
+
+internal sealed class CliServices
+{
+    public CliServices(ApplicationPaths paths)
+    {
+        Paths = paths;
+        Store = new PackageProjectStore(paths);
+        var discovery = new PzDiscoveryService();
+        Environment = new PzEnvironmentService(discovery);
+        Validator = new PackageValidator();
+        var snapshots = new PackageSourceSnapshotService(paths);
+        Projects = new PackageProjectService(paths, Store, snapshots);
+        var orchestration = new ServerOrchestrationService();
+        Servers = new ServerProfileService(paths, Environment, orchestration);
+        var builder = new PackageBuildService(paths, Validator);
+        var steamCmd = new SteamCmdService(Validator);
+        Lifecycle = new PackageLifecycleService(paths, Store, snapshots, builder, steamCmd, Servers);
+        Automation = new PackageAutomationService(paths, Store, Lifecycle);
+        WorkshopImport = new WorkshopImportService(steamCmd, discovery, Environment, Projects);
+    }
+
+    public ApplicationPaths Paths { get; }
+    public PackageProjectStore Store { get; }
+    public PzEnvironmentService Environment { get; }
+    public PackageValidator Validator { get; }
+    public PackageProjectService Projects { get; }
+    public PackageLifecycleService Lifecycle { get; }
+    public PackageAutomationService Automation { get; }
+    public WorkshopImportService WorkshopImport { get; }
+    public ServerProfileService Servers { get; }
 }

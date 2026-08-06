@@ -16,7 +16,7 @@ public sealed class PackageProjectStore(ApplicationPaths paths)
     {
         lock (_sync)
         {
-            return Directory.EnumerateFiles(paths.ProjectsRoot, "*.pzasm.json")
+            return Directory.EnumerateFiles(paths.ProjectsRoot, $"*{PzasmConstants.ProjectFileExtension}")
                 .Select(ReadFile)
                 .Where(x => x is not null)
                 .Cast<PackageProject>()
@@ -42,9 +42,16 @@ public sealed class PackageProjectStore(ApplicationPaths paths)
                 project.Id = Guid.NewGuid();
             project.UpdatedAt = DateTimeOffset.UtcNow;
             var target = paths.ProjectFile(project.Id);
-            var temporary = target + ".tmp";
-            File.WriteAllText(temporary, JsonSerializer.Serialize(project, JsonOptions));
-            File.Move(temporary, target, true);
+            var temporary = target + $".{Guid.NewGuid():N}.tmp";
+            try
+            {
+                File.WriteAllText(temporary, JsonSerializer.Serialize(project, JsonOptions));
+                File.Move(temporary, target, true);
+            }
+            finally
+            {
+                if (File.Exists(temporary)) File.Delete(temporary);
+            }
             return project;
         }
     }
@@ -55,15 +62,40 @@ public sealed class PackageProjectStore(ApplicationPaths paths)
         return Save(project);
     }
 
+    public bool Delete(Guid id)
+    {
+        lock (_sync)
+        {
+            var file = paths.ProjectFile(id);
+            if (!File.Exists(file)) return false;
+            File.Delete(file);
+            return true;
+        }
+    }
+
     private static PackageProject? ReadFile(string file)
     {
         try
         {
-            return JsonSerializer.Deserialize<PackageProject>(File.ReadAllText(file), JsonOptions);
+            var project = JsonSerializer.Deserialize<PackageProject>(File.ReadAllText(file), JsonOptions);
+            if (project is null) return null;
+            Migrate(project);
+            return project;
         }
         catch (JsonException)
         {
             return null;
         }
+    }
+
+    private static void Migrate(PackageProject project)
+    {
+        if (project.SchemaVersion < 2)
+        {
+            foreach (var mod in project.Mods)
+                if (string.IsNullOrWhiteSpace(mod.SourceFolderName) && !string.IsNullOrWhiteSpace(mod.SourceModRoot))
+                    mod.SourceFolderName = Path.GetFileName(Path.TrimEndingDirectorySeparator(mod.SourceModRoot));
+        }
+        project.SchemaVersion = PzasmConstants.CurrentProjectSchemaVersion;
     }
 }

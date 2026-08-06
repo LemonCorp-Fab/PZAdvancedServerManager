@@ -39,6 +39,10 @@ jobs:
         run: dotnet publish src/PZAdvancedServerManager.App -c Release -r ${{ matrix.runtime }} --self-contained true -p:PublishSingleFile=true -o publish/${{ matrix.runtime }}/ui
       - name: Publish headless CLI
         run: dotnet publish src/PZAdvancedServerManager.Cli -c Release -r ${{ matrix.runtime }} --self-contained true -p:PublishSingleFile=true -o publish/${{ matrix.runtime }}/cli
+      - name: Include systemd units
+        if: matrix.runtime == 'linux-x64'
+        shell: bash
+        run: cp -R deploy/systemd publish/${{ matrix.runtime }}/systemd
       - uses: actions/upload-artifact@v4
         with:
           name: PZAdvancedServerManager-${{ matrix.runtime }}

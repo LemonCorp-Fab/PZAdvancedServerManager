@@ -20,7 +20,7 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
 
         var finalRoot = EnsureScopedBuildPath(project.Id);
         var nextRoot = finalRoot + ".next";
-        DeleteScopedDirectory(nextRoot);
+        SafeFileTree.DeleteScopedDirectory(paths.BuildsRoot, nextRoot);
         Directory.CreateDirectory(nextRoot);
         var contentsRoot = Path.Combine(nextRoot, "Contents");
         var modsRoot = Path.Combine(contentsRoot, "mods");
@@ -63,8 +63,7 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
             };
             File.WriteAllText(Path.Combine(nextRoot, "project.snapshot.json"), JsonSerializer.Serialize(localSnapshot, JsonOptions), new UTF8Encoding(false));
 
-            DeleteScopedDirectory(finalRoot);
-            Directory.Move(nextRoot, finalRoot);
+            SafeFileTree.ReplaceDirectory(paths.BuildsRoot, nextRoot, finalRoot);
             project.LastBuiltAt = DateTimeOffset.UtcNow;
 
             return new PackageBuildResult
@@ -82,7 +81,7 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
         }
         catch
         {
-            DeleteScopedDirectory(nextRoot);
+            SafeFileTree.DeleteScopedDirectory(paths.BuildsRoot, nextRoot);
             throw;
         }
     }
@@ -92,8 +91,7 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
         var stats = new CopyStatistics();
         foreach (var mod in project.Mods.Where(x => x.Enabled).OrderBy(x => x.Order).ThenBy(x => x.Name))
         {
-            var folder = Path.GetFileName(Path.TrimEndingDirectorySeparator(mod.SourceModRoot));
-            CopyTree(mod.SourceModRoot, Path.Combine(modsRoot, folder), stats);
+            CopyTree(mod.BuildSourceRoot, Path.Combine(modsRoot, mod.EffectiveFolderName), stats);
         }
         return stats;
     }
@@ -108,7 +106,7 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
         var outputs = new Dictionary<string, FusionCandidate>(StringComparer.OrdinalIgnoreCase);
         foreach (var mod in project.Mods.Where(x => x.Enabled).OrderBy(x => x.Order).ThenBy(x => x.Name))
         {
-            foreach (var mediaRoot in PzVersionSelector.GetEffectiveMediaRoots(mod.SourceModRoot, mod.SelectedVersionFolder))
+            foreach (var mediaRoot in PzVersionSelector.GetEffectiveMediaRoots(mod.BuildSourceRoot, mod.SelectedVersionFolder))
             {
                 foreach (var file in Directory.EnumerateFiles(mediaRoot, "*", SearchOption.AllDirectories))
                 {
@@ -188,7 +186,7 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
 
         var maps = project.MapOrder.Count > 0
             ? project.MapOrder.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToList()
-            : project.Mods.Where(x => x.Enabled).SelectMany(x => x.MapFolders.Length > 0 ? x.MapFolders : DiscoverMapFolders(x.SourceModRoot, x.SelectedVersionFolder)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            : project.Mods.Where(x => x.Enabled).SelectMany(x => x.MapFolders.Length > 0 ? x.MapFolders : DiscoverMapFolders(x.BuildSourceRoot, x.SelectedVersionFolder)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         if (!maps.Contains("Muldraugh, KY", StringComparer.OrdinalIgnoreCase)) maps.Add("Muldraugh, KY");
         var workshopId = project.PublishedWorkshopId == 0 ? "<WORKSHOP_ID_APRES_PREMIERE_PUBLICATION>" : project.PublishedWorkshopId.ToString();
         return $"# Un seul Workshop item est contrôlé/versionné par le serveur.\nWorkshopItems={workshopId}\nMods={string.Join(';', modIds)}\nMap={string.Join(';', maps)}\n";
@@ -247,6 +245,8 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
                 x.Author,
                 x.SelectedVersionFolder,
                 x.SourceUrl,
+                x.PinnedAt,
+                x.PinnedContentHash,
                 permissionStatus = x.Permission.Status.ToString()
             }),
             files
@@ -285,8 +285,11 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
 
     private static void CopyTree(string source, string destination, CopyStatistics stats)
     {
-        foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
-            CopyFile(file, Path.Combine(destination, Path.GetRelativePath(source, file)), stats);
+        SafeFileTree.CopyDirectory(source, destination, (file, _) =>
+        {
+            stats.Files++;
+            stats.Bytes += new FileInfo(file).Length;
+        });
     }
 
     private static void CopyFile(string source, string destination, CopyStatistics stats)
@@ -304,16 +307,6 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
         if (!target.StartsWith(root, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("Le chemin de build sort du dossier de données autorisé.");
         return target;
-    }
-
-    private void DeleteScopedDirectory(string target)
-    {
-        if (!Directory.Exists(target)) return;
-        var root = Path.GetFullPath(paths.BuildsRoot).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-        var resolved = Path.GetFullPath(target);
-        if (!resolved.StartsWith(root, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("Suppression refusée hors du dossier de builds.");
-        Directory.Delete(resolved, true);
     }
 
     private static string ComputeHash(string path)

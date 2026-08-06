@@ -2,22 +2,21 @@ using System.ComponentModel.DataAnnotations;
 using System.Text;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
-using PZAdvancedServerManager.App.Services;
 using PZAdvancedServerManager.Core.Domain;
 using PZAdvancedServerManager.Core.Infrastructure;
 using PZAdvancedServerManager.Core.Packaging;
-using PZAdvancedServerManager.Core.Publishing;
 using PZAdvancedServerManager.Core.Pz;
 
 namespace PZAdvancedServerManager.App.Pages.Projects;
 
 public class EditModel(
     PackageProjectStore store,
-    DiscoveryCache discovery,
+    PzEnvironmentService environment,
     PackageValidator validator,
-    PackageBuildService builder,
-    SteamCmdService steamCmd,
-    ServerOrchestrationService serverOrchestration) : PageModel
+    PackageProjectService projects,
+    PackageLifecycleService lifecycle,
+    WorkshopImportService workshopImport,
+    ServerProfileService servers) : PageModel
 {
     public PackageProject Project { get; private set; } = new();
     public IReadOnlyList<DiscoveredMod> InstalledMods { get; private set; } = [];
@@ -50,21 +49,22 @@ public class EditModel(
     {
         var project = store.Get(id);
         if (project is null) return NotFound();
-        var discovered = discovery.GetMods(project.TargetPzVersion);
+        var discovered = environment.GetMods(project.TargetPzVersion);
         var selected = discovered.FirstOrDefault(x => SelectionKey(x) == selectionKey);
         if (selected is null)
         {
             TempData["Error"] = "La source choisie n'existe plus. Actualisez la détection.";
             return RedirectToPage(new { id });
         }
-        var added = PackageProjectComposer.AddWithDependencies(project, selected, discovered);
-        if (added > 0)
+        try
         {
-            store.Save(project);
-            TempData["Message"] = added == 1
-                ? $"« {selected.Name} » ajouté. Renseignez maintenant son autorisation."
-                : $"« {selected.Name} » et {added - 1} dépendance(s) détectée(s) ont été ajoutés. Renseignez leurs autorisations.";
+            var added = projects.AddWithDependencies(project, selected, discovered);
+            if (added > 0)
+                TempData["Message"] = added == 1
+                    ? $"« {selected.Name} » ajouté et figé. Renseignez maintenant son autorisation."
+                    : $"« {selected.Name} » et {added - 1} dépendance(s) ont été ajoutés et figés. Renseignez leurs autorisations.";
         }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
         return RedirectToPage(new { id });
     }
 
@@ -88,10 +88,8 @@ public class EditModel(
     {
         var project = store.Get(id);
         if (project is null) return NotFound();
-        project.Mods.RemoveAll(x => x.Id == modReferenceId);
-        for (var i = 0; i < project.Mods.Count; i++) project.Mods[i].Order = i;
-        store.Save(project);
-        TempData["Message"] = "Mod retiré du projet. Les fichiers sources n'ont pas été modifiés.";
+        projects.Remove(project, modReferenceId);
+        TempData["Message"] = "Mod et snapshot PZASM retirés du projet. La source d'origine n'a pas été modifiée.";
         return RedirectToPage(new { id });
     }
 
@@ -99,12 +97,7 @@ public class EditModel(
     {
         var project = store.Get(id);
         if (project is null) return NotFound();
-        var ordered = project.Mods.OrderBy(x => x.Order).ToList();
-        var index = ordered.FindIndex(x => x.Id == modReferenceId);
-        var target = index + Math.Sign(direction);
-        if (index >= 0 && target >= 0 && target < ordered.Count)
-            (ordered[index].Order, ordered[target].Order) = (ordered[target].Order, ordered[index].Order);
-        store.Save(project);
+        projects.Move(project, modReferenceId, direction);
         return RedirectToPage(new { id });
     }
 
@@ -114,8 +107,7 @@ public class EditModel(
         if (project is null) return NotFound();
         try
         {
-            var result = builder.Build(project);
-            store.Save(project);
+            var result = lifecycle.Build(project);
             TempData["Message"] = $"Pack construit : {result.CopiedFiles:N0} fichiers, {FormatBytes(result.CopiedBytes)}. Dossier : {result.BuildRoot}";
         }
         catch (PackageBuildException exception)
@@ -133,43 +125,45 @@ public class EditModel(
     {
         var project = store.Get(id);
         if (project is null) return NotFound();
-        var restartServer = false;
         try
         {
-            var build = builder.Build(project);
-            if (!string.IsNullOrWhiteSpace(project.Automation.CoordinatedServerName))
-            {
-                var ini = Path.Combine(discovery.Installation.UserZomboidRoot, "Server", project.Automation.CoordinatedServerName + ".ini");
-                if (await serverOrchestration.IsOnlineAsync(ini, cancellationToken))
-                {
-                    await serverOrchestration.StopGracefullyAsync(ini, cancellationToken);
-                    restartServer = true;
-                }
-            }
-            var result = await steamCmd.PublishAsync(project, build, cancellationToken);
-            project.Automation.LastResult = Limit(result.CombinedOutput, 4000);
+            var result = await lifecycle.PublishAsync(project, refreshSources: false, requireCoordinatedServer: false, cancellationToken);
+            project.Automation.LastResult = Limit(result.Output, 4000);
             store.Save(project);
-            if (result.Success) TempData["Message"] = $"Publication SteamCMD terminée. Workshop ID : {project.PublishedWorkshopId}.";
-            else TempData["Error"] = "SteamCMD a échoué : " + Limit(result.CombinedOutput, 1200);
+            TempData["Message"] = $"Publication SteamCMD terminée. Workshop ID : {project.PublishedWorkshopId}." +
+                (result.ServerWasRunning ? " Le serveur coordonné a été sauvegardé, arrêté puis redémarré." : string.Empty);
         }
         catch (Exception exception)
         {
             TempData["Error"] = exception.Message;
         }
-        finally
+        return RedirectToPage(new { id });
+    }
+
+    public async Task<IActionResult> OnPostRefreshSourcesAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+        try
         {
-            if (restartServer)
-            {
-                try
-                {
-                    serverOrchestration.Start(project.Automation.CoordinatedServerName, discovery.Installation.DedicatedServerRoot ?? throw new DirectoryNotFoundException("Serveur dédié Project Zomboid introuvable."));
-                }
-                catch (Exception exception)
-                {
-                    TempData["Error"] = (TempData["Error"] is string existing ? existing + " " : string.Empty) + "Le pack a été traité, mais le redémarrage du serveur a échoué : " + exception.Message;
-                }
-            }
+            var result = await lifecycle.RefreshSourcesAsync(project, cancellationToken);
+            if (!result.Success) TempData["Error"] = "Actualisation SteamCMD échouée : " + Limit(result.CombinedOutput, 1200);
+            else TempData["Message"] = "Sources explicitement actualisées et nouveaux snapshots figés. Aucun publish n'a été effectué.";
         }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
+        return RedirectToPage(new { id });
+    }
+
+    public async Task<IActionResult> OnPostImportWorkshopAsync(Guid id, ulong workshopId, CancellationToken cancellationToken)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+        try
+        {
+            var result = await workshopImport.ImportAsync(project, workshopId, cancellationToken);
+            TempData["Message"] = $"Item Workshop {workshopId} téléchargé : {result.AddedMods} nouveau(x) Mod ID ajouté(s) et figé(s).";
+        }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
         return RedirectToPage(new { id });
     }
 
@@ -178,13 +172,10 @@ public class EditModel(
     private void Load(PackageProject project, bool refresh)
     {
         Project = project;
-        InstalledMods = discovery.GetMods(project.TargetPzVersion, refresh);
+        InstalledMods = environment.GetMods(project.TargetPzVersion, refresh);
         Validation = validator.Validate(project);
         WorkshopDescription = WorkshopDescriptionGenerator.Generate(project);
-        var serverRoot = Path.Combine(discovery.Installation.UserZomboidRoot, "Server");
-        ServerConfigNames = Directory.Exists(serverRoot)
-            ? Directory.EnumerateFiles(serverRoot, "*.ini").Select(Path.GetFileNameWithoutExtension).Where(x => !string.IsNullOrWhiteSpace(x)).Cast<string>().OrderBy(x => x).ToList()
-            : [];
+        ServerConfigNames = servers.List().Select(x => x.Name).ToList();
     }
 
     private void ApplyForm(PackageProject project)
@@ -238,14 +229,24 @@ public class EditModel(
 
         public static ProjectForm From(PackageProject project) => new()
         {
-            Name = project.Name, Description = project.Description, Mode = project.Mode, TargetPzVersion = project.TargetPzVersion,
-            InjectConnectionNotice = project.InjectConnectionNotice, NoticeTitle = project.NoticeTitle,
-            PublishedWorkshopId = project.PublishedWorkshopId, Visibility = project.Visibility, PreviewImagePath = project.PreviewImagePath,
+            Name = project.Name,
+            Description = project.Description,
+            Mode = project.Mode,
+            TargetPzVersion = project.TargetPzVersion,
+            InjectConnectionNotice = project.InjectConnectionNotice,
+            NoticeTitle = project.NoticeTitle,
+            PublishedWorkshopId = project.PublishedWorkshopId,
+            Visibility = project.Visibility,
+            PreviewImagePath = project.PreviewImagePath,
             MapOrder = string.Join(";", project.MapOrder),
-            Tags = string.Join(", ", project.Tags), LegalWarningAccepted = project.LegalWarningAccepted,
-            SteamCmdPath = project.Automation.SteamCmdPath, SteamUsername = project.Automation.SteamUsername,
-            AutomationEnabled = project.Automation.Enabled, RefreshSources = project.Automation.RefreshWorkshopSourcesBeforeBuild,
-            PublishAfterBuild = project.Automation.PublishAfterBuild, DailyTimes = string.Join(", ", project.Automation.DailyTimes),
+            Tags = string.Join(", ", project.Tags),
+            LegalWarningAccepted = project.LegalWarningAccepted,
+            SteamCmdPath = project.Automation.SteamCmdPath,
+            SteamUsername = project.Automation.SteamUsername,
+            AutomationEnabled = project.Automation.Enabled,
+            RefreshSources = project.Automation.RefreshWorkshopSourcesBeforeBuild,
+            PublishAfterBuild = project.Automation.PublishAfterBuild,
+            DailyTimes = string.Join(", ", project.Automation.DailyTimes),
             CoordinatedServerName = project.Automation.CoordinatedServerName
         };
     }

@@ -30,7 +30,7 @@ public sealed class ServerOrchestrationService
         await rcon.CommandAsync("save", cancellationToken);
         await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken);
         try { await rcon.CommandAsync("quit", cancellationToken); }
-        catch (IOException) { /* La connexion peut être coupée immédiatement par la commande quit. */ }
+        catch (IOException) { /* The server may close the connection immediately after the quit command. */ }
 
         var deadline = DateTimeOffset.UtcNow.AddMinutes(1);
         while (DateTimeOffset.UtcNow < deadline)

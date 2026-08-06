@@ -1,0 +1,19 @@
+[Unit]
+Description=PZ Advanced Server Manager - headless automation
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=pzasm
+Group=pzasm
+WorkingDirectory=/opt/pzasm/cli
+ExecStart=/opt/pzasm/cli/pzasm automation run --interval 30 --data-root /var/lib/pzasm
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

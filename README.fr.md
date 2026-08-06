@@ -1,0 +1,100 @@
+# PZ Advanced Server Manager
+
+[English](README.md) · [Français](README.fr.md) · [Español](README.es.md) · [Deutsch](README.de.md) · [Português (Brasil)](README.pt-BR.md) · [简体中文](README.zh-CN.md)
+
+PZ Advanced Server Manager (PZASM) est un gestionnaire local pour Project Zomboid et son serveur dédié. Il distribue un ensemble cohérent de mods sous **un seul Workshop ID**, afin que le serveur synchronise le pack au lieu de chaque item source indépendamment.
+
+> État : version fonctionnelle pour Windows et Linux. Le Bundle, les snapshots figés, les projets multiples, l’import Workshop, SteamCMD, la planification coordonnée, la fenêtre de connexion, la gestion serveur et le CLI headless sont implémentés. Testez toujours une publication réelle avec un item privé.
+
+## Verdict technique
+
+Un item Workshop Project Zomboid peut contenir plusieurs dossiers sous `mods/`, avec un `mod.info` et un `id=` propres à chacun :
+
+```ini
+WorkshopItems=ID_UNIQUE_DU_PACK
+Mods=ModIdA;ModIdB;ModIdC;PZASM_Notice_SUFFIXE
+```
+
+Le serveur et les clients comparent uniquement la version de cet item Workshop global. Les Mod IDs internes servent ensuite au chargement. Les contrôles Lua et checksum habituels restent actifs.
+
+Le mode recommandé est **Bundle** : il conserve les dossiers et Mod IDs originaux. **Fusion stricte** crée un seul Mod ID mais refuse toute collision de fichiers différents.
+
+Consultez l’[étude d’architecture complète](docs/ARCHITECTURE.fr.md).
+
+## Fonctionnalités
+
+- détection du jeu, du serveur dédié, des bibliothèques Steam, de SteamCMD et des mods locaux/Workshop ;
+- lecture des structures Build 41/42 et sélection des dossiers de version compatibles ;
+- projets indépendants et réouvrables, chacun avec son GUID et son Workshop ID ;
+- snapshots privés SHA-256 empêchant une mise à jour Steam locale de modifier silencieusement un build ;
+- import par Workshop ID et ajout des dépendances `require=` disponibles ;
+- Bundle sans réécriture des dossiers, manifests, Lua, scripts, cartes ou assets ;
+- Fusion stricte avec déduplication des fichiers identiques et rapport des collisions ;
+- description Workshop et manifeste public exhaustifs ;
+- suivi des auteurs, licences, autorisations et preuves privées non publiées ;
+- popup de connexion optionnelle activée par défaut ;
+- génération des fichiers Workshop, VDF SteamCMD, configuration serveur et lockfile ;
+- création puis mises à jour du même item Workshop ;
+- éditeur de profils serveur avec sauvegardes et préservation de l’encodage ;
+- arrêt propre `save`/`quit` par RCON et redémarrage coordonné ;
+- UI locale et CLI headless sous Windows et Linux ;
+- daemon `automation run` avec verrous entre processus.
+
+## Démarrage
+
+Depuis les sources, installez le [SDK .NET 9](https://dotnet.microsoft.com/download/dotnet/9.0). Les artefacts autonomes de la CI n’exigent pas le runtime .NET.
+
+Windows :
+
+```powershell
+Start-PZASM.cmd
+```
+
+Linux :
+
+```bash
+chmod +x Start-PZASM.sh
+./Start-PZASM.sh
+```
+
+L’UI écoute localement sur `http://localhost:5160`. Utilisez `--data-root <dossier>` pour partager explicitement les données entre l’UI et le CLI.
+
+## Workflow recommandé
+
+1. Créez un projet en mode **Bundle**.
+2. Ajoutez les mods détectés ou importez un Workshop ID.
+3. Renseignez l’auteur et les autorisations de chaque source.
+4. Vérifiez l’ordre des mods et des cartes.
+5. Construisez et examinez `pack.lock.json` et `server-config.txt`.
+6. Configurez SteamCMD et publiez d’abord en privé.
+7. Testez sur un serveur de staging avant la production.
+
+## CLI headless
+
+```bash
+dotnet run --project src/PZAdvancedServerManager.Cli -- scan
+dotnet run --project src/PZAdvancedServerManager.Cli -- project create --name "Serveur principal"
+dotnet run --project src/PZAdvancedServerManager.Cli -- project import-workshop --id <guid> --workshop-id 1234567890
+dotnet run --project src/PZAdvancedServerManager.Cli -- project validate --id <guid>
+dotnet run --project src/PZAdvancedServerManager.Cli -- project build --id <guid>
+dotnet run --project src/PZAdvancedServerManager.Cli -- project publish --id <guid> --yes
+dotnet run --project src/PZAdvancedServerManager.Cli -- automation run --interval 30
+```
+
+Chaque projet représente un pack global séparé. Rien ne se met à jour automatiquement sans activation explicite. Des unités systemd de référence se trouvent dans `deploy/systemd/`.
+
+## Droits et responsabilité
+
+PZASM ne donne aucun droit sur les mods inclus. La [politique officielle Project Zomboid](https://projectzomboid.com/blog/modding-policy/) exige les autorisations appropriées et une liste complète pour les packs publics ou non listés. Steam exige aussi l’acceptation de son [accord Workshop](https://steamcommunity.com/workshop/workshopsubmitinfo/).
+
+Le créateur et l’éditeur du pack restent seuls responsables des autorisations, licences, crédits et contenus tiers. LemonCorp et les contributeurs de PZASM ne sont pas responsables des packs construits ou publiés par les utilisateurs.
+
+## Développement
+
+```powershell
+dotnet restore
+dotnet test PZAdvancedServerManager.sln
+dotnet publish src/PZAdvancedServerManager.App -c Release -o publish
+```
+
+N’exposez pas le port PZASM à Internet : l’interface est prévue pour une administration locale et n’implémente pas d’authentification réseau.

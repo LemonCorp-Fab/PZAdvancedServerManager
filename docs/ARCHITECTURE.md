@@ -1,40 +1,42 @@
-# Architecture et étude de faisabilité
+# Architecture and feasibility study
+
+[English](ARCHITECTURE.md) · [Français](ARCHITECTURE.fr.md) · [Español](ARCHITECTURE.es.md) · [Deutsch](ARCHITECTURE.de.md) · [Português (Brasil)](ARCHITECTURE.pt-BR.md) · [简体中文](ARCHITECTURE.zh-CN.md)
 
 ## Conclusion
 
-Le bon modèle n'est pas de concaténer aveuglément tous les répertoires `media`. Project Zomboid sait déjà charger plusieurs mods depuis un même item Workshop. PZASM exploite cette distinction :
+Blindly concatenating every `media` directory is not the right model. Project Zomboid already supports loading several logical mods from one Workshop item. PZASM uses that distinction:
 
 ```text
-un PublishedFileId Workshop
+one Workshop PublishedFileId
 └── mods/
-    ├── ModA/          → mod.info : id=ModA
-    ├── ModB/          → mod.info : id=ModB
-    └── PZASM_Notice/  → mod.info : id=PZASM_Notice_SUFFIXE
+    ├── ModA/          → mod.info: id=ModA
+    ├── ModB/          → mod.info: id=ModB
+    └── PZASM_Notice/  → mod.info: id=PZASM_Notice_SUFFIX
 ```
 
-Le jeu voit bien plusieurs **Mod IDs**, car ils sont nécessaires à son chargeur, mais il ne voit qu'un **Workshop ID à synchroniser**. Cela atteint l'objectif de stabilité sans les risques d'une fusion de fichiers.
+The game still sees several **Mod IDs**, because its loader needs them, but it sees only **one Workshop ID to synchronize**. This achieves the version-stability objective without the risks of a physical file merge.
 
-## Ce que le client Project Zomboid contrôle
+## What the Project Zomboid client checks
 
-L'inspection de la version locale 42.20.2 montre deux phases distinctes dans l'état de connexion client :
+Inspection of the local 42.20.2 installation shows two distinct multiplayer connection phases:
 
-1. la liste Workshop reçue du serveur contient un identifiant d'item et son horodatage ; le client compare l'horodatage installé/publié et déclenche le statut de version différente pour cet item ;
-2. la liste `Mods=` est ensuite chargée par Mod ID ; l'association Mod ID → Workshop ID sert notamment à expliquer un mod absent, mais aucun second horodatage Workshop n'est attaché à chaque sous-mod.
+1. the Workshop list received from the server contains each item ID and timestamp; the client compares the installed/published timestamp and reports a version mismatch for that item;
+2. the `Mods=` list is then loaded by Mod ID. The Mod ID-to-Workshop mapping can explain a missing mod, but no separate Workshop timestamp is attached to every logical mod contained in one item.
 
-Ensuite, le protocole multijoueur continue avec les vérifications normales, notamment le checksum Lua lorsque `DoLuaChecksum=true`. Le Bundle supprime donc le problème de décalage entre N items Workshop, sans désactiver les protections de cohérence du jeu.
+The normal multiplayer integrity phase follows, including Lua checksums when `DoLuaChecksum=true`. Bundle mode therefore removes drift between many independently updated Workshop items without disabling the game's consistency checks.
 
-Cette observation est spécifique à la version analysée et doit être couverte par des tests de compatibilité lors des futures mises à jour majeures de Project Zomboid.
+This finding applies to the inspected version and should be covered by compatibility tests after major Project Zomboid updates.
 
-## Structure rencontrée sur disque
+## On-disk layout
 
-Les items téléchargés pour l'App ID `108600` ont généralement cette forme :
+Workshop app `108600` items commonly use this structure:
 
 ```text
 steamapps/workshop/content/108600/<WorkshopId>/
 ├── mods/
-│   └── <DossierLogique>/
-│       ├── mod.info                  # manifeste historique / fallback
-│       ├── media/                    # contenu historique
+│   └── <LogicalFolder>/
+│       ├── mod.info                  # legacy manifest and fallback
+│       ├── media/                    # legacy content
 │       ├── common/
 │       │   ├── mod.info
 │       │   └── media/
@@ -44,140 +46,160 @@ steamapps/workshop/content/108600/<WorkshopId>/
 │       └── 42.13/
 │           ├── mod.info
 │           └── media/
-└── workshop.txt ou autres métadonnées locales selon la source
+└── workshop.txt or other local source metadata
 ```
 
-Un item Workshop peut déjà contenir plusieurs dossiers logiques. `mod.info` fournit notamment `name`, `id`, `author`, `description`, `poster`, `require`, contraintes de version et métadonnées libres. Le répertoire `media` peut contenir :
+One Workshop item can already contain several logical mod folders. `mod.info` provides fields such as `name`, `id`, `author`, `description`, `poster`, `require`, version constraints, and free-form metadata. A `media` directory may contain:
 
-- `lua/client`, `lua/server`, `lua/shared` ;
-- `scripts` et définitions d'items/véhicules/recettes ;
-- `maps`, lots, cellules, zones de spawn ;
-- textures, UI, modèles, animations, sons, radios, traductions et autres assets.
+- `lua/client`, `lua/server`, and `lua/shared`;
+- scripts and item, vehicle, recipe, or distribution definitions;
+- maps, lots, cells, spawn regions, and zones;
+- textures, UI, models, animations, sounds, radios, translations, and other assets.
 
-Pour Build 42, PZASM conserve tout le dossier en mode Bundle. Pour les analyses et la Fusion stricte, il compose le contenu effectif dans l'ordre `media` historique, `common/media`, puis variante numérique compatible la plus élevée.
+Bundle mode preserves each complete source directory. Analysis and Strict Fusion compose effective content in this order: legacy `media`, `common/media`, then the highest compatible numeric version.
 
-## Pourquoi la fusion complète est risquée
+## Why a complete merge is risky
 
-Deux mods indépendants peuvent employer la même destination relative sans parler du même objet :
+Independent mods can use the same relative destination for unrelated objects:
 
-- `media/lua/client/...` : remplacement de module, `require`, événements enregistrés deux fois, globals identiques ;
-- `media/scripts/...` : IDs d'items, recettes, véhicules ou distributions identiques ;
-- textures/modèles : même nom de ressource mais contenu différent ;
-- cartes : mêmes cellules, dossiers, lots ou zones ;
-- traductions/UI : mêmes clés ;
-- Java : classes/JAR, chargement natif et compatibilité de version.
+- Lua modules, `require` paths, duplicate events, or global names;
+- script item, recipe, vehicle, or distribution IDs;
+- texture and model resource names;
+- map cells, folders, lots, and zones;
+- translation or UI keys;
+- Java classes, JAR files, native loading, and runtime-specific code.
 
-Réécrire seulement les chemins n'est pas suffisant : les références peuvent être dans Lua, les scripts, les modèles, les cartes ou du bytecode. PZASM applique donc une règle déterministe : fichier identique = déduplication ; variante plus récente du même mod = remplacement de sa partie `common` ; collision différente entre deux mods = erreur de build.
+Renaming files is insufficient because references can exist in Lua, scripts, models, maps, or bytecode. Strict Fusion therefore follows a deterministic rule: identical file means deduplication; a newer compatible layer of the same mod overrides its older layer; different content from different mods at the same destination is a build error.
 
-## Les deux modes
+## Packaging modes
 
-### Bundle — recommandé
+### Bundle — recommended
 
-- un Workshop ID ;
-- N Mod IDs originaux, plus la notice optionnelle ;
-- dossiers de chaque mod copiés sans modification ;
-- dépendances `require=` ajoutées si elles sont installées ;
-- description et lockfile exhaustifs ;
-- compatibilité maximale avec les appels comme `getActivatedMods()`, `getModInfoByID()` et `getModFileReader()`.
+- one Workshop ID;
+- the original Mod IDs plus the optional notice;
+- each source directory copied without semantic rewriting;
+- available `require=` dependencies included;
+- exhaustive description and lockfile;
+- maximum compatibility with `getActivatedMods()`, `getModInfoByID()`, and `getModFileReader()`.
 
-### Fusion stricte — avancé
+### Strict Fusion — advanced
 
-- un Workshop ID et un Mod ID généré `PZASM_Pack_<suffixe>` ;
-- fusion du contenu `media` effectif ;
-- aucune décision silencieuse en cas de collision ;
-- utile seulement pour un ensemble maîtrisé et testé ;
-- certains mods qui recherchent leur propre Mod ID ou leur racine ne peuvent pas fonctionner sans patch explicite.
+- one Workshop ID and one generated `PZASM_Pack_<suffix>` Mod ID;
+- effective `media` content merged;
+- no silent collision decisions;
+- suitable only for controlled, tested mod sets;
+- incompatible with some mods that inspect their original Mod ID or root directory.
 
-## Projet durable et mises à jour
+## Durable projects and pinned versions
 
-Chaque projet possède un GUID immuable. Le suffixe de ses Mod IDs PZASM est dérivé de ce GUID. Le fichier de projet conserve aussi le `publishedfileid` Steam :
+Every project has an immutable GUID, and its PZASM Mod ID suffix is derived from that GUID. The project also retains Steam's `publishedfileid`:
 
-- valeur `0` : SteamCMD crée un item ;
-- après succès : SteamCMD réécrit le VDF avec le nouvel ID, que PZASM mémorise ;
-- publications suivantes : le même ID est utilisé et l'item est mis à jour.
+- `0`: SteamCMD creates an item;
+- after success: SteamCMD rewrites the VDF with the new ID, which PZASM saves;
+- later publications: the same ID is reused and updated.
 
-Le lockfile contient la liste des sources et un SHA-256 de chaque fichier livré. Cela permet de savoir exactement ce qui constituait un build donné, même si les sources Workshop ont changé ensuite.
+When a source is added, PZASM copies it into a private project snapshot and records a SHA-256 tree hash. Builds use the pinned copy, not the mutable Steam Workshop cache. A source refresh is an explicit lifecycle operation that downloads, validates, and atomically replaces the snapshot.
 
-## Publication et planification
+The public lockfile records every delivered source and file hash. It identifies the exact contents of a build even after upstream Workshop items have changed.
 
-Steam documente que `workshop_build_item` crée un item lorsque `publishedfileid=0`, puis met ce champ à jour pour permettre les publications suivantes sur le même item. Voir le [guide Steamworks Workshop](https://partner.steamgames.com/doc/features/workshop/implementation).
+## Publication and scheduling
 
-Le planificateur PZASM :
+Steam documents that `workshop_build_item` creates an item when `publishedfileid=0` and updates that field for later submissions to the same item. See the [Steamworks Workshop implementation guide](https://partner.steamgames.com/doc/features/workshop/implementation).
 
-1. vérifie qu'un horaire est dû ;
-2. refuse de publier si une autorisation, une dépendance ou un fichier est invalide ;
-3. peut demander à SteamCMD d'actualiser chaque item source ;
-4. repointe les sources vers le cache SteamCMD correspondant au même Mod ID ;
-5. reconstruit le pack dans un répertoire temporaire ;
-6. publie le VDF sur le même Workshop ID ;
-7. conserve l'état et le résultat dans le projet.
+The PZASM scheduler:
 
-Aucun mot de passe ni code Steam Guard n'est persisté. L'utilisateur doit préparer la session SteamCMD du compte. Une automatisation de production devrait utiliser un compte limité et un serveur de staging.
+1. determines whether a configured time is due;
+2. validates permissions, dependencies, project state, and source files;
+3. optionally downloads current source items with SteamCMD;
+4. resolves every source to the matching Mod ID in the SteamCMD cache;
+5. atomically replaces private snapshots and recalculates SHA-256 hashes;
+6. builds exclusively from snapshots in a temporary directory;
+7. coordinates `save` and `quit` through RCON when the server is online;
+8. publishes the VDF to the same Workshop ID;
+9. restarts the server if PZASM stopped it;
+10. records timestamps and results in the project.
 
-## Fenêtre injectée
+Passwords and Steam Guard codes are never persisted. The administrator prepares the SteamCMD account session. Production automation should use a limited account and a staging server.
 
-La notice est un petit mod Lua client séparé en mode Bundle, et un fichier client intégré au Mod ID du pack en mode Fusion. Sur `Events.OnConnected`, elle ouvre une fenêtre défilante contenant :
+## Injected connection notice
 
-- le nom PZ Advanced Server Manager ;
-- le titre et la description choisis ;
-- un avertissement clair sur les droits ;
-- chaque mod, son auteur, son Mod ID et son Workshop ID source.
+The notice is a separate client Lua mod in Bundle mode and an integrated client file in Strict Fusion. On `Events.OnConnected`, it opens a scrollable window containing:
 
-L'injection est activée par défaut mais peut être désactivée au niveau du projet. Elle ne télécharge rien et ne contacte aucun service externe.
+- the PZ Advanced Server Manager name;
+- the chosen title and description;
+- a clear rights warning;
+- every source mod, author, Mod ID, and original Workshop ID.
 
-## Pourquoi un exécutable/service externe est nécessaire
+Injection is enabled by default and can be disabled per project. The notice downloads nothing and contacts no external service.
 
-Un mod PZ s'exécute dans le contexte et le cycle de vie du jeu. Il n'est pas une base fiable pour :
+## Why an external application is required
 
-- parcourir toutes les bibliothèques Steam avant le lancement ;
-- copier et hacher des dizaines de milliers de fichiers ;
-- conserver des projets et justificatifs privés ;
-- lancer SteamCMD, gérer Steam Guard ou publier un item ;
-- planifier une mise à jour quand aucun jeu n'est lancé ;
-- éditer et sauvegarder proprement plusieurs profils serveur.
+A Project Zomboid mod runs inside the game's process and lifecycle. It is not a reliable environment for:
 
-PZASM est donc une application ASP.NET Core locale avec un worker d'arrière-plan, complétée par un CLI headless qui utilise exactement le même cœur et le même format de projet. Les deux sont publiés pour Windows x64 et Linux x64. Le seul composant exécuté par Project Zomboid est le mod de notice généré.
+- discovering Steam libraries before launch;
+- copying and hashing large file trees;
+- retaining projects and private permission evidence;
+- starting SteamCMD and publishing Workshop items;
+- scheduling updates while no game process is running;
+- editing, backing up, starting, and stopping several server profiles.
 
-## Modèle multi-projets
+PZASM is therefore a local ASP.NET Core application plus a shared headless CLI. Both use the same core, project format, lifecycle services, and locks. Windows x64 and Linux x64 are supported. The generated notice is the only component executed by Project Zomboid.
 
-Un projet correspond à un mod global/pack Workshop indépendant :
+## Multi-project model
 
-- GUID et suffixe PZASM propres ;
-- un `publishedfileid` propre, créé à la première publication ;
-- sources, versions, droits, cartes et serveur associé propres ;
-- mises à jour suivantes envoyées exclusivement sur ce même Workshop ID.
+One project represents one independent global Workshop pack:
 
-Créer un autre projet crée donc un autre pack sans écraser ni coupler le premier. L'UI et le CLI affichent et rouvrent le même catalogue de projets.
+- its own GUID and stable suffix;
+- its own `publishedfileid`, created by the first publication;
+- its own sources, pinned versions, rights, maps, and coordinated server;
+- later updates sent only to that same Workshop item.
 
-## Windows, Linux et headless
+Creating another project therefore creates another independent pack. The UI and CLI open the same project catalog when they use the same data root.
 
-Le cœur .NET détecte les bibliothèques Steam classiques des deux systèmes, `steamcmd.exe` ou `steamcmd.sh`, `StartServer64.bat` ou `start-server.sh`, et conserve ses données dans le répertoire applicatif local de l'OS. L'UI web locale ne dépend pas d'un framework graphique natif et fonctionne donc de manière identique sous Linux.
+## Windows, Linux, and headless operation
 
-Le CLI couvre l'inventaire, les projets, les droits, la validation, le build, la publication volontaire avec `--yes`, ainsi que le statut/démarrage/arrêt/application serveur. Il convient aux serveurs administrés par SSH, aux conteneurs persistants et aux services systemd.
+The .NET core detects standard Steam locations on Windows and Linux, `steamcmd.exe` or `steamcmd.sh`, and `StartServer64.bat` or `start-server.sh`. The local web UI requires no native desktop toolkit.
 
-## Sécurité, droits et publication
+The CLI covers inventory, project creation and duplication, source add/remove/import/refresh, permission records, validation, build, explicit publication, server configuration, status, startup, graceful shutdown, pack application, and scheduled daemon operation. It is suitable for SSH-managed servers, persistent containers, and systemd services.
 
-La [politique officielle Project Zomboid](https://projectzomboid.com/blog/modding-policy/) exige l'autorisation de chaque auteur pour les packs publics et pour les packs serveur non listés. Une copie personnelle n'est exemptée que si elle n'est ni publiée ni rendue téléchargeable. La liste complète des sources doit être visible.
+The UI worker and `pzasm automation run` use the same `PackageAutomationService`. A global scheduler lock prevents duplicate schedule execution, and per-project locks prevent concurrent refresh, build, and publish operations across processes.
 
-Conséquences dans PZASM :
+## Core boundaries
 
-- l'utilisateur doit accepter l'avertissement global ;
-- chaque source a un statut et une preuve ;
-- un statut inconnu autorise un build local mais bloque la publication ;
-- un refus bloque le build ;
-- les preuves privées restent hors de `Contents` ;
-- la description publique est générée, exhaustive et ne peut pas omettre discrètement une source ;
-- LemonCorp ne garantit pas les déclarations saisies par l'utilisateur et ne saurait être responsable de leur exactitude.
+The front ends contain no duplicated business workflow:
 
-Steam peut maintenir un nouvel item caché tant que le contributeur n'a pas accepté l'[accord légal Workshop](https://steamcommunity.com/workshop/workshopsubmitinfo/).
+- `PackageProjectService` owns creation, dependency-aware addition, snapshots, ordering, duplication, and deletion;
+- `PackageLifecycleService` owns refresh, build, publish, and server coordination;
+- `PackageAutomationService` is shared by the UI worker and CLI daemon;
+- `ServerProfileService` owns name validation, encoding, backups, pack application, and RCON orchestration;
+- `WorkshopImportService` owns SteamCMD download, discovery, and import by Workshop ID;
+- `PzasmConstants` contains shared product identifiers and values.
 
-## Risques opérationnels restants
+Older projects are migrated in memory to the current schema. Snapshots and builds are prepared in temporary directories before atomic replacement. Destructive file operations are constrained to validated PZASM data roots.
 
-- Une mise à jour PZ peut modifier le protocole ou la structure Build 42.
-- Un auteur peut changer un Mod ID, une dépendance ou sa licence.
-- Les cartes peuvent nécessiter un ordre manuel particulier.
-- Un mod peut dépendre d'un autre sans déclarer `require=`.
-- Deux sources peuvent déclarer le même Mod ID.
-- Les scripts serveur et client restent soumis à `DoLuaChecksum`.
-- SteamCMD est prévu par Valve surtout comme outil technique/test et peut réclamer une intervention de compte.
-- Un serveur doit être redémarré proprement après publication pour charger le nouveau pack ; PZASM ne force pas actuellement l'arrêt d'un processus serveur sans orchestration explicite.
+## Security, rights, and publication
+
+The [official Project Zomboid modding policy](https://projectzomboid.com/blog/modding-policy/) requires author permission for public packs and unlisted server packs. A personal copy is exempt only while it is neither published nor made downloadable. The complete source list must remain visible.
+
+PZASM therefore enforces these rules:
+
+- the user must acknowledge the global warning;
+- every source has a permission status and evidence fields;
+- unknown permission allows a local build but blocks publication;
+- denied permission blocks the build;
+- private evidence stays outside `Contents`;
+- the generated public description contains every source;
+- LemonCorp does not certify user-entered declarations and is not responsible for their accuracy.
+
+Steam may keep a new item hidden until its contributor accepts the [Workshop legal agreement](https://steamcommunity.com/workshop/workshopsubmitinfo/).
+
+## Remaining operational risks
+
+- A Project Zomboid update can change the multiplayer protocol or Build 42 layout.
+- A source author can change a Mod ID, dependency, map layout, or license.
+- Maps can require a specific manual order.
+- A mod can depend on another mod without declaring `require=`.
+- Two sources can declare the same logical Mod ID.
+- Client and server scripts remain subject to `DoLuaChecksum`.
+- SteamCMD can require interactive account intervention.
+- The server must restart after publication to load the new pack; forced process termination remains intentionally unsupported.

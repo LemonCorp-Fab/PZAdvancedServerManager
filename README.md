@@ -1,121 +1,126 @@
 # PZ Advanced Server Manager
 
-PZ Advanced Server Manager (PZASM) est un gestionnaire local pour Project Zomboid et Project Zomboid Dedicated Server. Son objectif principal est de distribuer un ensemble cohérent de mods sous **un seul Workshop ID**, afin que le contrôle de version Workshop du serveur porte sur le pack et non sur chacun des items sources.
+[English](README.md) · [Français](README.fr.md) · [Español](README.es.md) · [Deutsch](README.de.md) · [Português (Brasil)](README.pt-BR.md) · [简体中文](README.zh-CN.md)
 
-> Statut : première version fonctionnelle Windows et Linux. Le mode Bundle, la persistance multi-projets, l'analyse locale, la construction, la publication SteamCMD, la planification coordonnée, la fenêtre de connexion, l'édition des configurations serveur et le CLI headless sont implémentés. Une publication réelle doit toujours être testée sur un item privé avant utilisation en production.
+PZ Advanced Server Manager (PZASM) is a local manager for Project Zomboid and Project Zomboid Dedicated Server. Its primary purpose is to distribute a coherent set of mods through **one Workshop ID**, so the server synchronizes the pack instead of every source item independently.
 
-## Verdict technique
+> Status: functional Windows and Linux release. Bundle mode, pinned source snapshots, multi-project persistence, Workshop import, builds, SteamCMD publishing, coordinated scheduling, the connection notice, server management, and the headless CLI are implemented. Always test a real publication with a private item before using it in production.
 
-Oui, le concept fonctionne sans fusionner les dossiers `media` : un item Workshop Project Zomboid peut contenir plusieurs dossiers sous `mods/`, chacun avec son propre `mod.info` et son propre `id=`. La configuration serveur référence alors :
+## Technical verdict
+
+The concept works without merging every `media` directory. A Project Zomboid Workshop item can contain several folders under `mods/`, each with its own `mod.info` and `id=` value. The server then references:
 
 ```ini
-WorkshopItems=ID_UNIQUE_DU_PACK
-Mods=ModIdA;ModIdB;ModIdC;PZASM_Notice_SUFFIXE
+WorkshopItems=UNIQUE_PACK_ID
+Mods=ModIdA;ModIdB;ModIdC;PZASM_Notice_SUFFIX
 ```
 
-Le serveur et les clients comparent la version de l'unique item Workshop. Les Mod IDs internes servent ensuite au chargement. Les contrôles Lua/checksum normaux de Project Zomboid restent actifs : un pack incohérent ou modifié localement peut donc encore être refusé, ce qui est souhaitable.
+The server and clients compare the version of the single Workshop item. Internal Mod IDs are used during loading. Standard Project Zomboid Lua and checksum checks remain enabled, so an inconsistent or locally altered pack can still be rejected.
 
-Le mode recommandé s'appelle **Bundle**. Le mode **Fusion stricte** produit réellement un seul Mod ID, mais refuse toute collision de fichiers non identiques au lieu de choisir silencieusement un gagnant.
+The recommended mode is **Bundle**. **Strict Fusion** creates a single Mod ID but rejects every conflicting non-identical file instead of silently choosing a winner.
 
-L'analyse complète est dans [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+See the complete [architecture and feasibility study](docs/ARCHITECTURE.md).
 
-## Fonctionnalités présentes
+## Features
 
-- détection des bibliothèques Steam, du jeu, du serveur dédié, de SteamCMD, des mods locaux et des items Workshop `108600` ;
-- lecture des structures Build 41/42, dont `common`, `42`, `42.13`, etc., avec sélection de la variante compatible la plus élevée ;
-- projets `.pzasm.json` réouvrables : GUID/suffixe stable, Workshop ID publié, sources, versions, ordre, cartes, automatisation et autorisations ;
-- ajout automatique des dépendances `require=` disponibles localement et blocage si une dépendance manque ;
-- Bundle conservant les dossiers, `mod.info`, Mod IDs, Lua, scripts, cartes et assets d'origine ;
-- Fusion stricte avec déduplication des fichiers identiques et rapport des collisions incompatibles ;
-- description Workshop exhaustive avec auteur, Mod ID, lien d'origine, Workshop ID et statut des droits ;
-- justificatifs publics et pièces privées locales — les pièces privées ne sont jamais placées dans `Contents` ;
-- mod de notice injecté par défaut : popup lors de la connexion, description du pack, avertissement et liste exhaustive ;
-- génération de `workshop.txt`, `steamcmd-item.vdf`, `server-config.txt`, aperçu PNG, manifeste public dans le pack et `pack.lock.json` avec SHA-256 ;
-- création et mise à jour du même item par SteamCMD ; le `publishedfileid` réécrit est mémorisé dans le projet ;
-- planification quotidienne optionnelle : actualisation SteamCMD, reconstruction et publication ;
-- éditeur complet des fichiers `Zomboid/Server/*.ini`, préservation de l'encodage et sauvegarde horodatée ;
-- application d'un pack publié à un serveur en remplaçant uniquement `WorkshopItems`, `Mods` et `Map`.
-- orchestration sûre : statut RCON, `save`, `quit`, démarrage Windows/Linux et redémarrage autour d'une publication planifiée ;
-- CLI Windows/Linux pour les machines sans bureau ou administrées par SSH.
+- detection of Steam libraries, the game, the dedicated server, SteamCMD, local mods, and Workshop app `108600` items;
+- Build 41/42 layout parsing, including `common`, `42`, `42.13`, and other compatible version folders;
+- reopenable `.pzasm.json` projects with stable GUID/suffix, published Workshop ID, sources, versions, order, maps, automation, and permission records;
+- private SHA-256 source snapshots created when a mod is added, preventing a local Steam update from silently changing a future build;
+- explicit snapshot refresh, kept separate from build and publish operations;
+- direct Workshop ID import through SteamCMD, including every compatible `mod.info` and available dependency;
+- project duplication and local deletion without changing source mods or deleting Workshop items;
+- automatic addition of available `require=` dependencies and validation errors for missing dependencies;
+- Bundle builds that preserve original folders, manifests, Mod IDs, Lua, scripts, maps, and assets;
+- Strict Fusion builds with identical-file deduplication and incompatible-collision reports;
+- exhaustive Workshop descriptions with author, Mod ID, original link, source Workshop ID, and permission status;
+- public evidence and local private attachments, with private evidence always excluded from `Contents`;
+- an optional connection notice enabled by default, containing the pack description, legal notice, and exhaustive mod list;
+- generation of `workshop.txt`, `steamcmd-item.vdf`, `server-config.txt`, preview PNG, public manifest, and SHA-256 `pack.lock.json`;
+- creation and update of the same Workshop item, with the SteamCMD-written `publishedfileid` saved back into the project;
+- optional daily refresh, build, and publication schedules;
+- full `Zomboid/Server/*.ini` editor with encoding preservation and timestamped backups;
+- safe pack application that only replaces `WorkshopItems`, `Mods`, and `Map`;
+- RCON status, `save`, `quit`, Windows/Linux startup, and coordinated restart around scheduled publication;
+- Windows/Linux CLI for desktop-free and SSH-managed hosts;
+- `automation run` CLI daemon with inter-process locks when the UI and CLI are active at the same time.
 
-## Démarrage
+## Getting started
 
-Prérequis depuis les sources : Windows ou Linux et le SDK [.NET 9](https://dotnet.microsoft.com/download/dotnet/9.0). Les artefacts autonomes de la CI n'exigent pas le runtime .NET. SteamCMD n'est requis que pour actualiser/publier.
+Building from source requires Windows or Linux and the [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0). Self-contained CI artifacts do not require the .NET runtime. SteamCMD is required only for source refresh and publication.
 
-Double-cliquer sur `Start-PZASM.cmd` (le navigateur s'ouvre quand le service est prêt), ou :
+On Windows, run `Start-PZASM.cmd`, or:
 
 ```powershell
 dotnet run --project src/PZAdvancedServerManager.App -- --open-browser
 ```
 
-Sous Linux :
+On Linux:
 
 ```bash
 chmod +x Start-PZASM.sh
 ./Start-PZASM.sh
 ```
 
-L'interface écoute uniquement sur la machine locale par défaut, à `http://localhost:5160`. Les données utilisateur sont conservées dans :
+Use `--data-root <path>` to share an explicit data directory between the UI and CLI. The UI listens only on the local machine by default at `http://localhost:5160`.
 
-```text
-%LOCALAPPDATA%\LemonCorp\PZAdvancedServerManager
-```
+PZASM never modifies Steam sources during a build. It builds from private pinned snapshots in its own data directory.
 
-Les sources Steam et les configurations PZ ne sont jamais modifiées pendant un build. L'application copie les sources vers son dossier de build.
+## Recommended workflow
 
-## Workflow conseillé
+1. Create a project and keep **Bundle** mode.
+2. Describe the pack and keep the connection notice enabled.
+3. Add detected mods or import a Workshop ID. Known dependencies are added and their content is pinned immediately.
+4. Record the author and permission or license evidence for every source.
+5. Review mod and map order.
+6. Build locally and inspect `pack.lock.json` and `server-config.txt`.
+7. Configure SteamCMD, authenticate manually once, and publish with private visibility.
+8. Test on a staging server.
+9. Apply the pack from the Servers page; PZASM backs up the `.ini` first.
 
-1. Créer un projet et conserver le mode **Bundle**.
-2. Décrire clairement le pack et laisser la fenêtre de connexion activée.
-3. Ajouter les mods détectés ; les dépendances connues sont ajoutées avec eux.
-4. Pour chaque source, renseigner l'auteur et la preuve d'autorisation ou la licence.
-5. Vérifier l'ordre des mods et des cartes.
-6. Construire localement et examiner `pack.lock.json` et `server-config.txt`.
-7. Configurer SteamCMD, s'y authentifier une première fois manuellement, puis publier en visibilité privée.
-8. Tester un serveur de staging avant de mettre l'item sur le serveur principal.
-9. Appliquer le pack depuis l'écran Serveurs ; PZASM crée d'abord une sauvegarde du `.ini`.
+## Headless CLI
 
-## Mode CLI headless
-
-Le CLI manipule les mêmes projets que l'UI. Chaque `project create` crée un pack global séparé qui recevra son propre Workshop ID ; `project publish` met ensuite ce même item à jour.
+The CLI uses the same projects as the UI. Every `project create` command creates an independent global pack with its own future Workshop ID. Later `project publish` operations update that same item.
 
 ```bash
-# inventaire local
+# Local inventory
 dotnet run --project src/PZAdvancedServerManager.Cli -- scan
 
-# créer et enrichir un pack
-dotnet run --project src/PZAdvancedServerManager.Cli -- project create --name "Serveur principal"
+# Create and populate a pack
+dotnet run --project src/PZAdvancedServerManager.Cli -- project create --name "Primary server"
 dotnet run --project src/PZAdvancedServerManager.Cli -- project add --id <guid> --mod-id damnlib
+dotnet run --project src/PZAdvancedServerManager.Cli -- project import-workshop --id <guid> --workshop-id 1234567890
 dotnet run --project src/PZAdvancedServerManager.Cli -- project validate --id <guid>
 dotnet run --project src/PZAdvancedServerManager.Cli -- project build --id <guid>
 
-# programmer ce même pack depuis une session SSH
+# Schedule the same pack from an SSH session
 dotnet run --project src/PZAdvancedServerManager.Cli -- project configure --id <guid> --server servertest --automation true --schedule "04:00,16:00"
 
-# publication volontaire uniquement
+# Explicit publication
 dotnet run --project src/PZAdvancedServerManager.Cli -- project publish --id <guid> --yes
 
-# serveur Linux/Windows
+# Windows/Linux server management
 dotnet run --project src/PZAdvancedServerManager.Cli -- server status --name servertest
 dotnet run --project src/PZAdvancedServerManager.Cli -- server stop --name servertest --yes
 dotnet run --project src/PZAdvancedServerManager.Cli -- server set --name servertest --key MaxPlayers --value 32 --yes
+
+# Headless scheduler daemon
+dotnet run --project src/PZAdvancedServerManager.Cli -- automation run --interval 30
 ```
 
-Exécutez `pzasm help` ou le binaire CLI sans argument pour la liste complète. Les opérations de publication, d'arrêt et d'application exigent `--yes`. Rien ne se met à jour automatiquement sans activation explicite de l'administrateur.
+Run `pzasm help` for the complete command list. Publication, stop, apply, and delete operations require explicit confirmation. Nothing updates automatically until the administrator enables automation.
 
-## Droits et responsabilité
+Reference systemd units are available in `deploy/systemd/`. Normally, run either the UI or the CLI daemon for scheduling; shared locks still prevent concurrent operations.
 
-PZASM est un outil technique. Il ne donne aucun droit sur les mods inclus et ne transforme pas une redistribution non autorisée en utilisation permise.
+## Rights and responsibility
 
-La [politique officielle de modding Project Zomboid](https://projectzomboid.com/blog/modding-policy/) distingue :
+PZASM is a technical tool. It grants no rights over included mods and does not make unauthorized redistribution permissible.
 
-- les packs publics, qui exigent l'autorisation de chaque auteur et une liste complète ;
-- les packs semi-privés/non listés, qui exigent également les autorisations ;
-- les copies strictement personnelles qui ne sont jamais publiées ni rendues téléchargeables.
+The [official Project Zomboid modding policy](https://projectzomboid.com/blog/modding-policy/) distinguishes public packs, unlisted/server packs, and strictly personal copies. Public and unlisted distributions require the appropriate permissions and a complete source list. Steam also requires acceptance of its [Workshop legal agreement](https://steamcommunity.com/workshop/workshopsubmitinfo/).
 
-Steam exige aussi l'acceptation de son [accord légal Workshop](https://steamcommunity.com/workshop/workshopsubmitinfo/). Le créateur et l'éditeur du pack sont seuls responsables des autorisations, crédits, licences et contenus tiers. LemonCorp et les contributeurs de PZASM ne sont pas responsables des packs construits ou publiés par les utilisateurs.
+The pack creator and publisher are solely responsible for permissions, credits, licenses, and third-party content. LemonCorp and PZASM contributors are not responsible for packs built or published by users.
 
-## Développement et tests
+## Development and tests
 
 ```powershell
 dotnet restore
@@ -123,14 +128,14 @@ dotnet test PZAdvancedServerManager.sln
 dotnet publish src/PZAdvancedServerManager.App -c Release -o publish
 ```
 
-La CI GitHub exécute les tests puis produit deux artefacts autonomes (`win-x64` et `linux-x64`), chacun avec l'UI locale et le CLI headless. Lancez l'UI avec `--open-browser`. N'exposez pas le port PZASM à Internet : l'interface est un outil d'administration local et n'implémente pas d'authentification réseau.
+GitHub Actions tests Windows and Linux and produces self-contained `win-x64` and `linux-x64` artifacts containing the local UI and headless CLI. Do not expose the PZASM port to the Internet: the UI is a local administration tool and does not provide network authentication.
 
-Le projet cible .NET 9 et n'a pas besoin d'une base de données. Les écritures JSON sont atomiques et les builds sont préparés dans un dossier temporaire avant remplacement.
+The project targets .NET 9 and requires no database. JSON writes are atomic, and snapshots and builds are prepared in temporary directories before replacement.
 
-## Limites à connaître
+## Known limitations
 
-- SteamCMD s'appuie sur la session Steam du compte ; PZASM ne stocke jamais le mot de passe ni le code Steam Guard.
-- Le premier item peut rester masqué tant que l'accord légal Workshop n'est pas accepté.
-- Une mise à jour d'un mod source peut modifier ses dépendances, Mod IDs ou cartes : un build planifié peut alors être bloqué par la validation.
-- La fusion stricte ne tente pas de réécrire automatiquement les namespaces Lua, IDs de scripts, noms de textures, modèles, véhicules ou cartes. Une telle réécriture serait fragile et pourrait changer le comportement du mod.
-- Les mods contenant des binaires ou extensions refusées par le validateur Workshop PZ sont bloqués.
+- SteamCMD relies on the Steam account session; PZASM never stores passwords or Steam Guard codes.
+- A new item can remain hidden until the Workshop legal agreement is accepted.
+- A source update can change dependencies, Mod IDs, maps, or licensing and may be blocked during validation.
+- Strict Fusion does not rewrite Lua namespaces, script IDs, textures, models, vehicles, or maps.
+- Mods containing binaries or extensions rejected by the Project Zomboid Workshop validator are blocked.

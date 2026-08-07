@@ -55,7 +55,8 @@ p { color: var(--muted); line-height: 1.65; }
 
 input, textarea, select { width: 100%; color: var(--text); background: #0c100e; border: 1px solid #344037; border-radius: 9px; padding: 11px 12px; outline: none; transition: border-color .15s, box-shadow .15s; }
 input:focus, textarea:focus, select:focus { border-color: var(--green-dark); box-shadow: 0 0 0 3px rgba(166,215,95,.1); }
-input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--green-dark); }
+input[type="checkbox"], input[type="radio"] { width: 18px; height: 18px; padding: 0; accent-color: var(--green-dark); }
+input[type="checkbox"]:focus, input[type="radio"]:focus { box-shadow: 0 0 0 3px rgba(166,215,95,.16); }
 label > span { display: block; margin-bottom: 6px; color: #c7cec5; font-size: .85rem; font-weight: 700; }
 label small { display: block; margin-top: 6px; color: var(--muted); font-weight: 400; line-height: 1.4; }
 .stack-form { display: grid; gap: 12px; }
@@ -168,7 +169,7 @@ label small { display: block; margin-top: 6px; color: var(--muted); font-weight:
 .choice-grid.three { grid-template-columns: repeat(3, minmax(0,1fr)); }
 .choice-card { display: flex; min-height: 110px; padding: 16px; gap: 12px; align-items: flex-start; border: 1px solid var(--line); border-radius: 11px; background: #0d120f; cursor: pointer; }
 .choice-card:has(input:checked) { border-color: #759d51; background: #172216; box-shadow: 0 0 0 3px rgba(166,215,95,.07); }
-.choice-card input { margin-top: 2px; flex: 0 0 auto; }
+.choice-card input[type="radio"] { margin: 2px 0 0; flex: 0 0 18px; }
 .choice-card > span { margin: 0; }
 .choice-card strong, .choice-card small { display: block; }
 .choice-card small { margin-top: 7px; color: var(--muted); font-weight: 400; line-height: 1.45; }

@@ -43,7 +43,8 @@ Mods=ModIdA;ModIdB;ModIdC;PZASM_Notice_SUFFIX
 - Workshop 导入显示详细进度，包括当前项目、阶段、数量、百分比、分析结果和可恢复错误；
 - 地图优先级助手会分析 `map.info`、`lots=` 依赖和 `.lotheader` 单元格冲突，并支持拖放与原始 `Map=` 编辑；
 - 服务器引导编辑器覆盖身份、访问、RCON、会话、备份和内容，同时保留完整 INI 原始编辑器；
-- 通过 RCON 执行 `save`/`quit` 并协调重启；
+- 通过真实 RCON 身份验证显示状态、执行任意管理命令、发送 `save`/`quit` 并协调重启，远程配置无需 SSH；
+- 发布、SteamCMD 登录和模组更新均提供详细且可取消的进度、实时输出和超时保护；
 - Windows/Linux 本地 UI 与无界面 CLI；
 - 带跨进程锁的 `automation run` 守护进程。
 
@@ -76,7 +77,7 @@ SteamCMD 可以下载已知 Workshop ID，但不提供完整搜索。内置目�
 3. 为每个来源记录作者和授权信息。
 4. 检查模组与地图顺序。
 5. 本地构建并检查 `pack.lock.json` 和 `server-config.txt`。
-6. 一键安装 SteamCMD，配置发布者账号，并先以私有可见性发布。
+6. 一键安装 SteamCMD，配置发布者账号，先执行**连接 / 更新会话**，再以私有可见性发布。
 7. 在投入生产前使用测试服务器验证。
 
 ## 无界面 CLI
@@ -84,6 +85,7 @@ SteamCMD 可以下载已知 Workshop ID，但不提供完整搜索。内置目�
 ```bash
 dotnet run --project src/PZAdvancedServerManager.Cli -- scan
 dotnet run --project src/PZAdvancedServerManager.Cli -- steamcmd install
+dotnet run --project src/PZAdvancedServerManager.Cli -- steamcmd login --id <guid>
 dotnet run --project src/PZAdvancedServerManager.Cli -- project create --name "主服务器"
 dotnet run --project src/PZAdvancedServerManager.Cli -- project import-workshop --id <guid> --workshop-id 1234567890
 dotnet run --project src/PZAdvancedServerManager.Cli -- project validate --id <guid>
@@ -93,6 +95,12 @@ dotnet run --project src/PZAdvancedServerManager.Cli -- automation run --interva
 ```
 
 每个项目都是独立的全局模组包。管理员未明确启用自动化前，不会自动更新。`deploy/systemd/` 中提供了 systemd 服务示例。
+
+## SteamCMD 与远程服务器
+
+Steam 密码和 Steam Guard 验证码只在当前请求中通过标准输入发送给 SteamCMD；PZASM 不会把它们放入命令行，也不会保存。SteamCMD 会在便携目录中保存自己的令牌供计划任务复用。如果会话过期或缺少验证信息，发布会立即停止并给出明确说明，不会在隐藏提示上无限等待。界面会实时显示输出，并可取消外部进程。
+
+远程配置可以仅使用 RCON：无需 SSH 即可获得已验证状态、命令控制台、`save`、`quit` 和发布协调。若 systemd、Docker、管理面板或托管服务会在 `quit` 后重新启动 Project Zomboid，PZASM 会先完成发布，再通过 RCON 请求正常重启。SSH 仅在需要读写远程 INI 或显式启动游戏进程时使用。PZASM 永远不会重启整个 VPS 或独立服务器。
 
 ## 权利与责任
 

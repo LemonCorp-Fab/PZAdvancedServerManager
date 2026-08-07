@@ -51,7 +51,7 @@ Al añadir una fuente, PZASM crea una instantánea privada y calcula su SHA-256.
 
 La [guía Steamworks Workshop](https://partner.steamgames.com/doc/features/workshop/implementation) documenta la creación y actualización mediante `workshop_build_item`.
 
-El planificador informa de los permisos y valida las dependencias, actualiza opcionalmente las fuentes, construye en un directorio temporal, ejecuta `save` y `quit` por RCON, publica y reinicia el servidor si estaba activo. No guarda contraseñas de Steam ni códigos Steam Guard.
+El planificador informa de los permisos, valida las dependencias, actualiza opcionalmente las fuentes, construye, publica y coordina el servidor por RCON cuando procede. Un inicio de sesión supervisado envía la contraseña y el código Steam Guard a la entrada estándar de SteamCMD sin guardarlos. SteamCMD conserva su propio token en la carpeta portátil; el gestor solo registra la hora de la última verificación. Una sesión caducada falla de inmediato y solicita reconexión, sin quedar esperando una entrada invisible. La interfaz transmite la salida SteamCMD en directo, impone un tiempo máximo y puede cancelar el proceso externo.
 
 ## Aplicación externa
 
@@ -74,6 +74,6 @@ Steam puede ocultar un elemento nuevo hasta aceptar el [acuerdo de Workshop](htt
 
 ## Orquestación local y remota
 
-Un perfil representa un INI local o una conexión a un VPS/servidor dedicado remoto. El estado no se basa en comprobar un puerto TCP: PZASM se autentica realmente por RCON y solo considera Project Zomboid activo si acepta la contraseña. La parada limpia siempre envía `save` y después `quit` mediante RCON.
+Un perfil representa un INI local o una conexión a un VPS/servidor dedicado remoto. Un perfil remoto puede usar solo RCON; SSH y la gestión del INI son opcionales. El estado realiza una autenticación RCON real, la consola envía los comandos de administración admitidos y la parada limpia usa `save` y después `quit`.
 
-SSH solo prueba la conexión, transfiere el INI remoto y ejecuta el comando configurado para iniciar el proceso o servicio de Project Zomboid. Usa clave privada o agente SSH sin interacción. Se rechazan los comandos `reboot`, `shutdown` y `poweroff` del host. Una publicación coordinada detiene y vuelve a iniciar solo el juego; el sistema del VPS/dedicado permanece activo. El secreto RCON se guarda en los datos locales del gestor para automatizar estas operaciones, por lo que ese directorio debe protegerse.
+Con systemd, Docker, un panel de alojamiento u otro supervisor que reinicie Project Zomboid tras `quit`, un perfil RCON-only puede coordinar la publicación: primero termina la subida al Workshop y después el gestor envía `save` y `quit`. SSH queda limitado a la gestión INI opcional o a un comando explícito que inicie solo el juego. Se rechazan `reboot`, `shutdown` y `poweroff` del host. El secreto RCON se guarda en los datos locales del gestor para automatizar estas operaciones, por lo que ese directorio debe protegerse.

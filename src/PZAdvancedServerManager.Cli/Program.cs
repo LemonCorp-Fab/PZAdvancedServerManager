@@ -238,28 +238,32 @@ internal sealed class PzasmCli
         }
         if (action is "create-remote" or "configure-remote")
         {
+            var existing = action == "configure-remote"
+                ? services.Servers.Get(name).Remote ?? throw new InvalidOperationException("configure-remote requires a remote server profile.")
+                : null;
             var connection = new RemoteServerConnection
             {
                 Name = name,
-                Host = args.Require("host"),
-                SshPort = args.GetInt("ssh-port") ?? 22,
-                SshUser = args.Require("ssh-user"),
-                SshPrivateKeyPath = args.Get("ssh-key") ?? string.Empty,
-                RemoteIniPath = args.Require("ini"),
-                StartCommand = args.Get("start-command") ?? string.Empty,
-                RconHost = args.Get("rcon-host") ?? string.Empty,
-                RconPort = args.GetInt("rcon-port") ?? 27015,
-                RconPassword = args.Get("rcon-password") ?? string.Empty
+                Host = args.Get("ssh-host") ?? existing?.Host ?? string.Empty,
+                SshPort = args.GetInt("ssh-port") ?? existing?.SshPort ?? 22,
+                SshUser = args.Get("ssh-user") ?? existing?.SshUser ?? string.Empty,
+                SshPrivateKeyPath = args.Get("ssh-key") ?? existing?.SshPrivateKeyPath ?? string.Empty,
+                RemoteIniPath = args.Get("ini") ?? existing?.RemoteIniPath ?? string.Empty,
+                StartCommand = args.Get("start-command") ?? existing?.StartCommand ?? string.Empty,
+                RconHost = args.Get("rcon-host") ?? existing?.RconHost ?? throw new ArgumentException("Option --rcon-host requise."),
+                RconPort = args.GetInt("rcon-port") ?? existing?.RconPort ?? 27015,
+                RconPassword = args.Get("rcon-password") ?? existing?.RconPassword ?? string.Empty,
+                AutoRestartAfterRconQuit = args.Has("no-auto-restart") ? false : args.Has("auto-restart") ? true : existing?.AutoRestartAfterRconQuit ?? true
             };
             if (action == "create-remote")
             {
                 var profile = await services.Servers.CreateRemoteAsync(connection, args.Has("create-config"));
-                Console.WriteLine($"Remote profile created and SSH connection verified: {profile.Location}");
+                Console.WriteLine($"Remote RCON profile created: {profile.Location}");
             }
             else
             {
                 await services.Servers.UpdateRemoteAsync(connection);
-                Console.WriteLine($"Remote profile updated and SSH connection verified: {name}");
+                Console.WriteLine($"Remote RCON profile updated: {name}");
             }
             return 0;
         }
@@ -288,6 +292,20 @@ internal sealed class PzasmCli
                 var online = await services.Servers.IsOnlineAsync(name);
                 Console.WriteLine(online ? "online" : "offline");
                 return online ? 0 : 4;
+            case "test-rcon":
+                var remote = services.Servers.Get(name).Remote ?? throw new InvalidOperationException("test-rcon is intended for a remote server profile.");
+                await services.Servers.TestRconAsync(remote);
+                Console.WriteLine($"RCON authentication accepted for {name}.");
+                return 0;
+            case "rcon":
+                var output = await services.Servers.ExecuteRconCommandAsync(name, args.Require("command"));
+                Console.WriteLine(string.IsNullOrWhiteSpace(output) ? "Command accepted without textual output." : output);
+                return 0;
+            case "restart-rcon":
+                if (!args.Has("yes")) return Fail("Restart not requested. Add --yes to confirm save/quit through RCON.", 3);
+                await services.Servers.RestartViaRconAsync(name);
+                Console.WriteLine($"{name} saved and quit through RCON. Its configured supervisor must restart Project Zomboid.");
+                return 0;
             case "start":
                 await services.Servers.StartAsync(name);
                 Console.WriteLine($"Démarrage demandé pour {name}.");
@@ -348,7 +366,7 @@ internal sealed class PzasmCli
 
     private static async Task<int> SteamCmdAsync(string[] raw, CliArguments args, CliServices services)
     {
-        if (raw.Length < 2) return Fail("Sous-commande requise : status ou install.");
+        if (raw.Length < 2) return Fail("Sous-commande requise : status, install ou login.");
         switch (raw[1].ToLowerInvariant())
         {
             case "status":
@@ -373,6 +391,22 @@ internal sealed class PzasmCli
                     if (!string.IsNullOrWhiteSpace(result.Output)) Console.WriteLine(result.Output);
                 }
                 return result.Bootstrapped ? 0 : 2;
+            case "login":
+                {
+                    var project = RequireProject(services.Store, args);
+                    if (args.Get("steam-user") is { } username) project.Automation.SteamUsername = username.Trim();
+                    if (args.Get("steamcmd") is { } executable) project.Automation.SteamCmdPath = executable.Trim();
+                    if (Console.IsInputRedirected) throw new InvalidOperationException("Steam login requires an interactive terminal so secrets are never passed on the command line.");
+                    var password = ReadSecret("Steam password: ");
+                    var guardCode = ReadSecret("Steam Guard code (leave empty unless currently requested): ");
+                    var progress = new Progress<OperationProgress>(value => Console.WriteLine($"[{value.Phase}] {value.Message}"));
+                    var login = await services.SteamCmd.AuthenticateAsync(project, new SteamCredentials(password, guardCode), progress: progress);
+                    if (!login.Success) return Fail("SteamCMD login failed: " + login.CombinedOutput, 2);
+                    project.Automation.SteamSessionVerifiedAt = DateTimeOffset.UtcNow;
+                    services.Store.Save(project);
+                    Console.WriteLine("Portable SteamCMD session verified. The scheduler can now reuse it without storing the password or Steam Guard code.");
+                    return 0;
+                }
             default:
                 return Fail($"Sous-commande steamcmd inconnue : {raw[1]}");
         }
@@ -446,6 +480,25 @@ internal sealed class PzasmCli
     private static void WriteJson(object value) => Console.WriteLine(JsonSerializer.Serialize(value, JsonOptions));
     private static int Fail(string message, int code = 1) { Console.Error.WriteLine(message); return code; }
 
+    private static string ReadSecret(string prompt)
+    {
+        Console.Write(prompt);
+        var value = new StringBuilder();
+        while (true)
+        {
+            var key = Console.ReadKey(intercept: true);
+            if (key.Key == ConsoleKey.Enter) break;
+            if (key.Key == ConsoleKey.Backspace)
+            {
+                if (value.Length > 0) value.Length--;
+                continue;
+            }
+            if (!char.IsControl(key.KeyChar)) value.Append(key.KeyChar);
+        }
+        Console.WriteLine();
+        return value.ToString();
+    }
+
     private static int Help()
     {
         Console.WriteLine("""
@@ -472,9 +525,12 @@ Chaque projet représente un pack global indépendant avec son propre Workshop I
   pzasm project publish --id <guid> --yes
   pzasm server list [--json]
   pzasm server create --name <profil>
-  pzasm server create-remote --name <profil> --host <host> --ssh-user <user> --ini <path> [--ssh-port 22] [--ssh-key <file>] [--start-command <command>] [--rcon-host <host>] [--rcon-port 27015] [--rcon-password <secret>] [--create-config]
-  pzasm server configure-remote --name <profil> --host <host> --ssh-user <user> --ini <path> [--ssh-port 22] [--ssh-key <file>] [--start-command <command>] [--rcon-host <host>] [--rcon-port 27015] [--rcon-password <secret>]
+  pzasm server create-remote --name <profil> --rcon-host <host> --rcon-password <secret> [--rcon-port 27015] [--no-auto-restart] [--ssh-host <host> --ssh-user <user>] [--ini <path>] [--ssh-port 22] [--ssh-key <file>] [--start-command <command>] [--create-config]
+  pzasm server configure-remote --name <profil> [--rcon-host <host>] [--rcon-password <secret>] [--rcon-port 27015] [--auto-restart|--no-auto-restart] [--ssh-host <host> --ssh-user <user>] [--ini <path>] [--ssh-port 22] [--ssh-key <file>] [--start-command <command>]
   pzasm server delete-remote --name <profil> --yes
+  pzasm server test-rcon --name <profil>
+  pzasm server rcon --name <profil> --command <commande>
+  pzasm server restart-rcon --name <profil> --yes
   pzasm server show --name <profil>
   pzasm server set --name <profil> --key <clé> [--value <valeur>] --yes
   pzasm server status --name <profil>
@@ -484,6 +540,7 @@ Chaque projet représente un pack global indépendant avec son propre Workshop I
   pzasm workshop search [--query <texte-ou-id>] [--sort trend|recent|subscribed|popular|relevance] [--tag <tag>] [--page 1] [--json]
   pzasm steamcmd status [--json]
   pzasm steamcmd install [--id <guid>] [--json]
+  pzasm steamcmd login --id <guid> [--steam-user <nom>] [--steamcmd <path>]
   pzasm automation once
   pzasm automation execute --id <guid>
   pzasm automation run [--interval 30]
@@ -535,11 +592,11 @@ internal sealed class CliServices
         var ssh = new SshRemoteServerService();
         Servers = new ServerProfileService(paths, Environment, orchestration, remoteStore, ssh);
         var builder = new PackageBuildService(paths, Validator);
-        var steamCmd = new SteamCmdService(Validator);
+        SteamCmd = new SteamCmdService(Validator);
         MapPriority = new MapPriorityService();
-        Lifecycle = new PackageLifecycleService(paths, Store, snapshots, builder, steamCmd, Servers);
+        Lifecycle = new PackageLifecycleService(paths, Store, snapshots, builder, SteamCmd, Servers);
         Automation = new PackageAutomationService(paths, Store, Lifecycle);
-        WorkshopImport = new WorkshopImportService(steamCmd, discovery, Environment, Projects);
+        WorkshopImport = new WorkshopImportService(SteamCmd, discovery, Environment, Projects);
         SteamCmdInstaller = new SteamCmdInstaller(paths);
         WorkshopCatalog = new WorkshopCatalogService();
     }
@@ -553,6 +610,7 @@ internal sealed class CliServices
     public PackageAutomationService Automation { get; }
     public WorkshopImportService WorkshopImport { get; }
     public SteamCmdInstaller SteamCmdInstaller { get; }
+    public SteamCmdService SteamCmd { get; }
     public WorkshopCatalogService WorkshopCatalog { get; }
     public MapPriorityService MapPriority { get; }
     public ServerProfileService Servers { get; }

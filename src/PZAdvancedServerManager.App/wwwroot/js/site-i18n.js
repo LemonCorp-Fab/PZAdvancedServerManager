@@ -255,6 +255,67 @@
         ['Votre sélection est conservée entre les pages, recherches et tris.', 'Your selection is preserved across pages, searches and sorting.', 'Tu selección se conserva entre páginas, búsquedas y ordenaciones.', 'Deine Auswahl bleibt über Seiten, Suchen und Sortierungen hinweg erhalten.', 'Sua seleção é mantida entre páginas, pesquisas e ordenações.', '选择会在翻页、搜索和排序时保留。'],
         ['Chaque item sera téléchargé anonymement puis inspecté avant modification.', 'Each item is downloaded anonymously and inspected before any change.', 'Cada elemento se descarga de forma anónima y se inspecciona antes de modificarlo.', 'Jedes Item wird anonym geladen und vor Änderungen geprüft.', 'Cada item é baixado anonimamente e inspecionado antes de qualquer alteração.', '每个项目都会匿名下载并在修改前检查。'],
         ['Les dépendances trouvées localement seront incluses automatiquement.', 'Locally found dependencies are included automatically.', 'Las dependencias locales se incluyen automáticamente.', 'Lokal gefundene Abhängigkeiten werden automatisch einbezogen.', 'As dependências locais são incluídas automaticamente.', '本地发现的依赖会自动包含。'],
+        ['Annuler l’opération', 'Cancel operation', 'Cancelar operación', 'Vorgang abbrechen', 'Cancelar operação', '取消操作'],
+        ['Connexion au compte Steam…', 'Connecting to Steam account…', 'Conectando a la cuenta de Steam…', 'Verbindung zum Steam-Konto…', 'Conectando à conta Steam…', '正在连接 Steam 账户…'],
+        ['Compte éditeur', 'Publisher account', 'Cuenta del editor', 'Herausgeberkonto', 'Conta do publicador', '发布者账户'],
+        ['Mot de passe temporaire', 'Temporary password', 'Contraseña temporal', 'Temporäres Passwort', 'Senha temporária', '临时密码'],
+        ['Code Steam Guard — si demandé', 'Steam Guard code — if requested', 'Código Steam Guard — si se solicita', 'Steam-Guard-Code — falls angefordert', 'Código Steam Guard — se solicitado', 'Steam Guard 验证码（如需要）'],
+        ['Session non vérifiée', 'Session not verified', 'Sesión no verificada', 'Sitzung nicht geprüft', 'Sessão não verificada', '会话未验证'],
+        ['Session portable vérifiée', 'Portable session verified', 'Sesión portátil verificada', 'Portable Sitzung geprüft', 'Sessão portátil verificada', '便携会话已验证'],
+        ['Connecter / renouveler la session', 'Connect / renew session', 'Conectar / renovar sesión', 'Sitzung verbinden / erneuern', 'Conectar / renovar sessão', '连接 / 更新会话'],
+        ['Prête pour le service', 'Ready for the service', 'Lista para el servicio', 'Für den Dienst bereit', 'Pronta para o serviço', '可供服务使用'],
+        ['RCON principal · SSH facultatif', 'Primary RCON · optional SSH', 'RCON principal · SSH opcional', 'Primäres RCON · optionales SSH', 'RCON principal · SSH opcional', 'RCON 为主 · SSH 可选'],
+        ['Gestion SSH / INI facultative', 'Optional SSH / INI management', 'Gestión SSH / INI opcional', 'Optionale SSH-/INI-Verwaltung', 'Gerenciamento SSH / INI opcional', '可选 SSH / INI 管理'],
+        ['Ajouter le profil RCON', 'Add RCON profile', 'Añadir perfil RCON', 'RCON-Profil hinzufügen', 'Adicionar perfil RCON', '添加 RCON 配置'],
+        ['Tester RCON', 'Test RCON', 'Probar RCON', 'RCON testen', 'Testar RCON', '测试 RCON'],
+        ['Tester SSH', 'Test SSH', 'Probar SSH', 'SSH testen', 'Testar SSH', '测试 SSH'],
+        ['Console RCON', 'RCON console', 'Consola RCON', 'RCON-Konsole', 'Console RCON', 'RCON 控制台'],
+        ['Exécuter', 'Run', 'Ejecutar', 'Ausführen', 'Executar', '执行'],
+        ['Redémarrer par RCON', 'Restart through RCON', 'Reiniciar por RCON', 'Über RCON neu starten', 'Reiniciar via RCON', '通过 RCON 重启'],
+        ['Profil RCON-only prêt pour la coordination', 'RCON-only profile ready for coordination', 'Perfil solo RCON listo para coordinar', 'Reines RCON-Profil zur Koordination bereit', 'Perfil somente RCON pronto para coordenação', '仅 RCON 配置已可协调'],
+        ['Utilisé pour connecter la session ou pour la prochaine publication, puis oublié.', 'Used to connect the session or for the next publication, then forgotten.', 'Se usa para conectar la sesión o para la próxima publicación y luego se olvida.', 'Wird für die Sitzung oder die nächste Veröffentlichung verwendet und danach verworfen.', 'Usada para conectar a sessão ou para a próxima publicação e depois esquecida.', '仅用于连接会话或下一次发布，随后即被丢弃。'],
+        ['Utilisé uniquement pendant cette connexion.', 'Used only during this connection.', 'Se usa solo durante esta conexión.', 'Wird nur während dieser Verbindung verwendet.', 'Usado somente durante esta conexão.', '仅在本次连接期间使用。'],
+        ['Connectez ce compte une première fois avant de publier ou d’activer le service.', 'Connect this account once before publishing or enabling the service.', 'Conecta esta cuenta una vez antes de publicar o activar el servicio.', 'Dieses Konto vor Veröffentlichung oder Dienstaktivierung einmal verbinden.', 'Conecte esta conta uma vez antes de publicar ou ativar o serviço.', '请在发布或启用服务前先连接一次此账户。'],
+        ['Superviseur avec relance automatique', 'Supervisor with automatic restart', 'Supervisor con reinicio automático', 'Supervisor mit automatischem Neustart', 'Supervisor com reinício automático', '带自动重启的监督程序'],
+        ['Relance automatique après RCON quit', 'Automatic restart after RCON quit', 'Reinicio automático después de RCON quit', 'Automatischer Neustart nach RCON quit', 'Reinício automático após RCON quit', 'RCON quit 后自动重启'],
+        ['Clé privée — optionnelle si agent SSH', 'Private key — optional with SSH agent', 'Clave privada — opcional con agente SSH', 'Privater Schlüssel — bei SSH-Agent optional', 'Chave privada — opcional com agente SSH', '私钥（使用 SSH Agent 时可选）'],
+        ['Chemin INI — optionnel', 'INI path — optional', 'Ruta INI — opcional', 'INI-Pfad — optional', 'Caminho INI — opcional', 'INI 路径（可选）'],
+        ['Commande de démarrage du jeu — optionnelle', 'Game start command — optional', 'Comando de inicio del juego — opcional', 'Spiel-Startbefehl — optional', 'Comando de início do jogo — opcional', '游戏启动命令（可选）'],
+        ['Opération terminée', 'Operation complete', 'Operación completada', 'Vorgang abgeschlossen', 'Operação concluída', '操作完成'],
+        ['Opération interrompue', 'Operation interrupted', 'Operación interrumpida', 'Vorgang unterbrochen', 'Operação interrompida', '操作已中断'],
+        ['Opération annulée', 'Operation canceled', 'Operación cancelada', 'Vorgang abgebrochen', 'Operação cancelada', '操作已取消'],
+        ['Annulation demandée…', 'Cancellation requested…', 'Cancelación solicitada…', 'Abbruch angefordert…', 'Cancelamento solicitado…', '正在请求取消…'],
+        ['Traitement en cours…', 'Processing…', 'Procesando…', 'Verarbeitung läuft…', 'Processando…', '正在处理…'],
+        ['Patientez…', 'Please wait…', 'Espera…', 'Bitte warten…', 'Aguarde…', '请稍候…'],
+        ['Redirection vers la configuration mise à jour…', 'Redirecting to the updated configuration…', 'Redirigiendo a la configuración actualizada…', 'Weiterleitung zur aktualisierten Konfiguration…', 'Redirecionando para a configuração atualizada…', '正在跳转到更新后的配置…'],
+        ['Distribution et publication', 'Distribution and publishing', 'Distribución y publicación', 'Verteilung und Veröffentlichung', 'Distribuição e publicação', '分发与发布'],
+        ['Les téléchargements de sources et la publication utilisent des identités distinctes.', 'Source downloads and publishing use separate identities.', 'Las descargas de fuentes y la publicación usan identidades separadas.', 'Quelldownloads und Veröffentlichung verwenden getrennte Identitäten.', 'Downloads de origens e publicação usam identidades separadas.', '来源下载与发布使用不同身份。'],
+        ['OUTIL PORTABLE', 'PORTABLE TOOL', 'HERRAMIENTA PORTÁTIL', 'PORTABLES WERKZEUG', 'FERRAMENTA PORTÁTIL', '便携工具'],
+        ['SteamCMD est prêt', 'SteamCMD is ready', 'SteamCMD está listo', 'SteamCMD ist bereit', 'SteamCMD está pronto', 'SteamCMD 已就绪'],
+        ['Réinstaller / vérifier', 'Reinstall / verify', 'Reinstalar / verificar', 'Neu installieren / prüfen', 'Reinstalar / verificar', '重新安装 / 验证'],
+        ['Sources Workshop', 'Workshop sources', 'Fuentes de Workshop', 'Workshop-Quellen', 'Origens do Workshop', '创意工坊来源'],
+        ['Les serveurs peuvent télécharger les contenus publics sans compte.', 'Servers can download public content without an account.', 'Los servidores pueden descargar contenido público sin cuenta.', 'Server können öffentliche Inhalte ohne Konto laden.', 'Servidores podem baixar conteúdo público sem conta.', '服务器无需账户即可下载公开内容。'],
+        ['Utiliser la connexion anonyme', 'Use anonymous login', 'Usar inicio de sesión anónimo', 'Anonyme Anmeldung verwenden', 'Usar login anônimo', '使用匿名登录'],
+        ['Chemin SteamCMD', 'SteamCMD path', 'Ruta de SteamCMD', 'SteamCMD-Pfad', 'Caminho do SteamCMD', 'SteamCMD 路径'],
+        ['Obligatoire uniquement pour créer ou mettre à jour votre item.', 'Required only to create or update your item.', 'Solo es obligatorio para crear o actualizar el elemento.', 'Nur zum Erstellen oder Aktualisieren des Items erforderlich.', 'Necessário apenas para criar ou atualizar o item.', '仅创建或更新项目时需要。'],
+        ['Nom du compte Steam', 'Steam account name', 'Nombre de la cuenta Steam', 'Steam-Kontoname', 'Nome da conta Steam', 'Steam 账户名'],
+        ['Le mot de passe et les codes Steam Guard ne sont jamais stockés par PZASM.', 'PZASM never stores the password or Steam Guard codes.', 'PZASM nunca guarda la contraseña ni los códigos Steam Guard.', 'PZASM speichert weder Passwort noch Steam-Guard-Codes.', 'O PZASM nunca armazena a senha nem códigos Steam Guard.', 'PZASM 绝不会保存密码或 Steam Guard 验证码。'],
+        ['Après cette connexion, les publications programmées réutilisent le jeton conservé par SteamCMD. Si Steam l’expire, le service échoue immédiatement et demande une reconnexion au lieu de rester bloqué.', 'After this login, scheduled publishing reuses the token kept by SteamCMD. If Steam expires it, the service fails immediately and requests a new login instead of hanging.', 'Tras este acceso, las publicaciones programadas reutilizan el token de SteamCMD. Si Steam lo caduca, el servicio falla de inmediato y solicita reconexión.', 'Danach verwenden geplante Veröffentlichungen das SteamCMD-Token. Läuft es ab, endet der Dienst sofort und fordert eine neue Anmeldung an.', 'Depois desse login, publicações agendadas reutilizam o token do SteamCMD. Se ele expirar, o serviço falha imediatamente e solicita nova conexão.', '登录后，计划发布会复用 SteamCMD 保存的令牌。令牌过期时服务会立即失败并要求重新连接。'],
+        ['Fiche Workshop', 'Workshop listing', 'Ficha de Workshop', 'Workshop-Eintrag', 'Página do Workshop', '创意工坊条目'],
+        ['Contrôlez l’identifiant, la visibilité, les tags et l’image.', 'Control the ID, visibility, tags, and image.', 'Controla el ID, la visibilidad, las etiquetas y la imagen.', 'ID, Sichtbarkeit, Tags und Bild festlegen.', 'Controle o ID, a visibilidade, as tags e a imagem.', '管理 ID、可见性、标签和图片。'],
+        ['Workshop ID existant', 'Existing Workshop ID', 'Workshop ID existente', 'Vorhandene Workshop-ID', 'Workshop ID existente', '现有 Workshop ID'],
+        ['0 crée un nouvel item; l’identifiant renvoyé sera conservé.', '0 creates a new item; the returned ID will be saved.', '0 crea un elemento nuevo; se guardará el ID devuelto.', '0 erstellt ein neues Item; die zurückgegebene ID wird gespeichert.', '0 cria um novo item; o ID retornado será salvo.', '0 会创建新项目，并保存返回的 ID。'],
+        ['Visibilité', 'Visibility', 'Visibilidad', 'Sichtbarkeit', 'Visibilidade', '可见性'],
+        ['Image personnalisée', 'Custom image', 'Imagen personalizada', 'Benutzerdefiniertes Bild', 'Imagem personalizada', '自定义图片'],
+        ['APERÇU PUBLIC', 'PUBLIC PREVIEW', 'VISTA PÚBLICA', 'ÖFFENTLICHE VORSCHAU', 'PRÉVIA PÚBLICA', '公开预览'],
+        ['Description Workshop générée', 'Generated Workshop description', 'Descripción de Workshop generada', 'Erzeugte Workshop-Beschreibung', 'Descrição do Workshop gerada', '生成的创意工坊描述'],
+        ['Modifications du pack', 'Pack changes', 'Cambios del paquete', 'Paketänderungen', 'Alterações do pacote', '模组包更改'],
+        ['L’identifiant stable et le Workshop ID existant sont conservés.', 'The stable identifier and existing Workshop ID are preserved.', 'Se conservan el identificador estable y el Workshop ID existente.', 'Stabile Kennung und vorhandene Workshop-ID bleiben erhalten.', 'O identificador estável e o Workshop ID existente são preservados.', '稳定标识与现有 Workshop ID 会被保留。'],
+        ['Sections du pack', 'Pack sections', 'Secciones del paquete', 'Paketbereiche', 'Seções do pacote', '模组包分区'],
+        ['mods', 'mods', 'mods', 'Mods', 'mods', '模组'],
+        ['cartes', 'maps', 'mapas', 'Karten', 'mapas', '地图'],
+        ['figés', 'pinned', 'fijados', 'fixiert', 'fixados', '已固定'],
+        ['conflits de cellules', 'cell conflicts', 'conflictos de celdas', 'Zellkonflikte', 'conflitos de células', '单元格冲突'],
         ['© 2026 LemonCorp · PZ Advanced Server Manager', '© 2026 LemonCorp · PZ Advanced Server Manager', '© 2026 LemonCorp · PZ Advanced Server Manager', '© 2026 LemonCorp · PZ Advanced Server Manager', '© 2026 LemonCorp · PZ Advanced Server Manager', '© 2026 LemonCorp · PZ Advanced Server Manager']
         ,['Outil indépendant — Project Zomboid et Steam appartiennent à leurs détenteurs respectifs.', 'Independent tool — Project Zomboid and Steam belong to their respective owners.', 'Herramienta independiente: Project Zomboid y Steam pertenecen a sus respectivos propietarios.', 'Unabhängiges Werkzeug — Project Zomboid und Steam gehören ihren jeweiligen Rechteinhabern.', 'Ferramenta independente — Project Zomboid e Steam pertencem aos seus respectivos proprietários.', '独立工具——Project Zomboid 与 Steam 的权利归各自所有者。']
     ];
@@ -319,13 +380,16 @@
     };
 
     const translateAttributes = element => {
-        const names = ['placeholder', 'title', 'aria-label', 'data-loading-title', 'data-loading-detail', 'data-confirm-title', 'data-confirm-message', 'data-confirm-action'];
+        const names = ['placeholder', 'title', 'aria-label', 'data-loading-title', 'data-loading-detail', 'data-loading-steps', 'data-confirm-title', 'data-confirm-message', 'data-confirm-action'];
         let originals = attributeOriginals.get(element);
         if (!originals) { originals = new Map(); attributeOriginals.set(element, originals); }
         names.forEach(name => {
             if (!element.hasAttribute(name)) return;
             if (!originals.has(name)) originals.set(name, element.getAttribute(name));
-            element.setAttribute(name, translatePattern(originals.get(name)));
+            const original = originals.get(name);
+            element.setAttribute(name, name === 'data-loading-steps'
+                ? original.split('|').map(value => translatePattern(value.trim())).join('|')
+                : translatePattern(original));
         });
     };
 

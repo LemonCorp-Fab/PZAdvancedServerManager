@@ -8,6 +8,7 @@ public sealed class SshRemoteServerService
 {
     public async Task<string> ReadFileAsync(RemoteServerConnection connection, CancellationToken cancellationToken = default)
     {
+        ValidateRemoteIni(connection);
         var result = await RunAsync(connection, $"cat -- {Quote(connection.RemoteIniPath)}", null, cancellationToken);
         EnsureSuccess(result, "lecture de la configuration distante");
         return result.Output;
@@ -15,6 +16,7 @@ public sealed class SshRemoteServerService
 
     public async Task<string> WriteFileAsync(RemoteServerConnection connection, string content, CancellationToken cancellationToken = default)
     {
+        ValidateRemoteIni(connection);
         var timestamp = DateTimeOffset.Now.ToString("yyyyMMdd-HHmmss-fff");
         var target = connection.RemoteIniPath;
         var temporary = target + ".pzasm.tmp";
@@ -106,6 +108,10 @@ public sealed class SshRemoteServerService
         if (string.IsNullOrWhiteSpace(connection.Host) || connection.Host.Any(char.IsControl)) throw new ArgumentException("Hôte SSH invalide.");
         if (string.IsNullOrWhiteSpace(connection.SshUser) || connection.SshUser.Any(char.IsControl)) throw new ArgumentException("Utilisateur SSH invalide.");
         if (connection.SshPort is < 1 or > 65535) throw new ArgumentOutOfRangeException(nameof(connection.SshPort));
+    }
+
+    private static void ValidateRemoteIni(RemoteServerConnection connection)
+    {
         if (string.IsNullOrWhiteSpace(connection.RemoteIniPath) || connection.RemoteIniPath.Any(char.IsControl)) throw new ArgumentException("Chemin INI distant invalide.");
     }
 

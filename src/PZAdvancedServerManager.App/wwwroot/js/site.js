@@ -341,9 +341,13 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
     const overlayTrack = overlay.querySelector('[data-loading-track]');
     const overlayProgressList = overlay.querySelector('[data-loading-progress-list]');
     const overlayClose = overlay.querySelector('[data-loading-close]');
+    const overlayCancel = overlay.querySelector('[data-loading-cancel]');
     const buttonContent = new WeakMap();
     const navigationDelay = 160;
     let operationActive = false;
+    let activeController = null;
+    let activeStepTimer = null;
+    const activeRows = new Map();
 
     const inferTitle = value => {
         const label = (value || '').trim().toLocaleLowerCase('fr');
@@ -381,7 +385,7 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
         button.replaceChildren(spinner, text);
     };
 
-    const showLoading = ({ title, detail, button, form } = {}) => {
+    const showLoading = ({ title, detail, button, form, cancellable = false } = {}) => {
         if (operationActive) return;
         operationActive = true;
         overlayTitle.textContent = title || inferTitle(button?.textContent);
@@ -395,7 +399,78 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
         document.documentElement.setAttribute('aria-busy', 'true');
         document.body.classList.add('is-loading');
         overlay.hidden = false;
+        if (overlayCancel) {
+            overlayCancel.hidden = !cancellable;
+            overlayCancel.disabled = false;
+        }
         requestAnimationFrame(() => overlay.classList.add('is-visible'));
+    };
+
+    const inferredSteps = form => {
+        if (form?.dataset.loadingSteps) return form.dataset.loadingSteps.split('|').map(value => value.trim()).filter(Boolean);
+        const text = `${form?.dataset.loadingTitle || ''} ${form?.dataset.loadingDetail || ''}`.toLocaleLowerCase('fr');
+        if (/publi/.test(text)) return ['Validation du projet', 'Construction atomique', 'Authentification SteamCMD', 'Envoi Workshop', 'Coordination RCON', 'Enregistrement du Workshop ID'];
+        if (/mise à jour|actual|mod/.test(text)) return ['Préparation de la sélection', 'Téléchargement SteamCMD', 'Inspection des mod.info', 'Remplacement des snapshots', 'Enregistrement du projet'];
+        if (/cré/.test(text)) return ['Validation des informations', 'Création de l’identifiant stable', 'Préparation des dossiers', 'Enregistrement'];
+        if (/constru|build/.test(text)) return ['Validation', 'Vérification des snapshots', 'Copie des fichiers', 'Génération des manifestes'];
+        if (/serveur|rcon|ssh/.test(text)) return ['Validation du profil', 'Connexion au serveur', 'Exécution de l’action', 'Vérification du résultat'];
+        return ['Validation de la demande', 'Exécution de l’opération', 'Enregistrement des changements'];
+    };
+
+    const prepareDetailedProgress = steps => {
+        overlay.classList.add('has-detailed-progress');
+        if (overlayStage) overlayStage.hidden = false;
+        if (overlayProgressList) overlayProgressList.hidden = false;
+        if (overlayTrack) {
+            overlayTrack.classList.add('is-determinate');
+            overlayTrack.style.width = '3%';
+        }
+        activeRows.clear();
+        overlayProgressList?.replaceChildren();
+        steps.forEach((step, index) => {
+            const row = document.createElement('div');
+            row.className = 'loading-progress-item';
+            const marker = document.createElement('span');
+            marker.textContent = `${index + 1}`;
+            const copy = document.createElement('span');
+            const title = document.createElement('strong');
+            const detail = document.createElement('small');
+            title.textContent = step;
+            detail.textContent = index === 0 ? 'En cours…' : 'En attente';
+            copy.append(title, detail);
+            row.append(marker, copy);
+            if (index === 0) row.classList.add('is-current');
+            overlayProgressList?.append(row);
+            activeRows.set(step.toLocaleLowerCase('fr'), { row, title, detail });
+        });
+        if (overlayCounter) overlayCounter.textContent = `1 / ${Math.max(steps.length, 1)}`;
+        if (overlayCurrent) overlayCurrent.textContent = steps[0] || 'Préparation';
+    };
+
+    const markStep = (index, message) => {
+        const rows = Array.from(activeRows.values());
+        if (rows.length === 0) return;
+        const selected = Math.max(0, Math.min(index, rows.length - 1));
+        rows.forEach((entry, rowIndex) => {
+            entry.row.classList.toggle('is-current', rowIndex === selected);
+            entry.row.classList.toggle('is-complete', rowIndex < selected);
+            if (rowIndex < selected) entry.detail.textContent = 'Terminé';
+            else if (rowIndex === selected) entry.detail.textContent = message || 'En cours…';
+        });
+        if (overlayCounter) overlayCounter.textContent = `${selected + 1} / ${rows.length}`;
+        if (overlayCurrent) overlayCurrent.textContent = rows[selected].title.textContent;
+        if (overlayDetail && message) overlayDetail.textContent = message;
+        if (overlayTrack) overlayTrack.style.width = `${Math.max(3, ((selected + .35) / rows.length) * 100)}%`;
+    };
+
+    const beginEstimatedSteps = () => {
+        let index = 0;
+        activeStepTimer = window.setInterval(() => {
+            const total = activeRows.size;
+            if (total <= 1 || index >= total - 2) return;
+            index += 1;
+            markStep(index, 'Opération en cours…');
+        }, 1400);
     };
 
     const startWorkshopProgress = async (form, button) => {
@@ -403,8 +478,10 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
             title: form.dataset.loadingTitle,
             detail: 'Préparation de la file de téléchargement et vérification de la destination.',
             button,
-            form
+            form,
+            cancellable: true
         });
+        activeController = new AbortController();
         overlay.classList.add('has-detailed-progress');
         if (overlayStage) overlayStage.hidden = false;
         if (overlayProgressList) overlayProgressList.hidden = false;
@@ -478,7 +555,7 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
         try {
             const endpoint = new URL(form.action, window.location.href);
             endpoint.searchParams.set('handler', 'ImportWorkshopStream');
-            const response = await fetch(endpoint, { method: 'POST', body: new FormData(form), credentials: 'same-origin' });
+            const response = await fetch(endpoint, { method: 'POST', body: new FormData(form), credentials: 'same-origin', signal: activeController.signal });
             if (!response.ok || !response.body) throw new Error(`Le serveur a répondu ${response.status}.`);
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
@@ -493,11 +570,102 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
             }
             if (buffer.trim()) updateProgress(JSON.parse(buffer));
         } catch (error) {
-            updateProgress({ type: 'error', message: error instanceof Error ? error.message : String(error) });
+            updateProgress({ type: 'error', message: error?.name === 'AbortError' ? 'Import annulé. Les éléments déjà terminés restent inchangés.' : error instanceof Error ? error.message : String(error) });
+        }
+    };
+
+    const readProgressStream = async (response, update) => {
+        if (!response.ok || !response.body) throw new Error(`Le serveur a répondu ${response.status}.`);
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (true) {
+            const { done, value } = await reader.read();
+            buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            lines.filter(Boolean).forEach(line => update(JSON.parse(line)));
+            if (done) break;
+        }
+        if (buffer.trim()) update(JSON.parse(buffer));
+    };
+
+    const startOperationProgress = async (form, button) => {
+        const source = button?.dataset.loadingTitle || button?.dataset.loadingSteps ? button : form;
+        showLoading({ title: source.dataset.loadingTitle || form.dataset.loadingTitle, detail: source.dataset.loadingDetail || form.dataset.loadingDetail, button, form, cancellable: true });
+        prepareDetailedProgress(inferredSteps(source));
+        activeController = new AbortController();
+        const phaseIndexes = new Map();
+        let nextPhaseIndex = 0;
+        const update = record => {
+            if (record.type === 'progress') {
+                if (!phaseIndexes.has(record.phase)) phaseIndexes.set(record.phase, Math.min(nextPhaseIndex++, Math.max(activeRows.size - 1, 0)));
+                markStep(phaseIndexes.get(record.phase), record.message);
+            } else if (record.type === 'done') {
+                Array.from(activeRows.values()).forEach(entry => { entry.row.classList.remove('is-current'); entry.row.classList.add('is-complete'); entry.detail.textContent = 'Terminé'; });
+                if (overlayTitle) overlayTitle.textContent = 'Opération terminée';
+                if (overlayCurrent) overlayCurrent.textContent = record.message;
+                if (overlayDetail) overlayDetail.textContent = 'Redirection vers la configuration mise à jour…';
+                if (overlayTrack) overlayTrack.style.width = '100%';
+                if (overlayCancel) overlayCancel.hidden = true;
+                window.setTimeout(() => window.location.assign(record.redirectUrl), 650);
+            } else if (record.type === 'error') {
+                overlay.classList.add('has-error');
+                if (overlayTitle) overlayTitle.textContent = 'Opération interrompue';
+                if (overlayDetail) overlayDetail.textContent = record.message;
+                if (overlayCurrent) overlayCurrent.textContent = 'Une intervention est nécessaire';
+                if (overlayCancel) overlayCancel.hidden = true;
+                if (overlayClose) overlayClose.hidden = false;
+            }
+        };
+        try {
+            const endpoint = new URL(button?.formAction || form.action, window.location.href);
+            const handler = endpoint.searchParams.get('handler');
+            if (!handler) throw new Error('Opération serveur non reconnue.');
+            endpoint.searchParams.set('handler', `${handler}Stream`);
+            const formData = typeof FormData === 'function' ? new FormData(form, button || undefined) : new FormData(form);
+            if (form.id === 'publish-form') {
+                const password = document.querySelector('[data-steam-password]')?.value || '';
+                const guardCode = document.querySelector('[data-steam-guard-code]')?.value || '';
+                if (password) formData.set('steamPassword', password);
+                if (guardCode) formData.set('steamGuardCode', guardCode);
+            }
+            const response = await fetch(endpoint, { method: 'POST', body: formData, credentials: 'same-origin', signal: activeController.signal });
+            await readProgressStream(response, update);
+        } catch (error) {
+            update({ type: 'error', message: error?.name === 'AbortError' ? 'Annulation demandée. Le processus externe a été arrêté; les étapes atomiques déjà terminées peuvent rester appliquées.' : error instanceof Error ? error.message : String(error) });
+        }
+    };
+
+    const startFetchProgress = async (form, button) => {
+        const source = button?.dataset.loadingTitle || button?.dataset.loadingSteps ? button : form;
+        showLoading({ title: source.dataset.loadingTitle || form.dataset.loadingTitle, detail: source.dataset.loadingDetail || form.dataset.loadingDetail, button, form, cancellable: true });
+        prepareDetailedProgress(inferredSteps(source));
+        beginEstimatedSteps();
+        activeController = new AbortController();
+        try {
+            const endpoint = new URL(button?.formAction || form.action, window.location.href);
+            const formData = new FormData(form, button || undefined);
+            const response = await fetch(endpoint, { method: 'POST', body: formData, credentials: 'same-origin', redirect: 'follow', signal: activeController.signal });
+            if (!response.ok) throw new Error((await response.text()).trim() || `Le serveur a répondu ${response.status}.`);
+            markStep(Math.max(activeRows.size - 1, 0), 'Terminé. Redirection…');
+            if (overlayTrack) overlayTrack.style.width = '100%';
+            if (overlayCancel) overlayCancel.hidden = true;
+            window.location.assign(response.url || window.location.href);
+        } catch (error) {
+            overlay.classList.add('has-error');
+            if (overlayTitle) overlayTitle.textContent = error?.name === 'AbortError' ? 'Opération annulée' : 'Opération interrompue';
+            if (overlayCurrent) overlayCurrent.textContent = error?.name === 'AbortError' ? 'Annulation confirmée' : 'Une intervention est nécessaire';
+            if (overlayDetail) overlayDetail.textContent = error?.name === 'AbortError' ? 'La requête a été annulée. Une étape déjà validée par le serveur peut rester appliquée.' : error instanceof Error ? error.message : String(error);
+            if (overlayCancel) overlayCancel.hidden = true;
+            if (overlayClose) overlayClose.hidden = false;
         }
     };
 
     const resetLoading = () => {
+        if (activeStepTimer) window.clearInterval(activeStepTimer);
+        activeStepTimer = null;
+        activeController = null;
         operationActive = false;
         overlay.classList.remove('is-visible');
         overlay.hidden = true;
@@ -519,10 +687,18 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
         if (overlayStage) overlayStage.hidden = true;
         if (overlayProgressList) { overlayProgressList.hidden = true; overlayProgressList.replaceChildren(); }
         if (overlayClose) overlayClose.hidden = true;
+        if (overlayCancel) overlayCancel.hidden = true;
         if (overlayTrack) { overlayTrack.classList.remove('is-determinate'); overlayTrack.style.width = ''; }
     };
 
     overlayClose?.addEventListener('click', resetLoading);
+    overlayCancel?.addEventListener('click', () => {
+        if (!activeController) return;
+        overlayCancel.disabled = true;
+        if (overlayCurrent) overlayCurrent.textContent = 'Annulation demandée…';
+        if (overlayDetail) overlayDetail.textContent = 'Arrêt du processus externe et fermeture propre de la requête en cours.';
+        activeController.abort();
+    });
 
     document.addEventListener('submit', event => {
         const form = event.target;
@@ -536,24 +712,28 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
             return;
         }
         if (event.defaultPrevented) return;
+        const button = event.submitter instanceof HTMLButtonElement ? event.submitter : form.querySelector('button[type="submit"]');
         if (form.matches('[data-workshop-progress]')) {
             event.preventDefault();
-            const button = event.submitter instanceof HTMLButtonElement ? event.submitter : form.querySelector('button[type="submit"]');
             void startWorkshopProgress(form, button);
             return;
         }
+        if (form.matches('[data-operation-progress]') || button?.matches('[data-operation-progress]')) {
+            event.preventDefault();
+            void startOperationProgress(form, button);
+            return;
+        }
+        if ((form.method || 'get').toLocaleLowerCase() === 'get') {
+            showLoading({
+                title: form.dataset.loadingTitle || button?.dataset.loadingTitle || inferTitle(button?.textContent),
+                detail: form.dataset.loadingDetail || button?.dataset.loadingDetail,
+                button,
+                form
+            });
+            return;
+        }
         event.preventDefault();
-        const button = event.submitter instanceof HTMLButtonElement ? event.submitter : form.querySelector('button[type="submit"]');
-        showLoading({
-            title: form.dataset.loadingTitle || button?.dataset.loadingTitle || inferTitle(button?.textContent),
-            detail: form.dataset.loadingDetail || button?.dataset.loadingDetail,
-            button,
-            form
-        });
-        window.setTimeout(() => {
-            form.dataset.loadingCommitting = 'true';
-            form.requestSubmit(button || undefined);
-        }, navigationDelay);
+        void startFetchProgress(form, button);
     });
 
     document.addEventListener('click', event => {

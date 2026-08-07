@@ -114,12 +114,12 @@ The PZASM scheduler:
 4. resolves every source to the matching Mod ID in the SteamCMD cache;
 5. atomically replaces private snapshots and recalculates SHA-256 hashes;
 6. builds exclusively from snapshots in a temporary directory;
-7. coordinates `save` and `quit` through RCON when the server is online;
+7. for a local or SSH-startable profile, coordinates `save` and `quit` before the upload;
 8. publishes the VDF to the same Workshop ID;
-9. restarts the server if PZASM stopped it;
+9. either starts the game process PZASM stopped or, for an RCON-only profile, sends `save` and `quit` after a successful upload so its supervisor reloads the pack;
 10. records timestamps and results in the project.
 
-Passwords and Steam Guard codes are never persisted. The administrator prepares the SteamCMD account session. Production automation should use a limited account and a staging server.
+Passwords and Steam Guard codes are never persisted. A supervised login sends them to SteamCMD through standard input; SteamCMD then keeps its own portable refresh token. The scheduler reuses that session, and an expired session fails immediately with a reconnect-required result instead of waiting on a hidden prompt. PZASM records only the last successful verification time. Production automation should use a limited account and a staging server.
 
 ## Injected connection notice
 
@@ -206,6 +206,6 @@ Steam may keep a new item hidden until its contributor accepts the [Workshop leg
 
 ## Local and remote server orchestration
 
-Profiles are either local INI files or remote VPS/dedicated connections. Status is not a plain TCP-port probe: PZASM authenticates through RCON and reports online only when Project Zomboid accepts the configured password. Graceful stop always uses `save` then `quit` over RCON.
+Profiles are either local INI files or remote VPS/dedicated connections. A remote profile may be RCON-only; SSH and remote INI management are optional. Status is not a plain TCP-port probe: PZASM authenticates through RCON and reports online only when Project Zomboid accepts the configured password. The RCON console accepts supported administration commands, and graceful stop always uses `save` then `quit`.
 
-SSH is limited to remote INI transfer, connection testing, and the configured command that starts the Project Zomboid process or its service. It uses a private key or SSH agent in non-interactive mode. Host `reboot`, `shutdown`, and `poweroff` commands are rejected. During a coordinated publication, the manager stops and later starts only the game; the host operating system remains running. The RCON secret is stored in local manager profile data for unattended operation, so that directory must be protected.
+An RCON-only profile can coordinate publication when systemd, Docker, a hosting panel, or another supervisor restarts Project Zomboid after `quit`: the upload completes first, then the manager sends `save` and `quit`. SSH is limited to optional remote INI transfer, connection testing, and an optional command that starts only the game process or service. It uses a private key or SSH agent in non-interactive mode. Host `reboot`, `shutdown`, and `poweroff` commands are rejected. The RCON secret is stored in local manager profile data for unattended operation, so that directory must be protected.

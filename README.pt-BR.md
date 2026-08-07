@@ -43,7 +43,8 @@ Leia o [estudo completo de arquitetura](docs/ARCHITECTURE.pt-BR.md).
 - progresso detalhado da importação do Workshop com item e fase atuais, contador, porcentagem, resultado da análise e erros recuperáveis;
 - assistente de prioridade de mapas baseado em `map.info`, dependências `lots=`, conflitos de células `.lotheader`, arrastar e soltar e edição bruta de `Map=`;
 - editor guiado do servidor para identidade, acesso, RCON, sessão, backups e conteúdo, além do editor INI completo;
-- encerramento RCON com `save`/`quit` e reinício coordenado;
+- estado RCON autenticado, console de comandos, encerramento `save`/`quit` e reinício coordenado, inclusive em perfis remotos sem SSH;
+- progresso detalhado e cancelável para publicação, autenticação SteamCMD e atualização de mods, com saída ao vivo e limite de tempo;
 - UI local e CLI headless para Windows e Linux;
 - daemon `automation run` com bloqueios entre processos.
 
@@ -76,7 +77,7 @@ O SteamCMD baixa IDs conhecidos, mas não oferece pesquisa completa. O catálogo
 3. Registre autor e autorização de cada origem.
 4. Revise a ordem dos mods e mapas.
 5. Construa e examine `pack.lock.json` e `server-config.txt`.
-6. Instale o SteamCMD em um clique, configure a conta editora e publique primeiro como privado.
+6. Instale o SteamCMD em um clique, configure a conta editora, use **Conectar / renovar sessão** e publique primeiro como privado.
 7. Teste em um servidor de staging antes da produção.
 
 ## CLI headless
@@ -84,6 +85,7 @@ O SteamCMD baixa IDs conhecidos, mas não oferece pesquisa completa. O catálogo
 ```bash
 dotnet run --project src/PZAdvancedServerManager.Cli -- scan
 dotnet run --project src/PZAdvancedServerManager.Cli -- steamcmd install
+dotnet run --project src/PZAdvancedServerManager.Cli -- steamcmd login --id <guid>
 dotnet run --project src/PZAdvancedServerManager.Cli -- project create --name "Servidor principal"
 dotnet run --project src/PZAdvancedServerManager.Cli -- project import-workshop --id <guid> --workshop-id 1234567890
 dotnet run --project src/PZAdvancedServerManager.Cli -- project validate --id <guid>
@@ -93,6 +95,12 @@ dotnet run --project src/PZAdvancedServerManager.Cli -- automation run --interva
 ```
 
 Cada projeto representa um pacote global independente. Nada é atualizado automaticamente até o administrador ativar a automação. Unidades systemd de referência estão em `deploy/systemd/`.
+
+## SteamCMD e servidores remotos
+
+A senha Steam e o código Steam Guard são enviados ao SteamCMD pela entrada padrão somente durante a solicitação; o PZASM não os coloca na linha de comando nem os armazena. O SteamCMD mantém seu próprio token na pasta portátil para o agendamento. Se a sessão expirar ou faltar um segredo, a publicação termina imediatamente com uma explicação em vez de aguardar silenciosamente. A interface mostra a saída ao vivo e permite cancelar o processo externo.
+
+Um perfil remoto pode usar apenas RCON: estado autenticado, console, `save`, `quit` e coordenação sem SSH. Se systemd, Docker, o painel ou a hospedagem reiniciar o Project Zomboid depois de `quit`, o PZASM publica primeiro e então solicita o reinício seguro por RCON. SSH continua opcional para ler ou alterar o INI ou iniciar explicitamente o processo do jogo. O PZASM nunca reinicia o VPS ou servidor dedicado inteiro.
 
 ## Direitos e responsabilidade
 

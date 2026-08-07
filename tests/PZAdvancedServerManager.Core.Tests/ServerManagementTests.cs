@@ -77,6 +77,30 @@ public sealed class ServerManagementTests : IDisposable
         Assert.Equal("secret", reopened.RconPassword);
     }
 
+    [Fact]
+    public async Task RconOnlyProfileDoesNotRequireSshAndCanCoordinateRestart()
+    {
+        var paths = new ApplicationPaths(_root);
+        var environment = new PzEnvironmentService(new PzDiscoveryService(paths));
+        var store = new RemoteServerConnectionStore(paths);
+        var service = new ServerProfileService(paths, environment, new ServerOrchestrationService(), store, new SshRemoteServerService());
+        var profileName = $"rcon-{Guid.NewGuid():N}";
+
+        var created = await service.CreateRemoteAsync(new RemoteServerConnection
+        {
+            Name = profileName,
+            RconHost = "127.0.0.1",
+            RconPort = 27015,
+            RconPassword = "secret",
+            AutoRestartAfterRconQuit = true
+        }, createConfigIfMissing: false);
+
+        Assert.False(created.Remote!.HasSshConnection);
+        Assert.False(created.CanManageConfiguration);
+        Assert.False(service.CanStart(created.Name));
+        Assert.True(service.CanCoordinateRestart(created.Name));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root)) Directory.Delete(_root, true);

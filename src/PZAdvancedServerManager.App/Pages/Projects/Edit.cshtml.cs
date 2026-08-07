@@ -1,5 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text;
+using System.Text.Json;
+using System.Threading.Channels;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using PZAdvancedServerManager.Core.Domain;
@@ -19,7 +21,8 @@ public class EditModel(
     WorkshopImportService workshopImport,
     ServerProfileService servers,
     MapPriorityService mapPriority,
-    SteamCmdInstaller steamCmdInstaller) : PageModel
+    SteamCmdInstaller steamCmdInstaller,
+    SteamCmdService steamCmd) : PageModel
 {
     public PackageProject Project { get; private set; } = new();
     public IReadOnlyList<DiscoveredMod> InstalledMods { get; private set; } = [];
@@ -129,7 +132,7 @@ public class EditModel(
         return RedirectToPage(new { id });
     }
 
-    public async Task<IActionResult> OnPostPublishAsync(Guid id, CancellationToken cancellationToken)
+    public async Task<IActionResult> OnPostPublishAsync(Guid id, string? steamPassword, string? steamGuardCode, CancellationToken cancellationToken)
     {
         var project = store.Get(id);
         if (project is null) return NotFound();
@@ -143,8 +146,10 @@ public class EditModel(
         try
         {
             var createsWorkshopItem = project.PublishedWorkshopId == 0;
-            var result = await lifecycle.PublishAsync(project, refreshSources: false, requireCoordinatedServer: false, cancellationToken);
+            var credentials = CreateCredentials(steamPassword, steamGuardCode);
+            var result = await lifecycle.PublishAsync(project, refreshSources: false, requireCoordinatedServer: false, cancellationToken, credentials);
             project.Automation.LastResult = Limit(result.Output, 4000);
+            project.Automation.SteamSessionVerifiedAt = DateTimeOffset.UtcNow;
             store.Save(project);
             TempData["Message"] = (createsWorkshopItem ? "Nouvel item Workshop créé" : "Item Workshop mis à jour") + $". Workshop ID : {project.PublishedWorkshopId}." +
                 (result.ServerWasRunning ? " Le serveur coordonné a été sauvegardé, arrêté puis redémarré." : string.Empty);
@@ -154,6 +159,92 @@ public class EditModel(
             TempData["Error"] = exception.Message;
         }
         return RedirectToPage(new { id });
+    }
+
+    public async Task<IActionResult> OnPostPublishStreamAsync(Guid id, string? steamPassword, string? steamGuardCode, CancellationToken cancellationToken)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+        var validation = validator.Validate(project);
+        if (!validation.CanPublish)
+        {
+            await PrepareProgressResponseAsync();
+            var blockers = validation.Issues.Where(x => x.IsError && x.Scope != ValidationScope.AutomationOnly).Take(5).Select(x => x.Message);
+            await WriteProgressAsync(new { type = "error", message = "Publication non lancée : " + string.Join(" ", blockers) }, cancellationToken);
+            return new EmptyResult();
+        }
+        var createsWorkshopItem = project.PublishedWorkshopId == 0;
+        return await StreamOperationAsync(async progress =>
+        {
+            var result = await lifecycle.PublishAsync(project, false, false, cancellationToken, CreateCredentials(steamPassword, steamGuardCode), progress);
+            project.Automation.LastResult = Limit(result.Output, 4000);
+            project.Automation.SteamSessionVerifiedAt = DateTimeOffset.UtcNow;
+            store.Save(project);
+            return (createsWorkshopItem ? "Nouvel item Workshop créé" : "Item Workshop mis à jour") + $" · ID {project.PublishedWorkshopId}";
+        }, Url.Page("/Projects/Edit", null, new { id, tab = "distribution" })!, cancellationToken);
+    }
+
+    public async Task<IActionResult> OnPostAuthenticateSteamAsync(Guid id, string steamPassword, string? steamGuardCode, CancellationToken cancellationToken)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+        try
+        {
+            ApplyForm(project);
+            store.Save(project);
+            var result = await steamCmd.AuthenticateAsync(project, new SteamCredentials(steamPassword, steamGuardCode ?? string.Empty), cancellationToken);
+            if (!result.Success) throw new InvalidOperationException("Connexion SteamCMD échouée : " + Limit(result.CombinedOutput, 1800));
+            project.Automation.SteamSessionVerifiedAt = DateTimeOffset.UtcNow;
+            store.Save(project);
+            TempData["Message"] = "Session SteamCMD portable vérifiée. Le service peut la réutiliser sans conserver votre mot de passe ni votre code Steam Guard.";
+        }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
+        return RedirectToPage(new { id, tab = "distribution" });
+    }
+
+    public async Task<IActionResult> OnPostAuthenticateSteamStreamAsync(Guid id, string steamPassword, string? steamGuardCode, CancellationToken cancellationToken)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+        ApplyForm(project);
+        store.Save(project);
+        return await StreamOperationAsync(async progress =>
+        {
+            var result = await steamCmd.AuthenticateAsync(project, new SteamCredentials(steamPassword, steamGuardCode ?? string.Empty), cancellationToken, progress);
+            if (!result.Success) throw new InvalidOperationException("Connexion SteamCMD échouée : " + Limit(result.CombinedOutput, 1800));
+            project.Automation.SteamSessionVerifiedAt = DateTimeOffset.UtcNow;
+            store.Save(project);
+            return "Session SteamCMD portable vérifiée et prête pour le service";
+        }, Url.Page("/Projects/Edit", null, new { id, tab = "distribution" })!, cancellationToken);
+    }
+
+    public async Task<IActionResult> OnPostRefreshSourcesStreamAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+        var targetCount = project.Mods.Count(x => x.Enabled && x.IncludeInGlobalUpdates);
+        return await StreamOperationAsync(async progress =>
+        {
+            progress.Report(new OperationProgress("prepare", $"Préparation de {targetCount} mod(s) sélectionné(s) pour la mise à jour globale."));
+            var result = await lifecycle.RefreshSourcesAsync(project, cancellationToken, progress);
+            if (!result.Success) throw new InvalidOperationException("Actualisation SteamCMD échouée : " + Limit(result.CombinedOutput, 1200));
+            return $"{targetCount} mod(s) mis à jour et snapshots figés";
+        }, Url.Page("/Projects/Edit", null, new { id, tab = "mods" })!, cancellationToken);
+    }
+
+    public async Task<IActionResult> OnPostRefreshModStreamAsync(Guid id, Guid modReferenceId, CancellationToken cancellationToken)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+        var mod = project.Mods.FirstOrDefault(x => x.Id == modReferenceId);
+        if (mod is null) return NotFound();
+        return await StreamOperationAsync(async progress =>
+        {
+            progress.Report(new OperationProgress("prepare", $"Préparation de « {mod.Name} » et vérification de son Workshop ID."));
+            var result = await lifecycle.RefreshModAsync(project, modReferenceId, cancellationToken, progress);
+            if (!result.Success) throw new InvalidOperationException($"Mise à jour de « {mod.Name} » échouée : " + Limit(result.CombinedOutput, 1200));
+            return $"« {mod.Name} » mis à jour et nouveau snapshot figé";
+        }, Url.Page("/Projects/Edit", null, new { id, tab = "mods" })!, cancellationToken);
     }
 
     public async Task<IActionResult> OnPostRefreshSourcesAsync(Guid id, CancellationToken cancellationToken)
@@ -258,8 +349,57 @@ public class EditModel(
         project.Automation.DailyTimes = (Form.DailyTimes ?? string.Empty).Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     }
 
+    private async Task<IActionResult> StreamOperationAsync(
+        Func<IProgress<OperationProgress>, Task<string>> operation,
+        string redirectUrl,
+        CancellationToken cancellationToken)
+    {
+        await PrepareProgressResponseAsync();
+        var channel = Channel.CreateUnbounded<OperationProgress>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
+        var progress = new CallbackProgress<OperationProgress>(value => channel.Writer.TryWrite(value));
+        var operationTask = operation(progress);
+        _ = operationTask.ContinueWith(_ => channel.Writer.TryComplete(), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        try
+        {
+            await foreach (var update in channel.Reader.ReadAllAsync(cancellationToken))
+                await WriteProgressAsync(new { type = "progress", phase = update.Phase, message = update.Message, current = update.Current, total = update.Total }, cancellationToken);
+            var message = await operationTask;
+            await WriteProgressAsync(new { type = "done", message, redirectUrl }, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (Exception exception)
+        {
+            await WriteProgressAsync(new { type = "error", message = exception.Message }, CancellationToken.None);
+        }
+        return new EmptyResult();
+    }
+
+    private Task PrepareProgressResponseAsync()
+    {
+        Response.ContentType = "application/x-ndjson; charset=utf-8";
+        Response.Headers.CacheControl = "no-cache, no-store";
+        Response.Headers.Append("X-Accel-Buffering", "no");
+        return Task.CompletedTask;
+    }
+
+    private async Task WriteProgressAsync(object value, CancellationToken cancellationToken)
+    {
+        await Response.WriteAsync(JsonSerializer.Serialize(value) + "\n", cancellationToken);
+        await Response.Body.FlushAsync(cancellationToken);
+    }
+
+    private static SteamCredentials? CreateCredentials(string? password, string? guardCode) =>
+        string.IsNullOrEmpty(password) && string.IsNullOrWhiteSpace(guardCode)
+            ? null
+            : new SteamCredentials(password ?? string.Empty, guardCode?.Trim() ?? string.Empty);
+
     private static string Limit(string text, int length) => text.Length <= length ? text : text[^length..];
     private static string FormatBytes(long bytes) => bytes > 1024L * 1024 * 1024 ? $"{bytes / (1024d * 1024 * 1024):0.00} Gio" : $"{bytes / (1024d * 1024):0.00} Mio";
+
+    private sealed class CallbackProgress<T>(Action<T> callback) : IProgress<T>
+    {
+        public void Report(T value) => callback(value);
+    }
 
     public sealed class ProjectForm
     {

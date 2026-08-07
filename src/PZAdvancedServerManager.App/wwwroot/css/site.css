@@ -476,8 +476,25 @@ body.has-modal { overflow: hidden; }
 .loading-progress-item.is-complete > span:first-child { color: #fff; border-color: #639432; background: #639432; }
 .loading-progress-item.is-complete > span:first-child { font-size: 0; }
 .loading-progress-item.is-complete > span:first-child::after { content: "✓"; font-size: .78rem; }
-.loading-close { grid-column: 1 / -1; justify-self: end; }
+.loading-actions { display: flex; grid-column: 1 / -1; justify-self: end; gap: 8px; }
+.loading-actions:has([hidden] + [hidden]) { display: none; }
+.loading-close { justify-self: end; }
 .loading-close[hidden] { display: none; }
+.loading-actions [data-loading-cancel][hidden] { display: none; }
+.loading-progress-item small { white-space: normal; overflow-wrap: anywhere; }
+.rcon-output { max-height: 220px; overflow: auto; margin: 10px 0 0; white-space: pre-wrap; }
+.optional-connection { padding: 13px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-2); }
+.optional-connection > summary { cursor: pointer; color: var(--accent-strong); font-weight: 800; }
+.optional-connection-fields { margin-top: 14px; }
+.rcon-console { display: grid; gap: 8px; padding-top: 18px; border-top: 1px solid var(--line); }
+.inline-command { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; }
+.steam-session-fields { margin-top: 12px; }
+.steam-session-status { display: grid; grid-template-columns: 12px minmax(0,1fr); gap: 10px; margin: 12px 0; padding: 12px 13px; align-items: start; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
+.steam-session-status .status-dot { width: 10px; height: 10px; margin-top: 5px; border-radius: 50%; background: #c47a35; box-shadow: 0 0 0 4px rgba(196,122,53,.12); }
+.steam-session-status.is-ready .status-dot { background: var(--green); box-shadow: 0 0 0 4px rgba(120,169,67,.14); }
+.steam-session-status strong, .steam-session-status small { display: block; }
+.steam-session-status strong { color: var(--text); font-size: .9rem; }
+.steam-session-status small { margin-top: 3px; color: var(--muted); line-height: 1.45; }
 .loading-overlay.has-error .loading-card { border-color: #b95b50; }
 .toast-message, .error-message { animation: feedback-enter .24s ease-out both; }
 

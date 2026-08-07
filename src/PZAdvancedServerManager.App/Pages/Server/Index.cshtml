@@ -7,6 +7,7 @@
 <a class="back-link" asp-page="/Index">← Tableau de bord</a>
 @if (TempData["Message"] is string message) { <div class="toast-message">@message</div> }
 @if (TempData["Error"] is string error) { <div class="error-message">@error</div> }
+@if (TempData["RconOutput"] is string rconOutput) { <div class="info-callout"><strong>Réponse RCON</strong><pre class="rcon-output">@rconOutput</pre></div> }
 
 <section class="project-hero workspace-hero">
     <div class="workspace-title"><span class="eyebrow">SERVEURS PROJECT ZOMBOID</span><h1>Serveurs locaux et distants</h1><p>Configurez et pilotez uniquement le processus Project Zomboid, sur cette machine ou sur un VPS/dédié.</p></div>
@@ -28,17 +29,20 @@
         </form>
         <details class="remote-profile-creator">
             <summary>Ajouter un serveur distant</summary>
-            <form method="post" asp-page-handler="CreateRemote" class="stack-form" data-loading-title="Connexion au serveur distant…" data-loading-detail="Test SSH, vérification du fichier INI et enregistrement du profil distant.">
+            <form method="post" asp-page-handler="CreateRemote" class="stack-form" data-loading-title="Création du profil RCON distant…" data-loading-detail="Validation de l’adresse RCON, enregistrement sécurisé du profil et préparation des options de coordination." data-loading-steps="Validation RCON|Enregistrement du profil|Préparation de la coordination">
                 <label><span>Nom du profil</span><input asp-for="NewRemote.Name" required placeholder="vps-principal" /></label>
-                <div class="form-grid two compact-fields"><label><span>Hôte SSH</span><input asp-for="NewRemote.Host" required placeholder="server.example.com" /></label><label><span>Port SSH</span><input asp-for="NewRemote.SshPort" type="number" min="1" max="65535" /></label></div>
-                <label><span>Utilisateur SSH</span><input asp-for="NewRemote.SshUser" required placeholder="pz" /></label>
-                <label><span>Clé privée — optionnelle si agent SSH</span><input asp-for="NewRemote.SshPrivateKeyPath" placeholder="C:\Users\me\.ssh\id_ed25519" /></label>
-                <label><span>Chemin INI sur le serveur</span><input asp-for="NewRemote.RemoteIniPath" required placeholder="/home/pz/Zomboid/Server/servertest.ini" /></label>
-                <label><span>Commande de démarrage du jeu</span><input asp-for="NewRemote.StartCommand" placeholder="systemctl start pzserver" /><small>Elle doit démarrer Project Zomboid uniquement, jamais redémarrer l’hôte.</small></label>
-                <div class="form-grid two compact-fields"><label><span>Hôte RCON</span><input asp-for="NewRemote.RconHost" placeholder="identique à SSH" /></label><label><span>Port RCON</span><input asp-for="NewRemote.RconPort" type="number" min="1" max="65535" /></label></div>
-                <label><span>Mot de passe RCON</span><input asp-for="NewRemote.RconPassword" type="password" autocomplete="new-password" /></label>
-                <label class="check-row"><input type="checkbox" name="createConfigIfMissing" value="true" /> Créer l’INI distant s’il n’existe pas</label>
-                <button class="button primary" type="submit">Tester et ajouter</button>
+                <div class="form-grid two compact-fields"><label><span>Hôte RCON</span><input asp-for="NewRemote.RconHost" required placeholder="server.example.com" /></label><label><span>Port RCON</span><input asp-for="NewRemote.RconPort" type="number" min="1" max="65535" /></label></div>
+                <label><span>Mot de passe RCON</span><input asp-for="NewRemote.RconPassword" type="password" required autocomplete="new-password" /></label>
+                <label class="switch-row"><input asp-for="NewRemote.AutoRestartAfterRconQuit" /><span><strong>Superviseur avec relance automatique</strong><small>Après publication, le manager envoie save puis quit; systemd, Docker ou votre hébergeur relance Project Zomboid.</small></span></label>
+                <details class="optional-connection"><summary>Gestion SSH / INI facultative</summary><div class="stack-form optional-connection-fields">
+                    <div class="form-grid two compact-fields"><label><span>Hôte SSH</span><input asp-for="NewRemote.Host" placeholder="server.example.com" /></label><label><span>Port SSH</span><input asp-for="NewRemote.SshPort" type="number" min="1" max="65535" /></label></div>
+                    <label><span>Utilisateur SSH</span><input asp-for="NewRemote.SshUser" placeholder="pz" /></label>
+                    <label><span>Clé privée — optionnelle si agent SSH</span><input asp-for="NewRemote.SshPrivateKeyPath" placeholder="C:\Users\me\.ssh\id_ed25519" /></label>
+                    <label><span>Chemin INI — optionnel</span><input asp-for="NewRemote.RemoteIniPath" placeholder="/home/pz/Zomboid/Server/servertest.ini" /></label>
+                    <label><span>Commande de démarrage du jeu — optionnelle</span><input asp-for="NewRemote.StartCommand" placeholder="systemctl start pzserver" /></label>
+                    <label class="check-row"><input type="checkbox" name="createConfigIfMissing" value="true" /> Créer l’INI distant s’il n’existe pas</label>
+                </div></details>
+                <button class="button primary" type="submit">Ajouter le profil RCON</button>
             </form>
         </details>
     </aside>
@@ -59,35 +63,46 @@
                 <div><span class="eyebrow">@(Model.Selected.IsRemote ? "SERVEUR DISTANT" : "SERVEUR LOCAL") · @Model.Selected.Name</span><h2>Centre de contrôle</h2><p>@Model.Selected.Location</p></div>
                 <span class="server-status @(Model.SelectedServerOnline ? "online" : "offline")">@(Model.SelectedServerOnline ? "EN LIGNE · RCON AUTHENTIFIÉ" : "ARRÊTÉ / RCON INDISPONIBLE")</span>
             </div>
-            <div class="summary-columns">
+            @if (Model.Selected.CanManageConfiguration) { <div class="summary-columns">
                 <div><strong>Workshop items</strong><span>@Model.WorkshopItems.Count</span><p>@string.Join(" · ", Model.WorkshopItems.Take(6))</p></div>
                 <div><strong>Mod IDs</strong><span>@Model.Mods.Count</span><p>@string.Join(" · ", Model.Mods.Take(6))</p></div>
                 <div><strong>Cartes</strong><span>@Model.Maps.Count</span><p>@string.Join(" · ", Model.Maps.Take(6))</p></div>
-            </div>
+            </div> }
             <div class="server-action-grid">
                 <form method="post" asp-page-handler="Start" asp-route-name="@Model.Selected.Name" data-loading-title="Démarrage de Project Zomboid…" data-loading-detail="Lancement du processus de jeu uniquement. La machine hôte ne sera jamais redémarrée."><button class="server-action primary-action" type="submit" disabled="@(Model.SelectedServerOnline || !Model.SelectedServerCanStart)"><span class="server-action-icon">▶</span><span><strong>Démarrer le jeu</strong><small>@(Model.Selected.IsRemote ? (Model.SelectedServerCanStart ? "Commande SSH configurée" : "Commande SSH à configurer") : "Processus local dédié")</small></span></button></form>
                 <form method="post" asp-page-handler="Stop" asp-route-name="@Model.Selected.Name" data-loading-title="Arrêt propre du serveur…" data-loading-detail="Envoi de save puis quit par RCON et attente de la fermeture complète." data-confirm-title="Sauvegarder et arrêter le serveur ?" data-confirm-message="Le gestionnaire enverra save puis quit par RCON et attendra l’arrêt complet. Aucun arrêt forcé ne sera utilisé." data-confirm-action="Sauvegarder et arrêter" data-confirm-tone="danger"><button class="server-action danger-action" type="submit" disabled="@(!Model.SelectedServerOnline)"><span class="server-action-icon">■</span><span><strong>Sauvegarder et arrêter</strong><small>save puis quit par RCON</small></span></button></form>
+                @if (Model.Selected.IsRemote && Model.Selected.Remote!.AutoRestartAfterRconQuit) { <form method="post" asp-page-handler="RestartRcon" asp-route-name="@Model.Selected.Name" data-loading-title="Redémarrage RCON de Project Zomboid…" data-loading-detail="Sauvegarde du monde, envoi de quit et prise en charge de la relance par le superviseur distant." data-confirm-title="Redémarrer Project Zomboid par RCON ?" data-confirm-message="Le manager enverra save puis quit. Le superviseur distant configuré doit relancer uniquement le processus de jeu." data-confirm-action="Sauvegarder et redémarrer"><button class="server-action primary-action" type="submit" disabled="@(!Model.SelectedServerOnline)"><span class="server-action-icon">↻</span><span><strong>Redémarrer par RCON</strong><small>save + quit + superviseur</small></span></button></form> }
             </div>
         </section>
 
         @if (Model.Selected.IsRemote)
         {
             <section class="panel remote-connection-panel">
-                <div class="panel-heading"><div><span class="eyebrow">CONNEXION DISTANTE</span><h3>SSH pour la configuration et le démarrage</h3><p>RCON reste prioritaire pour le statut, la sauvegarde et l’arrêt. SSH sert à lire l’INI et à relancer uniquement Project Zomboid.</p></div></div>
-                <form method="post" asp-page-handler="SaveRemote" asp-route-name="@Model.Selected.Name" class="form-grid" data-loading-title="Vérification de la connexion distante…" data-loading-detail="Test SSH puis enregistrement des paramètres du serveur distant.">
+                <div class="panel-heading"><div><span class="eyebrow">CONNEXION DISTANTE</span><h3>RCON principal · SSH facultatif</h3><p>RCON suffit pour le statut, les commandes, save/quit et la coordination. SSH n’est requis que pour l’INI ou un démarrage explicite.</p></div></div>
+                <form method="post" asp-page-handler="SaveRemote" asp-route-name="@Model.Selected.Name" class="form-grid" data-loading-title="Enregistrement du profil distant…" data-loading-detail="Validation des paramètres RCON et, si configurés, test des accès SSH facultatifs." data-loading-steps="Validation RCON|Vérification SSH facultative|Enregistrement atomique">
                     <input asp-for="Remote.Name" type="hidden" />
-                    <div class="form-grid two"><label><span>Hôte SSH</span><input asp-for="Remote.Host" required /></label><label><span>Port SSH</span><input asp-for="Remote.SshPort" type="number" min="1" max="65535" /></label></div>
-                    <div class="form-grid two"><label><span>Utilisateur SSH</span><input asp-for="Remote.SshUser" required /></label><label><span>Clé privée — optionnelle</span><input asp-for="Remote.SshPrivateKeyPath" /></label></div>
-                    <label><span>Chemin INI distant</span><input asp-for="Remote.RemoteIniPath" required /></label>
-                    <label><span>Commande pour démarrer Project Zomboid uniquement</span><input asp-for="Remote.StartCommand" placeholder="systemctl start pzserver" /><small>Exemples : <code>systemctl start pzserver</code> ou un script qui lance uniquement le serveur de jeu. Les commandes de reboot de l’hôte sont refusées par conception de l’interface.</small></label>
-                    <div class="form-grid two"><label><span>Hôte RCON — vide = hôte SSH</span><input asp-for="Remote.RconHost" /></label><label><span>Port RCON</span><input asp-for="Remote.RconPort" type="number" min="1" max="65535" /></label></div>
+                    <div class="form-grid two"><label><span>Hôte RCON</span><input asp-for="Remote.RconHost" required /></label><label><span>Port RCON</span><input asp-for="Remote.RconPort" type="number" min="1" max="65535" /></label></div>
                     <label><span>Mot de passe RCON</span><input asp-for="Remote.RconPassword" type="password" autocomplete="new-password" /><small>Nécessaire pour confirmer que Project Zomboid est réellement actif et envoyer save/quit.</small></label>
-                    <div class="action-row"><button class="button primary" type="submit">Tester et enregistrer</button><button class="button secondary" type="submit" formaction="?handler=TestRemote&name=@Uri.EscapeDataString(Model.Selected.Name)" data-loading-title="Test SSH…" data-loading-detail="Connexion non interactive au serveur distant avec la clé ou l’agent SSH.">Tester SSH</button></div>
+                    <label class="switch-row"><input asp-for="Remote.AutoRestartAfterRconQuit" /><span><strong>Relance automatique après RCON quit</strong><small>À activer si systemd, Docker ou l’hébergeur relance automatiquement Project Zomboid.</small></span></label>
+                    <details class="optional-connection" open="@(Model.Selected.Remote!.HasSshConnection ? "open" : null)"><summary>Gestion SSH / INI facultative</summary><div class="form-grid optional-connection-fields">
+                        <div class="form-grid two"><label><span>Hôte SSH</span><input asp-for="Remote.Host" /></label><label><span>Port SSH</span><input asp-for="Remote.SshPort" type="number" min="1" max="65535" /></label></div>
+                        <div class="form-grid two"><label><span>Utilisateur SSH</span><input asp-for="Remote.SshUser" /></label><label><span>Clé privée — optionnelle</span><input asp-for="Remote.SshPrivateKeyPath" /></label></div>
+                        <label><span>Chemin INI distant — optionnel</span><input asp-for="Remote.RemoteIniPath" /></label>
+                        <label><span>Commande pour démarrer Project Zomboid — optionnelle</span><input asp-for="Remote.StartCommand" placeholder="systemctl start pzserver" /></label>
+                    </div></details>
+                    <div class="action-row"><button class="button primary" type="submit">Enregistrer</button><button class="button secondary" type="submit" formaction="?handler=TestRcon&name=@Uri.EscapeDataString(Model.Selected.Name)" data-loading-title="Test RCON…" data-loading-detail="Authentification réelle auprès du processus Project Zomboid.">Tester RCON</button><button class="button secondary" type="submit" formaction="?handler=TestRemote&name=@Uri.EscapeDataString(Model.Selected.Name)" data-loading-title="Test SSH…" data-loading-detail="Connexion non interactive avec la clé ou l’agent SSH." disabled="@(!Model.Selected.Remote.HasSshConnection)">Tester SSH</button></div>
                 </form>
+                <form method="post" asp-page-handler="RconCommand" asp-route-name="@Model.Selected.Name" class="rcon-console" data-loading-title="Commande RCON…" data-loading-detail="Envoi de la commande au processus Project Zomboid et attente de sa réponse."><label><span>Console RCON</span><div class="inline-command"><input name="command" required maxlength="256" placeholder="players, servermsg…, save…" /><button class="button primary" type="submit" disabled="@(!Model.SelectedServerOnline)">Exécuter</button></div><small>La commande est envoyée telle quelle au serveur. Utilisez les commandes prises en charge par votre version de Project Zomboid.</small></label></form>
                 <form method="post" asp-page-handler="DeleteRemote" asp-route-name="@Model.Selected.Name" data-confirm-title="Retirer ce profil distant ?" data-confirm-message="Seul le profil enregistré dans le manager sera supprimé. Aucun fichier, processus ou service ne sera modifié sur le serveur distant." data-confirm-action="Retirer le profil" data-confirm-tone="danger"><button class="button danger" type="submit">Retirer le profil distant</button></form>
             </section>
         }
 
+        @if (!Model.Selected.CanManageConfiguration)
+        {
+            <div class="info-callout"><strong>Profil RCON-only prêt pour la coordination</strong><p>La gestion de l’INI, des listes de mods et des cartes est masquée car aucun chemin SSH n’est configuré. Vous pouvez toujours tester RCON, envoyer des commandes et sélectionner ce profil dans la planification d’un pack.</p></div>
+        }
+        else
+        {
         <section class="panel pack-apply-panel">
             <div><span class="eyebrow">APPLICATION SÛRE</span><h3>Installer un pack sur ce serveur</h3><p>Seules les listes <code>WorkshopItems</code>, <code>Mods</code> et <code>Map</code> sont remplacées après sauvegarde.</p></div>
             <form method="post" asp-page-handler="ApplyPack" asp-route-name="@Model.Selected.Name" class="pack-apply-form" data-loading-title="Application du pack au serveur…" data-loading-detail="Sauvegarde du profil puis remplacement contrôlé de WorkshopItems, Mods et Map." data-confirm-title="Appliquer ce pack au serveur ?" data-confirm-message="Les listes WorkshopItems, Mods et Map seront remplacées après création d’une sauvegarde horodatée. Les autres réglages du serveur resteront inchangés." data-confirm-action="Appliquer le pack">
@@ -158,6 +173,7 @@
                 </form>
             </section>
         </div>
+        }
     }
     </div>
 </div>

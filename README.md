@@ -49,7 +49,7 @@ See the complete [architecture and feasibility study](docs/ARCHITECTURE.md).
 - map-priority assistant using `map.info`, `lots=` dependencies, `.lotheader` cell conflicts, drag-and-drop ordering, and a raw `Map=` fallback;
 - guided `Zomboid/Server/*.ini` editor for identity, access, RCON, gameplay, backups, and content, plus the complete raw editor with encoding preservation;
 - safe pack application that only replaces `WorkshopItems`, `Mods`, and `Map`;
-- authenticated RCON status, `save`, `quit`, Windows/Linux startup, and optional coordinated restart for an explicitly selected local or remote profile;
+- authenticated RCON status, arbitrary administration commands, `save`, `quit`, Windows/Linux startup, and optional coordinated restart for an explicitly selected local or remote profile;
 - Windows/Linux CLI for desktop-free and SSH-managed hosts;
 - `automation run` CLI daemon with inter-process locks when the UI and CLI are active at the same time.
 
@@ -86,7 +86,7 @@ PZASM never modifies Steam sources during a build. It builds from private pinned
 4. Record the author and permission or license evidence for every source.
 5. Review mod and map order.
 6. Build locally and inspect `pack.lock.json` and `server-config.txt`.
-7. Install SteamCMD in one click, configure the publisher account, authenticate manually once, and publish with private visibility.
+7. Install SteamCMD in one click, configure the publisher account, use **Connect / renew session** once, and publish with private visibility. The password and Steam Guard code are sent to SteamCMD only for that request and are never persisted by the manager.
 8. Test on a staging server.
 9. Apply the pack from the Servers page; PZASM backs up the `.ini` first.
 
@@ -166,7 +166,7 @@ The project targets .NET 9 and requires no database. JSON writes are atomic, and
 
 Server profiles can point to a local `Zomboid/Server/*.ini` file or to a remote VPS/dedicated host. Online detection performs a real RCON authentication, so an unrelated listener on the configured port is never treated as a running Project Zomboid server.
 
-The coordinated publication sequence is `RCON save` → `RCON quit` → wait until authenticated RCON is offline → publish the Workshop package → start only the Project Zomboid process. Local profiles use the dedicated-server start script. Remote profiles use SSH only for INI access and the administrator-defined game start command, such as `systemctl start pzserver`. Host-level `reboot`, `shutdown`, and `poweroff` commands are rejected. PZASM never reboots the VPS or dedicated machine.
+Remote profiles can be RCON-only. RCON provides authenticated status, the command console, `save`/`quit`, and coordinated publication. With a systemd, Docker, panel, or hosting supervisor configured to restart the game after `quit`, the manager publishes first and then requests a graceful RCON restart. SSH remains optional and is used only when remote INI access or an explicit Project Zomboid start command is wanted. Host-level `reboot`, `shutdown`, and `poweroff` commands are rejected. PZASM never reboots the VPS or dedicated machine.
 
 Remote SSH is non-interactive and uses an SSH agent or private key. The RCON password is stored in the manager's local profile data because it is required for unattended status and graceful stops; protect the PZASM data directory like the Project Zomboid server INI files.
 
@@ -174,7 +174,7 @@ Remote SSH is non-interactive and uses an SSH agent or private key. The RCON pas
 
 - Public Project Zomboid Workshop sources support anonymous SteamCMD downloads; restricted or private items can still require an authenticated account.
 - SteamCMD downloads known Workshop IDs but does not expose a complete search command. The internal catalog enumerates public Steam Community browse results and resolves item metadata through Steam's public details API before SteamCMD downloads the selection.
-- Workshop publication relies on the Steam account session; PZASM never stores Steam passwords or Steam Guard codes.
+- Workshop publication relies on SteamCMD's portable account session. The UI and `pzasm steamcmd login` can initialize or renew it interactively; SteamCMD keeps its own refresh token in its portable directory. PZASM stores only the last successful verification time, never the Steam password or Steam Guard code. If the session expires, supervised publishing terminates immediately with a reconnect-required error instead of waiting on a hidden prompt.
 - Linux SteamCMD may require the distribution's 32-bit runtime libraries; the installer reports bootstrap errors without hiding the extracted tool.
 - A new item can remain hidden until the Workshop legal agreement is accepted.
 - A source update can change dependencies, Mod IDs, maps, or licensing and may be blocked during validation.

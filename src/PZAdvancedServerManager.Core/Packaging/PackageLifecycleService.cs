@@ -19,26 +19,28 @@ public sealed class PackageLifecycleService(
         return BuildCore(project);
     }
 
-    public async Task<SteamCmdResult> RefreshSourcesAsync(PackageProject project, CancellationToken cancellationToken = default)
+    public async Task<SteamCmdResult> RefreshSourcesAsync(PackageProject project, CancellationToken cancellationToken = default, IProgress<OperationProgress>? progress = null)
     {
         await using var operationLock = Acquire(project.Id);
         var targets = project.Mods.Where(x => x.Enabled && x.IncludeInGlobalUpdates).ToArray();
-        return await RefreshSourcesCoreAsync(project, targets, cancellationToken);
+        return await RefreshSourcesCoreAsync(project, targets, cancellationToken, progress);
     }
 
-    public async Task<SteamCmdResult> RefreshModAsync(PackageProject project, Guid modReferenceId, CancellationToken cancellationToken = default)
+    public async Task<SteamCmdResult> RefreshModAsync(PackageProject project, Guid modReferenceId, CancellationToken cancellationToken = default, IProgress<OperationProgress>? progress = null)
     {
         await using var operationLock = Acquire(project.Id);
         var target = project.Mods.FirstOrDefault(x => x.Id == modReferenceId)
             ?? throw new KeyNotFoundException("Mod introuvable dans ce projet.");
-        return await RefreshSourcesCoreAsync(project, [target], cancellationToken);
+        return await RefreshSourcesCoreAsync(project, [target], cancellationToken, progress);
     }
 
     public async Task<PackageOperationResult> PublishAsync(
         PackageProject project,
         bool refreshSources,
         bool requireCoordinatedServer,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        SteamCredentials? credentials = null,
+        IProgress<OperationProgress>? progress = null)
     {
         await using var operationLock = Acquire(project.Id);
         if (requireCoordinatedServer && string.IsNullOrWhiteSpace(project.Automation.CoordinatedServerName))
@@ -48,16 +50,19 @@ public sealed class PackageLifecycleService(
         if (refreshSources)
         {
             var targets = project.Mods.Where(x => x.Enabled && x.IncludeInGlobalUpdates).ToArray();
-            var refresh = await RefreshSourcesCoreAsync(project, targets, cancellationToken);
+            progress?.Report(new OperationProgress("refresh", $"Actualisation de {targets.Length} source(s) Workshop."));
+            var refresh = await RefreshSourcesCoreAsync(project, targets, cancellationToken, progress);
             output.Add(refresh.CombinedOutput);
             if (!refresh.Success) throw new InvalidOperationException("Actualisation SteamCMD échouée : " + Tail(refresh.CombinedOutput));
         }
 
+        progress?.Report(new OperationProgress("build", "Validation des snapshots et construction atomique du pack."));
         var build = BuildCore(project);
         var serverName = project.Automation.CoordinatedServerName;
         var serverWasRunning = false;
         var serverStopped = false;
         var serverRestarted = false;
+        var restartViaRconAfterPublish = false;
         try
         {
             if (!string.IsNullOrWhiteSpace(serverName))
@@ -67,18 +72,35 @@ public sealed class PackageLifecycleService(
                     throw new InvalidOperationException("Le port RCON répond, mais l'authentification Project Zomboid a échoué. Vérifiez l'hôte, le port et le mot de passe avant la publication coordonnée.");
                 if (serverWasRunning)
                 {
-                    if (!servers.CanStart(serverName))
-                        throw new InvalidOperationException("Le profil distant doit définir une commande de démarrage Project Zomboid avant une publication coordonnée.");
-                    await servers.StopAsync(serverName, cancellationToken);
-                    serverStopped = true;
+                    if (!servers.CanCoordinateRestart(serverName))
+                        throw new InvalidOperationException("Ce profil distant ne peut pas redémarrer Project Zomboid. Configurez une relance automatique après RCON quit ou une commande SSH de démarrage.");
+                    if (servers.CanStart(serverName))
+                    {
+                        progress?.Report(new OperationProgress("server", "Sauvegarde et arrêt du processus Project Zomboid par RCON avant publication."));
+                        await servers.StopAsync(serverName, cancellationToken);
+                        serverStopped = true;
+                    }
+                    else
+                    {
+                        restartViaRconAfterPublish = true;
+                        progress?.Report(new OperationProgress("server", "Profil RCON-only détecté : le jeu restera actif pendant l’envoi puis recevra save/quit après publication."));
+                    }
                 }
             }
 
-            var publish = await steamCmd.PublishAsync(project, build, cancellationToken);
+            progress?.Report(new OperationProgress("publish", "Connexion au compte éditeur et envoi vers Steam Workshop."));
+            var publish = await steamCmd.PublishAsync(project, build, cancellationToken, credentials, progress);
             output.Add(publish.CombinedOutput);
             if (!publish.Success) throw new InvalidOperationException("Publication SteamCMD échouée : " + Tail(publish.CombinedOutput));
 
             store.Save(project);
+            if (restartViaRconAfterPublish)
+            {
+                progress?.Report(new OperationProgress("server", "Publication confirmée : envoi de save puis quit par RCON. Le superviseur distant relancera le jeu."));
+                await servers.RestartViaRconAsync(serverName, cancellationToken);
+                serverRestarted = true;
+            }
+            progress?.Report(new OperationProgress("finalize", "Workshop ID enregistré et configuration serveur régénérée."));
             build = BuildCore(project); // Rebuilds server-config.txt with the ID created by the first publish operation.
         }
         finally
@@ -102,13 +124,14 @@ public sealed class PackageLifecycleService(
         return build;
     }
 
-    private async Task<SteamCmdResult> RefreshSourcesCoreAsync(PackageProject project, IReadOnlyCollection<PackageModReference> targets, CancellationToken cancellationToken)
+    private async Task<SteamCmdResult> RefreshSourcesCoreAsync(PackageProject project, IReadOnlyCollection<PackageModReference> targets, CancellationToken cancellationToken, IProgress<OperationProgress>? progress = null)
     {
         if (targets.Count == 0)
             return new SteamCmdResult(0, "Aucun mod n’est configuré pour la mise à jour globale.", string.Empty);
-        var refresh = await steamCmd.RefreshSourcesAsync(project, targets, cancellationToken);
+        var refresh = await steamCmd.RefreshSourcesAsync(project, targets, cancellationToken, progress);
         if (refresh.Success)
         {
+            progress?.Report(new OperationProgress("snapshot", "Inspection des mod.info et remplacement atomique des snapshots sélectionnés."));
             foreach (var target in targets) RefreshMetadata(project, target);
             snapshots.Update(project, targets);
             store.Save(project);

@@ -47,14 +47,20 @@ public sealed class ServerProfileService(
         NormalizeAndValidate(connection);
         if (remoteStore.Get(connection.Name) is not null || File.Exists(Path.Combine(ServerRoot, connection.Name + ".ini")))
             throw new IOException("Un profil local ou distant utilise déjà ce nom.");
-        await ssh.TestAsync(connection, cancellationToken);
-        try
+        if (connection.HasSshConnection)
         {
-            _ = await ssh.ReadFileAsync(connection, cancellationToken);
-        }
-        catch when (createConfigIfMissing)
-        {
-            await ssh.WriteFileAsync(connection, Template(connection.Name), cancellationToken);
+            await ssh.TestAsync(connection, cancellationToken);
+            if (connection.HasSshManagement)
+            {
+                try
+                {
+                    _ = await ssh.ReadFileAsync(connection, cancellationToken);
+                }
+                catch when (createConfigIfMissing)
+                {
+                    await ssh.WriteFileAsync(connection, Template(connection.Name), cancellationToken);
+                }
+            }
         }
         remoteStore.Save(connection);
         return new ServerConfigEntry(connection.Name, connection.RemoteIniPath, ServerConnectionKind.Remote, connection);
@@ -62,18 +68,28 @@ public sealed class ServerProfileService(
 
     public async Task UpdateRemoteAsync(RemoteServerConnection connection, CancellationToken cancellationToken = default)
     {
-        NormalizeAndValidate(connection);
         var existing = remoteStore.Get(connection.Name) ?? throw new KeyNotFoundException("Profil serveur distant introuvable.");
         connection.Id = existing.Id;
         if (string.IsNullOrEmpty(connection.RconPassword)) connection.RconPassword = existing.RconPassword;
-        await ssh.TestAsync(connection, cancellationToken);
+        NormalizeAndValidate(connection);
+        if (connection.HasSshConnection) await ssh.TestAsync(connection, cancellationToken);
         remoteStore.Save(connection);
     }
 
     public async Task TestRemoteAsync(RemoteServerConnection connection, CancellationToken cancellationToken = default)
     {
+        PreserveStoredRconPassword(connection);
         NormalizeAndValidate(connection);
+        if (!connection.HasSshConnection) throw new InvalidOperationException("Ajoutez l'hôte et l'utilisateur SSH pour tester la connexion facultative.");
         await ssh.TestAsync(connection, cancellationToken);
+    }
+
+    public async Task TestRconAsync(RemoteServerConnection connection, CancellationToken cancellationToken = default)
+    {
+        PreserveStoredRconPassword(connection);
+        NormalizeAndValidate(connection);
+        if (!await orchestration.IsOnlineAsync(RconHost(connection), connection.RconPort, connection.RconPassword, cancellationToken))
+            throw new IOException("Project Zomboid n'a pas accepté la connexion RCON. Vérifiez l'hôte, le port, le mot de passe et l'état du jeu.");
     }
 
     public bool RemoveRemote(string name) => remoteStore.Remove(ValidateName(name));
@@ -81,6 +97,7 @@ public sealed class ServerProfileService(
     public string ReadRaw(string name)
     {
         var profile = Get(name);
+        if (profile.IsRemote) EnsureConfigurationAccess(profile);
         return profile.IsRemote
             ? ssh.ReadFileAsync(profile.Remote!).GetAwaiter().GetResult()
             : ServerConfigDocument.ReadText(profile.Path).Text;
@@ -89,6 +106,7 @@ public sealed class ServerProfileService(
     public string SaveRaw(string name, string content)
     {
         var profile = Get(name);
+        if (profile.IsRemote) EnsureConfigurationAccess(profile);
         if (profile.IsRemote) return ssh.WriteFileAsync(profile.Remote!, content).GetAwaiter().GetResult();
         var backup = Backup(profile.Path);
         var original = ServerConfigDocument.ReadText(profile.Path);
@@ -160,7 +178,13 @@ public sealed class ServerProfileService(
     public bool CanStart(string name)
     {
         var profile = Get(name);
-        return !profile.IsRemote || !string.IsNullOrWhiteSpace(profile.Remote!.StartCommand);
+        return !profile.IsRemote || profile.Remote!.HasSshConnection && !string.IsNullOrWhiteSpace(profile.Remote.StartCommand);
+    }
+
+    public bool CanCoordinateRestart(string name)
+    {
+        var profile = Get(name);
+        return !profile.IsRemote || CanStart(name) || profile.Remote!.AutoRestartAfterRconQuit;
     }
 
     public async Task StartAsync(string name, CancellationToken cancellationToken = default)
@@ -186,6 +210,20 @@ public sealed class ServerProfileService(
         }
         var remote = profile.Remote!;
         await orchestration.StopGracefullyAsync(RconHost(remote), remote.RconPort, remote.RconPassword, cancellationToken);
+    }
+
+    public async Task RestartViaRconAsync(string name, CancellationToken cancellationToken = default)
+    {
+        var profile = Get(name);
+        var (host, port, password) = RconEndpoint(profile);
+        await orchestration.RequestRestartAsync(host, port, password, cancellationToken);
+    }
+
+    public async Task<string> ExecuteRconCommandAsync(string name, string command, CancellationToken cancellationToken = default)
+    {
+        var profile = Get(name);
+        var (host, port, password) = RconEndpoint(profile);
+        return await orchestration.ExecuteCommandAsync(host, port, password, command, cancellationToken);
     }
 
     public async Task<ServerApplyResult> ApplyPackageAsync(string name, PackageProject project, CancellationToken cancellationToken = default)
@@ -218,12 +256,12 @@ public sealed class ServerProfileService(
     public ServerConfigDocument ReadDocument(string name) => ReadDocument(Get(name));
 
     private ServerConfigDocument ReadDocument(ServerConfigEntry profile) => profile.IsRemote
-        ? ServerConfigDocument.Parse(ssh.ReadFileAsync(profile.Remote!).GetAwaiter().GetResult())
+        ? ServerConfigDocument.Parse(ssh.ReadFileAsync(EnsureConfigurationAccess(profile)).GetAwaiter().GetResult())
         : ServerConfigDocument.Load(profile.Path);
 
     private string WriteDocument(ServerConfigEntry profile, ServerConfigDocument document)
     {
-        if (profile.IsRemote) return ssh.WriteFileAsync(profile.Remote!, document.Render()).GetAwaiter().GetResult();
+        if (profile.IsRemote) return ssh.WriteFileAsync(EnsureConfigurationAccess(profile), document.Render()).GetAwaiter().GetResult();
         var backup = Backup(profile.Path);
         document.Save(profile.Path);
         return backup;
@@ -231,6 +269,17 @@ public sealed class ServerProfileService(
 
     private string ServerRoot => Path.Combine(environment.Installation.UserZomboidRoot, "Server");
     private static string RconHost(RemoteServerConnection remote) => string.IsNullOrWhiteSpace(remote.RconHost) ? remote.Host : remote.RconHost;
+    private static (string Host, int Port, string Password) RconEndpoint(ServerConfigEntry profile)
+    {
+        if (profile.IsRemote)
+        {
+            var remote = profile.Remote!;
+            return (RconHost(remote), remote.RconPort, remote.RconPassword);
+        }
+        var document = ServerConfigDocument.Load(profile.Path);
+        var port = int.TryParse(document.Get("RCONPort"), out var parsed) ? parsed : 27015;
+        return ("127.0.0.1", port, document.Get("RCONPassword"));
+    }
     private static string Template(string name) => $"# Created by PZ Advanced Server Manager\nPublicName={name}\nPublicDescription=\nPassword=\nDefaultPort=16261\nRCONPort=27015\nRCONPassword=\nMaxPlayers=16\nPauseEmpty=true\nDoLuaChecksum=true\nWorkshopItems=\nMods=\nMap=Muldraugh, KY\n";
 
     private static string ValidateName(string name)
@@ -249,13 +298,32 @@ public sealed class ServerProfileService(
         connection.RemoteIniPath = connection.RemoteIniPath.Trim();
         connection.StartCommand = connection.StartCommand.Trim();
         connection.RconHost = connection.RconHost.Trim();
-        if (string.IsNullOrWhiteSpace(connection.Host) || string.IsNullOrWhiteSpace(connection.SshUser) || string.IsNullOrWhiteSpace(connection.RemoteIniPath))
-            throw new ArgumentException("Hôte, utilisateur SSH et chemin INI distant sont requis.");
+        if (string.IsNullOrWhiteSpace(connection.RconHost)) connection.RconHost = connection.Host;
+        if (string.IsNullOrWhiteSpace(connection.RconHost) || string.IsNullOrWhiteSpace(connection.RconPassword))
+            throw new ArgumentException("L'hôte et le mot de passe RCON sont requis pour un profil distant.");
+        var hasAnySshSetting = !string.IsNullOrWhiteSpace(connection.Host) || !string.IsNullOrWhiteSpace(connection.SshUser) || !string.IsNullOrWhiteSpace(connection.RemoteIniPath) || !string.IsNullOrWhiteSpace(connection.StartCommand) || !string.IsNullOrWhiteSpace(connection.SshPrivateKeyPath);
+        if (hasAnySshSetting && !connection.HasSshConnection)
+            throw new ArgumentException("Pour activer SSH, renseignez ensemble l'hôte et l'utilisateur. Le chemin INI reste facultatif.");
         if (connection.SshPort is < 1 or > 65535 || connection.RconPort is < 1 or > 65535)
             throw new ArgumentException("Les ports SSH et RCON doivent être compris entre 1 et 65535.");
         var forbiddenHostCommands = new[] { "reboot", "shutdown", "poweroff", "systemctl reboot", "systemctl poweroff", "systemctl halt", "init 6" };
         if (forbiddenHostCommands.Any(command => connection.StartCommand.Contains(command, StringComparison.OrdinalIgnoreCase)))
             throw new ArgumentException("La commande SSH doit démarrer uniquement Project Zomboid. Les commandes d'arrêt ou de redémarrage de l'hôte sont refusées.");
+    }
+
+    private static RemoteServerConnection EnsureConfigurationAccess(ServerConfigEntry profile)
+    {
+        if (!profile.IsRemote) throw new InvalidOperationException("Ce profil est local.");
+        if (!profile.Remote!.HasSshManagement)
+            throw new InvalidOperationException("Ce profil utilise RCON uniquement. Activez la gestion SSH facultative pour lire ou modifier l'INI distant.");
+        return profile.Remote;
+    }
+
+    private void PreserveStoredRconPassword(RemoteServerConnection connection)
+    {
+        if (!string.IsNullOrEmpty(connection.RconPassword)) return;
+        var existing = remoteStore.Get(connection.Name);
+        if (existing is not null) connection.RconPassword = existing.RconPassword;
     }
 
     private static string Backup(string path)
@@ -282,7 +350,10 @@ public sealed class ServerProfileService(
 public sealed record ServerConfigEntry(string Name, string Path, ServerConnectionKind Kind, RemoteServerConnection? Remote)
 {
     public bool IsRemote => Kind == ServerConnectionKind.Remote;
-    public string Location => IsRemote ? $"{Remote!.SshUser}@{Remote.Host}:{Path}" : Path;
+    public bool CanManageConfiguration => !IsRemote || Remote!.HasSshManagement;
+    public string Location => IsRemote
+        ? $"RCON {(string.IsNullOrWhiteSpace(Remote!.RconHost) ? Remote.Host : Remote.RconHost)}:{Remote.RconPort}" + (Remote.HasSshConnection ? $" · SSH {Remote.SshUser}@{Remote.Host}" : string.Empty)
+        : Path;
 }
 
 public sealed record ServerConfigSummary(IReadOnlyList<string> WorkshopItems, IReadOnlyList<string> Mods, IReadOnlyList<string> Maps);

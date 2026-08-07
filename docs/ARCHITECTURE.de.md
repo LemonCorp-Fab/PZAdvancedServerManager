@@ -51,7 +51,7 @@ Beim Hinzufügen einer Quelle erstellt PZASM einen privaten Snapshot und berechn
 
 Der [Steamworks-Workshop-Leitfaden](https://partner.steamgames.com/doc/features/workshop/implementation) beschreibt Erstellung und Aktualisierung mit `workshop_build_item`.
 
-Der Scheduler prüft Rechte und Abhängigkeiten, aktualisiert optional Quellen, baut in einem temporären Verzeichnis, führt RCON-`save` und `quit` aus, veröffentlicht und startet einen zuvor laufenden Server neu. Steam-Passwörter und Steam-Guard-Codes werden nicht gespeichert.
+Der Scheduler prüft Rechte und Abhängigkeiten, aktualisiert optional Quellen, baut, veröffentlicht und koordiniert den Server bei Bedarf über RCON. Eine überwachte Anmeldung übergibt Passwort und Steam-Guard-Code nur über die Standardeingabe an SteamCMD. SteamCMD behält sein eigenes Token im portablen Verzeichnis; der Manager speichert nur den Zeitpunkt der letzten erfolgreichen Prüfung. Eine abgelaufene Sitzung endet sofort mit einer Aufforderung zur erneuten Anmeldung statt an einer unsichtbaren Eingabe zu warten. Die Oberfläche zeigt die SteamCMD-Ausgabe live, erzwingt ein Zeitlimit und kann den externen Prozess abbrechen.
 
 ## Externe Anwendung
 
@@ -74,6 +74,6 @@ Steam kann ein neues Item verbergen, bis die [Workshop-Vereinbarung](https://ste
 
 ## Lokale und entfernte Orchestrierung
 
-Ein Profil beschreibt entweder eine lokale INI-Datei oder eine Verbindung zu einem entfernten VPS/Dedicated Host. Der Status ist keine einfache TCP-Port-Prüfung: PZASM authentifiziert sich über RCON und meldet Project Zomboid nur dann als aktiv, wenn das Passwort akzeptiert wird. Ein sauberes Beenden sendet immer `save` und danach `quit` per RCON.
+Ein Profil beschreibt entweder eine lokale INI-Datei oder eine Verbindung zu einem entfernten VPS/Dedicated Host. Ein entferntes Profil kann ausschließlich RCON verwenden; SSH und INI-Verwaltung sind optional. Der Status führt eine echte RCON-Anmeldung aus, die Konsole kann unterstützte Verwaltungsbefehle senden und ein sauberes Beenden nutzt `save` und danach `quit`.
 
-SSH wird nur für Verbindungstests, die entfernte INI-Datei und den konfigurierten Startbefehl des Project-Zomboid-Prozesses oder -Dienstes verwendet. Der Zugriff erfolgt nicht interaktiv über privaten Schlüssel oder SSH-Agent. Host-Befehle wie `reboot`, `shutdown` und `poweroff` werden abgelehnt. Eine koordinierte Veröffentlichung stoppt und startet ausschließlich das Spiel; das Betriebssystem des Hosts läuft weiter. Das RCON-Geheimnis wird für unbeaufsichtigte Abläufe in den lokalen Manager-Profildaten gespeichert; dieses Verzeichnis muss geschützt werden.
+Mit systemd, Docker, einem Hosting-Panel oder einem anderen Supervisor, der Project Zomboid nach `quit` neu startet, kann ein reines RCON-Profil die Veröffentlichung koordinieren: zuerst wird der Workshop-Upload abgeschlossen, danach sendet der Manager `save` und `quit`. SSH dient nur der optionalen INI-Verwaltung oder einem expliziten Spiel-Startbefehl. Host-Befehle wie `reboot`, `shutdown` und `poweroff` werden abgelehnt. Das RCON-Geheimnis wird für unbeaufsichtigte Abläufe lokal gespeichert; dieses Verzeichnis muss geschützt werden.

@@ -59,11 +59,7 @@ public sealed class ServerOrchestrationService
     {
         if (string.IsNullOrWhiteSpace(password))
             throw new InvalidOperationException("Un mot de passe RCON est requis pour sauvegarder et arrêter proprement Project Zomboid.");
-        await using var rcon = await PzRconClient.ConnectAsync(host, port, password, cancellationToken);
-        await rcon.CommandAsync("save", cancellationToken);
-        await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken);
-        try { await rcon.CommandAsync("quit", cancellationToken); }
-        catch (IOException) { /* The server may close the connection immediately after the quit command. */ }
+        await SendSaveAndQuitAsync(host, port, password, cancellationToken);
 
         var deadline = DateTimeOffset.UtcNow.AddMinutes(1);
         while (DateTimeOffset.UtcNow < deadline)
@@ -72,6 +68,32 @@ public sealed class ServerOrchestrationService
             await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
         }
         throw new TimeoutException("Le serveur n'a pas fermé son port RCON dans le délai prévu. Aucune terminaison forcée n'a été effectuée.");
+    }
+
+    public async Task RequestRestartAsync(string host, int port, string password, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(password))
+            throw new InvalidOperationException("Un mot de passe RCON est requis pour sauvegarder et redémarrer Project Zomboid.");
+        await SendSaveAndQuitAsync(host, port, password, cancellationToken);
+    }
+
+    public async Task<string> ExecuteCommandAsync(string host, int port, string password, string command, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(password)) throw new InvalidOperationException("Un mot de passe RCON est requis.");
+        command = command.Trim();
+        if (command.Length is < 1 or > 256 || command.Any(char.IsControl))
+            throw new ArgumentException("La commande RCON doit contenir entre 1 et 256 caractères sans caractère de contrôle.", nameof(command));
+        await using var rcon = await PzRconClient.ConnectAsync(host, port, password, cancellationToken);
+        return await rcon.CommandAsync(command, cancellationToken);
+    }
+
+    private static async Task SendSaveAndQuitAsync(string host, int port, string password, CancellationToken cancellationToken)
+    {
+        await using var rcon = await PzRconClient.ConnectAsync(host, port, password, cancellationToken);
+        await rcon.CommandAsync("save", cancellationToken);
+        await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken);
+        try { await rcon.CommandAsync("quit", cancellationToken); }
+        catch (IOException) { /* The server may close the connection immediately after the quit command. */ }
     }
 
     public void Start(string serverName, string dedicatedServerRoot)

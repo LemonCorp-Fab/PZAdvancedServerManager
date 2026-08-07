@@ -74,5 +74,18 @@ public sealed class RemoteServerConnection
     public string RconHost { get; set; } = string.Empty;
     public int RconPort { get; set; } = 27015;
     public string RconPassword { get; set; } = string.Empty;
+    public bool AutoRestartAfterRconQuit { get; set; } = true;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    [JsonIgnore]
+    public bool HasSshConnection =>
+        !string.IsNullOrWhiteSpace(Host) &&
+        !string.IsNullOrWhiteSpace(SshUser);
+
+    [JsonIgnore]
+    public bool HasSshManagement =>
+        HasSshConnection &&
+        !string.IsNullOrWhiteSpace(RemoteIniPath);
 }
+
+public sealed record OperationProgress(string Phase, string Message, int? Current = null, int? Total = null);

@@ -10,6 +10,20 @@
     <link rel="stylesheet" href="~/PZAdvancedServerManager.App.styles.css" asp-append-version="true" />
 </head>
 <body>
+    <div class="loading-overlay" data-loading-overlay hidden aria-live="polite" aria-atomic="true">
+        <div class="loading-card" role="status">
+            <div class="loading-emblem" aria-hidden="true">
+                <span>PZ</span>
+                <span class="loading-spinner"></span>
+            </div>
+            <div class="loading-copy">
+                <span class="eyebrow">OPÉRATION EN COURS</span>
+                <strong data-loading-title>Chargement…</strong>
+                <p data-loading-detail>Veuillez patienter quelques instants.</p>
+            </div>
+            <div class="loading-track" aria-hidden="true"><span></span></div>
+        </div>
+    </div>
     <header>
         <nav class="navbar navbar-expand-sm navbar-toggleable-sm app-nav">
             <div class="container-fluid app-shell">

@@ -18,9 +18,9 @@
         <p>Workshop ID : @(Model.Project.PublishedWorkshopId == 0 ? "nouvel item — sera mémorisé après publication" : Model.Project.PublishedWorkshopId)</p>
     </div>
     <div class="action-row">
-        <form method="post" asp-page-handler="Build"><button class="button secondary" type="submit">Construire localement</button></form>
-        <form method="post" asp-page-handler="RefreshSources" onsubmit="return confirm('Télécharger les versions actuelles des sources Workshop et remplacer les snapshots figés de ce pack ? Aucun publish ne sera effectué.');"><button class="button ghost" type="submit">Actualiser les sources figées</button></form>
-        <form method="post" asp-page-handler="Publish" onsubmit="return confirm('Publier ou mettre à jour cet item Workshop maintenant ? Si le serveur coordonné est en ligne, PZASM exécutera save/quit puis le redémarrera.');"><button class="button primary" type="submit" disabled="@(!Model.Validation.CanPublish)">Publier avec SteamCMD</button></form>
+        <form method="post" asp-page-handler="Build" data-loading-title="Construction du pack…" data-loading-detail="Assemblage des snapshots figés, calcul des hashes et génération des fichiers Workshop."><button class="button secondary" type="submit">Construire localement</button></form>
+        <form method="post" asp-page-handler="RefreshSources" data-loading-title="Actualisation des sources…" data-loading-detail="SteamCMD télécharge les versions actuelles, puis PZASM remplace les snapshots de manière atomique." onsubmit="return confirm('Télécharger les versions actuelles des sources Workshop et remplacer les snapshots figés de ce pack ? Aucun publish ne sera effectué.');"><button class="button ghost" type="submit">Actualiser les sources figées</button></form>
+        <form method="post" asp-page-handler="Publish" data-loading-title="Publication Steam Workshop…" data-loading-detail="Validation, construction, coordination éventuelle du serveur et mise à jour du Workshop ID de ce pack." onsubmit="return confirm('Publier ou mettre à jour cet item Workshop maintenant ? Si le serveur coordonné est en ligne, PZASM exécutera save/quit puis le redémarrera.');"><button class="button primary" type="submit" disabled="@(!Model.Validation.CanPublish)">Publier avec SteamCMD</button></form>
     </div>
 </section>
 
@@ -32,7 +32,7 @@
     </section>
 }
 
-<form method="post" asp-page-handler="Save" class="panel editor-form">
+<form method="post" asp-page-handler="Save" class="panel editor-form" data-loading-title="Enregistrement du projet…" data-loading-detail="Mise à jour de la configuration, de la planification et des paramètres de publication.">
     <div class="panel-heading"><div><span class="eyebrow">IDENTITÉ ET DISTRIBUTION</span><h2>Configuration du pack</h2></div><button class="button primary" type="submit">Enregistrer</button></div>
     <div class="form-grid two">
         <label><span>Nom du pack</span><input asp-for="Form.Name" /></label>
@@ -78,13 +78,13 @@
 
 <section class="panel">
     <div class="panel-heading"><div><span class="eyebrow">SOURCES LOCALES ET WORKSHOP</span><h2>Mods inclus</h2></div><div class="action-row"><a class="button ghost" href="https://steamcommunity.com/workshop/browse/?appid=108600" target="_blank" rel="noreferrer">Parcourir le Workshop ↗</a><a class="button ghost" asp-page="/Projects/Edit" asp-route-id="@Model.Project.Id" asp-route-refresh="true">Relancer la détection</a></div></div>
-    <form method="post" asp-page-handler="ImportWorkshop" class="add-mod-row">
+    <form method="post" asp-page-handler="ImportWorkshop" class="add-mod-row" data-loading-title="Import de l’item Workshop…" data-loading-detail="Téléchargement SteamCMD, analyse des mod.info et création des snapshots figés.">
         <input name="workshopId" type="number" min="1" required placeholder="Workshop ID à télécharger avec SteamCMD" />
         <button class="button secondary" type="submit">Télécharger et figer l'item</button>
     </form>
     <p class="fine-print">L'import utilise le chemin SteamCMD enregistré plus haut, analyse tous les <code>mod.info</code> de l'item et ajoute les dépendances disponibles. Aucun item n'est publié pendant cette opération.</p>
     <input class="mod-filter" type="search" data-mod-filter placeholder="Filtrer par nom, Mod ID ou Workshop ID…" autocomplete="off" />
-    <form method="post" asp-page-handler="AddMod" class="add-mod-row">
+    <form method="post" asp-page-handler="AddMod" class="add-mod-row" data-loading-title="Ajout du mod au pack…" data-loading-detail="Copie de la source dans un snapshot privé et ajout des dépendances disponibles.">
         <select name="selectionKey" required data-mod-select>
             <option value="">Choisir parmi @Model.InstalledMods.Count mods détectés…</option>
             @foreach (var mod in Model.InstalledMods.Where(x => !selectedIds.Contains(x.ModId)))
@@ -116,7 +116,7 @@
                     @if (mod.RequiredModIds.Length > 0) { <p class="fine-print"><strong>Dépendances :</strong> @string.Join(", ", mod.RequiredModIds)</p> }
                     @if (mod.MapFolders.Length > 0) { <p class="fine-print"><strong>Cartes :</strong> @string.Join(", ", mod.MapFolders)</p> }
                     @if (!string.IsNullOrWhiteSpace(mod.SourceUrl)) { <a href="@mod.SourceUrl" target="_blank" rel="noreferrer">Voir le mod d'origine sur Steam ↗</a> }
-                    <form method="post" asp-page-handler="UpdateMod" class="form-grid two">
+                    <form method="post" asp-page-handler="UpdateMod" class="form-grid two" data-loading-title="Enregistrement des droits…" data-loading-detail="Mise à jour des informations d’auteur, de licence et des preuves associées.">
                         <input type="hidden" name="modReferenceId" value="@mod.Id" />
                         <label><span>Statut de l'autorisation</span><select name="permissionStatus">
                             @foreach (var status in Enum.GetValues<PermissionStatus>())
@@ -132,9 +132,9 @@
                         <div class="full action-row"><button class="button secondary" type="submit">Enregistrer les droits</button></div>
                     </form>
                     <div class="mod-actions">
-                        <form method="post" asp-page-handler="Move"><input type="hidden" name="modReferenceId" value="@mod.Id" /><input type="hidden" name="direction" value="-1" /><button class="icon-button" title="Monter" type="submit">↑</button></form>
-                        <form method="post" asp-page-handler="Move"><input type="hidden" name="modReferenceId" value="@mod.Id" /><input type="hidden" name="direction" value="1" /><button class="icon-button" title="Descendre" type="submit">↓</button></form>
-                        <form method="post" asp-page-handler="RemoveMod" onsubmit="return confirm('Retirer ce mod du projet ? Les fichiers source resteront intacts.');"><input type="hidden" name="modReferenceId" value="@mod.Id" /><button class="button danger" type="submit">Retirer</button></form>
+                        <form method="post" asp-page-handler="Move" data-loading-title="Mise à jour de l’ordre…"><input type="hidden" name="modReferenceId" value="@mod.Id" /><input type="hidden" name="direction" value="-1" /><button class="icon-button" title="Monter" type="submit">↑</button></form>
+                        <form method="post" asp-page-handler="Move" data-loading-title="Mise à jour de l’ordre…"><input type="hidden" name="modReferenceId" value="@mod.Id" /><input type="hidden" name="direction" value="1" /><button class="icon-button" title="Descendre" type="submit">↓</button></form>
+                        <form method="post" asp-page-handler="RemoveMod" data-loading-title="Retrait du mod…" data-loading-detail="Mise à jour du projet et suppression de son snapshot privé uniquement." onsubmit="return confirm('Retirer ce mod du projet ? Les fichiers source resteront intacts.');"><input type="hidden" name="modReferenceId" value="@mod.Id" /><button class="button danger" type="submit">Retirer</button></form>
                     </div>
                 </div>
             </details>

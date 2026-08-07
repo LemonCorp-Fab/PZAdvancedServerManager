@@ -27,7 +27,7 @@
     <article class="panel">
         <div class="panel-heading">
             <div><span class="eyebrow">INSTALLATION LOCALE</span><h2>Project Zomboid détecté</h2></div>
-            <form method="post" asp-page-handler="RefreshDiscovery"><button class="button ghost" type="submit">Actualiser</button></form>
+            <form method="post" asp-page-handler="RefreshDiscovery" data-loading-title="Analyse de l’installation…" data-loading-detail="Recherche du jeu, du serveur dédié, de SteamCMD et des contenus Workshop locaux."><button class="button ghost" type="submit">Actualiser</button></form>
         </div>
         <dl class="path-list">
             <dt>Jeu</dt><dd>@(Model.Installation.ClientRoot ?? "Non détecté")</dd>
@@ -42,7 +42,7 @@
         <span class="eyebrow">NOUVEAU PROJET</span>
         <h2>Créer un pack stable</h2>
         <p>Le suffixe unique du projet restera identique à chaque réouverture et mise à jour.</p>
-        <form method="post" asp-page-handler="Create" class="stack-form">
+        <form method="post" asp-page-handler="Create" class="stack-form" data-loading-title="Création du pack…" data-loading-detail="Préparation du projet, de son identifiant stable et de son espace de snapshots.">
             <label for="name">Nom du pack</label>
             <input id="name" name="name" required maxlength="120" placeholder="Ex. Lemon Valley — serveur principal" />
             <button class="button primary" type="submit">Créer le pack</button>
@@ -65,15 +65,15 @@ else
         @foreach (var project in Model.Projects)
         {
             <article class="project-card">
-                <a class="project-card-main" asp-page="/Projects/Edit" asp-route-id="@project.Id">
+                <a class="project-card-main" asp-page="/Projects/Edit" asp-route-id="@project.Id" data-loading-title="Ouverture du pack…" data-loading-detail="Chargement du projet, de ses sources et de son état de validation.">
                     <div class="project-top"><span class="mode-badge">@(project.Mode == PackageMode.Bundle ? "BUNDLE CONSEILLÉ" : "FUSION STRICTE")</span><span>@project.UpdatedAt.LocalDateTime.ToString("dd/MM HH:mm")</span></div>
                     <h3>@project.Name</h3>
                     <p>@project.Description</p>
                     <div class="project-meta"><span>@project.Mods.Count(x => x.Enabled) mods</span><span>Workshop: @(project.PublishedWorkshopId == 0 ? "à créer" : project.PublishedWorkshopId)</span></div>
                 </a>
                 <div class="project-card-actions">
-                    <form method="post" asp-page-handler="Duplicate"><input type="hidden" name="id" value="@project.Id" /><button class="button ghost" type="submit">Dupliquer</button></form>
-                    <form method="post" asp-page-handler="Delete" onsubmit="return confirm('Supprimer ce projet, ses snapshots et ses builds locaux ? Le Workshop et les mods originaux ne seront pas supprimés.');"><input type="hidden" name="id" value="@project.Id" /><button class="button danger" type="submit">Supprimer</button></form>
+                    <form method="post" asp-page-handler="Duplicate" data-loading-title="Duplication du pack…" data-loading-detail="Copie de la configuration et création de snapshots indépendants."><input type="hidden" name="id" value="@project.Id" /><button class="button ghost" type="submit">Dupliquer</button></form>
+                    <form method="post" asp-page-handler="Delete" data-loading-title="Suppression du projet…" data-loading-detail="Suppression des données locales du projet sans modifier le Workshop ni les mods originaux." onsubmit="return confirm('Supprimer ce projet, ses snapshots et ses builds locaux ? Le Workshop et les mods originaux ne seront pas supprimés.');"><input type="hidden" name="id" value="@project.Id" /><button class="button danger" type="submit">Supprimer</button></form>
                 </div>
             </article>
         }

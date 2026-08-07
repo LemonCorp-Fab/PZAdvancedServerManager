@@ -51,7 +51,7 @@ Al añadir una fuente, PZASM crea una instantánea privada y calcula su SHA-256.
 
 La [guía Steamworks Workshop](https://partner.steamgames.com/doc/features/workshop/implementation) documenta la creación y actualización mediante `workshop_build_item`.
 
-El planificador informa de los permisos, valida las dependencias, actualiza opcionalmente las fuentes, construye, publica y coordina el servidor por RCON cuando procede. Un inicio de sesión supervisado envía la contraseña y el código Steam Guard a la entrada estándar de SteamCMD sin guardarlos. SteamCMD conserva su propio token en la carpeta portátil; el gestor solo registra la hora de la última verificación. Una sesión caducada falla de inmediato y solicita reconexión, sin quedar esperando una entrada invisible. La interfaz transmite la salida SteamCMD en directo, impone un tiempo máximo y puede cancelar el proceso externo.
+El planificador informa de los permisos, valida las dependencias, actualiza opcionalmente las fuentes, construye, publica y coordina el servidor por RCON cuando procede. Un inicio de sesión supervisado envía la contraseña por la entrada estándar de SteamCMD sin guardarla. Si Steam Guard protege la cuenta, la interfaz solicita el código actual y reintenta con el comando oficial `set_steam_guard_code`, también por la entrada estándar. SteamCMD conserva su propio token en la carpeta portátil; las publicaciones manuales y programadas usan únicamente esa sesión. El gestor solo registra la hora de la última verificación. Una sesión caducada falla de inmediato y solicita reconexión, sin quedar esperando una entrada invisible. La interfaz transmite la salida SteamCMD en directo, impone un tiempo máximo y puede cancelar el proceso externo.
 
 ## Aplicación externa
 

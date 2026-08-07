@@ -398,9 +398,17 @@ internal sealed class PzasmCli
                     if (args.Get("steamcmd") is { } executable) project.Automation.SteamCmdPath = executable.Trim();
                     if (Console.IsInputRedirected) throw new InvalidOperationException("Steam login requires an interactive terminal so secrets are never passed on the command line.");
                     var password = ReadSecret("Steam password: ");
-                    var guardCode = ReadSecret("Steam Guard code (leave empty unless currently requested): ");
                     var progress = new Progress<OperationProgress>(value => Console.WriteLine($"[{value.Phase}] {value.Message}"));
-                    var login = await services.SteamCmd.AuthenticateAsync(project, new SteamCredentials(password, guardCode), progress: progress);
+                    var guardCode = string.Empty;
+                    SteamCmdResult login;
+                    for (var attempt = 0; ; attempt++)
+                    {
+                        login = await services.SteamCmd.AuthenticateAsync(project, new SteamCredentials(password, guardCode), progress: progress);
+                        if (login.Interaction != SteamCmdInteraction.SteamGuardCode) break;
+                        if (attempt >= 2) return Fail("Steam Guard rejected three codes. Wait for a fresh code and run the login command again.", 2);
+                        Console.WriteLine(login.StandardError.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault());
+                        guardCode = ReadSecret("Current Steam Guard code: ");
+                    }
                     if (!login.Success) return Fail("SteamCMD login failed: " + login.CombinedOutput, 2);
                     project.Automation.SteamSessionVerifiedAt = DateTimeOffset.UtcNow;
                     services.Store.Save(project);

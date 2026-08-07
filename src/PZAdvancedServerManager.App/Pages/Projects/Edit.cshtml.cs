@@ -132,7 +132,7 @@ public class EditModel(
         return RedirectToPage(new { id });
     }
 
-    public async Task<IActionResult> OnPostPublishAsync(Guid id, string? steamPassword, string? steamGuardCode, CancellationToken cancellationToken)
+    public async Task<IActionResult> OnPostPublishAsync(Guid id, CancellationToken cancellationToken)
     {
         var project = store.Get(id);
         if (project is null) return NotFound();
@@ -146,8 +146,7 @@ public class EditModel(
         try
         {
             var createsWorkshopItem = project.PublishedWorkshopId == 0;
-            var credentials = CreateCredentials(steamPassword, steamGuardCode);
-            var result = await lifecycle.PublishAsync(project, refreshSources: false, requireCoordinatedServer: false, cancellationToken, credentials);
+            var result = await lifecycle.PublishAsync(project, refreshSources: false, requireCoordinatedServer: false, cancellationToken);
             project.Automation.LastResult = Limit(result.Output, 4000);
             project.Automation.SteamSessionVerifiedAt = DateTimeOffset.UtcNow;
             store.Save(project);
@@ -161,7 +160,7 @@ public class EditModel(
         return RedirectToPage(new { id });
     }
 
-    public async Task<IActionResult> OnPostPublishStreamAsync(Guid id, string? steamPassword, string? steamGuardCode, CancellationToken cancellationToken)
+    public async Task<IActionResult> OnPostPublishStreamAsync(Guid id, CancellationToken cancellationToken)
     {
         var project = store.Get(id);
         if (project is null) return NotFound();
@@ -176,7 +175,7 @@ public class EditModel(
         var createsWorkshopItem = project.PublishedWorkshopId == 0;
         return await StreamOperationAsync(async progress =>
         {
-            var result = await lifecycle.PublishAsync(project, false, false, cancellationToken, CreateCredentials(steamPassword, steamGuardCode), progress);
+            var result = await lifecycle.PublishAsync(project, false, false, cancellationToken, progress: progress);
             project.Automation.LastResult = Limit(result.Output, 4000);
             project.Automation.SteamSessionVerifiedAt = DateTimeOffset.UtcNow;
             store.Save(project);
@@ -193,6 +192,7 @@ public class EditModel(
             ApplyForm(project);
             store.Save(project);
             var result = await steamCmd.AuthenticateAsync(project, new SteamCredentials(steamPassword, steamGuardCode ?? string.Empty), cancellationToken);
+            if (result.Interaction != SteamCmdInteraction.None) throw SteamCmdInteractionRequiredException.FromResult(result);
             if (!result.Success) throw new InvalidOperationException("Connexion SteamCMD échouée : " + Limit(result.CombinedOutput, 1800));
             project.Automation.SteamSessionVerifiedAt = DateTimeOffset.UtcNow;
             store.Save(project);
@@ -211,6 +211,7 @@ public class EditModel(
         return await StreamOperationAsync(async progress =>
         {
             var result = await steamCmd.AuthenticateAsync(project, new SteamCredentials(steamPassword, steamGuardCode ?? string.Empty), cancellationToken, progress);
+            if (result.Interaction != SteamCmdInteraction.None) throw SteamCmdInteractionRequiredException.FromResult(result);
             if (!result.Success) throw new InvalidOperationException("Connexion SteamCMD échouée : " + Limit(result.CombinedOutput, 1800));
             project.Automation.SteamSessionVerifiedAt = DateTimeOffset.UtcNow;
             store.Save(project);
@@ -367,6 +368,11 @@ public class EditModel(
             await WriteProgressAsync(new { type = "done", message, redirectUrl }, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (SteamCmdInteractionRequiredException exception)
+        {
+            var kind = exception.Interaction == SteamCmdInteraction.SteamGuardCode ? "steam_guard_code" : "steam_session_required";
+            await WriteProgressAsync(new { type = "interaction", kind, message = exception.Message }, CancellationToken.None);
+        }
         catch (Exception exception)
         {
             await WriteProgressAsync(new { type = "error", message = exception.Message }, CancellationToken.None);
@@ -387,11 +393,6 @@ public class EditModel(
         await Response.WriteAsync(JsonSerializer.Serialize(value) + "\n", cancellationToken);
         await Response.Body.FlushAsync(cancellationToken);
     }
-
-    private static SteamCredentials? CreateCredentials(string? password, string? guardCode) =>
-        string.IsNullOrEmpty(password) && string.IsNullOrWhiteSpace(guardCode)
-            ? null
-            : new SteamCredentials(password ?? string.Empty, guardCode?.Trim() ?? string.Empty);
 
     private static string Limit(string text, int length) => text.Length <= length ? text : text[^length..];
     private static string FormatBytes(long bytes) => bytes > 1024L * 1024 * 1024 ? $"{bytes / (1024d * 1024 * 1024):0.00} Gio" : $"{bytes / (1024d * 1024):0.00} Mio";

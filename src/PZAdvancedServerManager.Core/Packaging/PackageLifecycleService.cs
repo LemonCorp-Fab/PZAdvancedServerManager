@@ -39,7 +39,6 @@ public sealed class PackageLifecycleService(
         bool refreshSources,
         bool requireCoordinatedServer,
         CancellationToken cancellationToken = default,
-        SteamCredentials? credentials = null,
         IProgress<OperationProgress>? progress = null)
     {
         await using var operationLock = Acquire(project.Id);
@@ -89,8 +88,9 @@ public sealed class PackageLifecycleService(
             }
 
             progress?.Report(new OperationProgress("publish", "Connexion au compte éditeur et envoi vers Steam Workshop."));
-            var publish = await steamCmd.PublishAsync(project, build, cancellationToken, credentials, progress);
+            var publish = await steamCmd.PublishAsync(project, build, cancellationToken, progress);
             output.Add(publish.CombinedOutput);
+            if (publish.Interaction != SteamCmdInteraction.None) throw SteamCmdInteractionRequiredException.FromResult(publish);
             if (!publish.Success) throw new InvalidOperationException("Publication SteamCMD échouée : " + Tail(publish.CombinedOutput));
 
             store.Save(project);

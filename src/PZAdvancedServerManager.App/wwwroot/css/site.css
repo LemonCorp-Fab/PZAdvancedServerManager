@@ -476,6 +476,16 @@ body.has-modal { overflow: hidden; }
 .loading-progress-item.is-complete > span:first-child { color: #fff; border-color: #639432; background: #639432; }
 .loading-progress-item.is-complete > span:first-child { font-size: 0; }
 .loading-progress-item.is-complete > span:first-child::after { content: "✓"; font-size: .78rem; }
+.loading-interaction { display: grid; grid-column: 1 / -1; gap: 10px; padding: 17px; border: 1px solid #6e9149; border-radius: 12px; background: rgba(120,169,67,.09); }
+.loading-interaction[hidden] { display: none; }
+.loading-interaction > strong { color: var(--text); font-size: 1.03rem; }
+.loading-interaction > p { margin: 0; color: var(--muted); line-height: 1.5; }
+.loading-interaction label { display: grid; gap: 6px; color: var(--text); font-size: .82rem; font-weight: 850; }
+.loading-interaction input { width: 100%; min-height: 44px; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--surface); color: var(--text); font-size: 1.05rem; font-weight: 800; letter-spacing: .08em; }
+.loading-interaction > small { color: #ef8b80; font-weight: 750; }
+.loading-interaction-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 3px; }
+.loading-overlay.requires-interaction .loading-spinner { animation-play-state: paused; opacity: .45; }
+.loading-overlay.requires-interaction .loading-track span { width: 100%; background: #6e9149; animation: none; }
 .loading-actions { display: flex; grid-column: 1 / -1; justify-self: end; gap: 8px; }
 .loading-actions:has([hidden] + [hidden]) { display: none; }
 .loading-close { justify-self: end; }

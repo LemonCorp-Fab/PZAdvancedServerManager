@@ -26,19 +26,30 @@
         </section>
     </div>
     <div class="loading-overlay" data-loading-overlay hidden aria-live="polite" aria-atomic="true">
-        <div class="loading-card" role="status">
+        <div class="loading-card" role="dialog" aria-modal="true" aria-labelledby="loading-dialog-title">
             <div class="loading-emblem" aria-hidden="true">
                 <span>PZ</span>
                 <span class="loading-spinner"></span>
             </div>
             <div class="loading-copy">
                 <span class="eyebrow">OPÉRATION EN COURS</span>
-                <strong data-loading-title>Chargement…</strong>
+                <strong id="loading-dialog-title" data-loading-title>Chargement…</strong>
                 <p data-loading-detail>Veuillez patienter quelques instants.</p>
                 <div class="loading-stage" data-loading-stage hidden><span data-loading-counter>0 / 0</span><strong data-loading-current>Préparation…</strong></div>
             </div>
             <div class="loading-track" aria-hidden="true"><span data-loading-track></span></div>
             <div class="loading-progress-list" data-loading-progress-list hidden></div>
+            <section class="loading-interaction" data-loading-interaction hidden aria-live="assertive">
+                <span class="eyebrow" data-loading-interaction-eyebrow>VALIDATION STEAM GUARD</span>
+                <strong data-loading-interaction-title>Autoriser cette machine</strong>
+                <p data-loading-interaction-message>Entrez le code actuel affiché par l’application Steam ou reçu par e-mail.</p>
+                <label data-loading-interaction-code-field><span>Code Steam Guard</span><input type="text" inputmode="text" autocomplete="one-time-code" maxlength="12" data-loading-interaction-code /></label>
+                <small data-loading-interaction-error hidden>Un code Steam Guard est requis.</small>
+                <div class="loading-interaction-actions">
+                    <button class="button ghost" type="button" data-loading-interaction-cancel>Annuler</button>
+                    <button class="button primary" type="button" data-loading-interaction-submit>Valider et continuer</button>
+                </div>
+            </section>
             <div class="loading-actions"><button class="button ghost" type="button" data-loading-cancel hidden>Annuler l’opération</button><button class="button secondary loading-close" type="button" data-loading-close hidden>Fermer</button></div>
         </div>
     </div>

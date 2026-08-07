@@ -51,7 +51,7 @@ steamapps/workshop/content/108600/<WorkshopId>/
 
 [Steamworks Workshop 指南](https://partner.steamgames.com/doc/features/workshop/implementation)说明了如何通过 `workshop_build_item` 创建和更新条目。
 
-计划任务会记录权限、验证依赖、按需刷新来源、构建、发布，并在需要时通过 RCON 协调服务器。受监督的登录只通过标准输入把密码和 Steam Guard 验证码交给 SteamCMD，不会保存这些信息。SteamCMD 在便携目录中保留自己的令牌；管理器仅记录上次验证成功的时间。会话过期时会立即失败并要求重新连接，不会停在不可见的输入提示上。界面会实时显示 SteamCMD 输出、执行超时限制，并可取消外部进程。
+计划任务会记录权限、验证依赖、按需刷新来源、构建、发布，并在需要时通过 RCON 协调服务器。受监督的登录只通过标准输入把密码交给 SteamCMD，不会保存密码。如果 Steam Guard 保护该账户，界面会请求当前验证码，并通过标准输入使用官方 `set_steam_guard_code` 命令重新登录。SteamCMD 随后在便携目录中保留自己的令牌；手动和计划发布仅使用此会话。管理器仅记录上次验证成功的时间。会话过期时会立即失败并要求重新连接，不会停在不可见的输入提示上。界面会实时显示 SteamCMD 输出、执行超时限制，并可取消外部进程。
 
 ## 为什么需要外部程序
 

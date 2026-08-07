@@ -342,11 +342,20 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
     const overlayProgressList = overlay.querySelector('[data-loading-progress-list]');
     const overlayClose = overlay.querySelector('[data-loading-close]');
     const overlayCancel = overlay.querySelector('[data-loading-cancel]');
+    const overlayInteraction = overlay.querySelector('[data-loading-interaction]');
+    const overlayInteractionTitle = overlay.querySelector('[data-loading-interaction-title]');
+    const overlayInteractionMessage = overlay.querySelector('[data-loading-interaction-message]');
+    const overlayInteractionCodeField = overlay.querySelector('[data-loading-interaction-code-field]');
+    const overlayInteractionCode = overlay.querySelector('[data-loading-interaction-code]');
+    const overlayInteractionError = overlay.querySelector('[data-loading-interaction-error]');
+    const overlayInteractionCancel = overlay.querySelector('[data-loading-interaction-cancel]');
+    const overlayInteractionSubmit = overlay.querySelector('[data-loading-interaction-submit]');
     const buttonContent = new WeakMap();
     const navigationDelay = 160;
     let operationActive = false;
     let activeController = null;
     let activeStepTimer = null;
+    let pendingInteraction = null;
     const activeRows = new Map();
 
     const inferTitle = value => {
@@ -609,6 +618,30 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
                 if (overlayTrack) overlayTrack.style.width = '100%';
                 if (overlayCancel) overlayCancel.hidden = true;
                 window.setTimeout(() => window.location.assign(record.redirectUrl), 650);
+            } else if (record.type === 'interaction') {
+                activeController = null;
+                pendingInteraction = { form, button, kind: record.kind };
+                overlay.classList.add('requires-interaction');
+                if (overlayTitle) overlayTitle.textContent = record.kind === 'steam_guard_code' ? 'Validation Steam Guard' : 'Session Steam requise';
+                if (overlayCurrent) overlayCurrent.textContent = record.kind === 'steam_guard_code' ? 'Autorisation de cette machine' : 'Reconnectez le compte éditeur';
+                if (overlayDetail) overlayDetail.textContent = record.message;
+                if (overlayInteraction) overlayInteraction.hidden = false;
+                if (overlayInteractionMessage) overlayInteractionMessage.textContent = record.message;
+                if (overlayCancel) overlayCancel.hidden = true;
+                if (overlayClose) overlayClose.hidden = true;
+                if (record.kind === 'steam_guard_code') {
+                    if (overlayInteractionTitle) overlayInteractionTitle.textContent = 'Autoriser cette machine';
+                    if (overlayInteractionCodeField) overlayInteractionCodeField.hidden = false;
+                    if (overlayInteractionSubmit) overlayInteractionSubmit.textContent = 'Valider et continuer';
+                    if (overlayInteractionCode) {
+                        overlayInteractionCode.value = document.querySelector('[data-steam-guard-code]')?.value || '';
+                        window.setTimeout(() => overlayInteractionCode.focus(), 50);
+                    }
+                } else {
+                    if (overlayInteractionTitle) overlayInteractionTitle.textContent = 'Session portable expirée ou absente';
+                    if (overlayInteractionCodeField) overlayInteractionCodeField.hidden = true;
+                    if (overlayInteractionSubmit) overlayInteractionSubmit.textContent = 'Fermer et reconnecter';
+                }
             } else if (record.type === 'error') {
                 overlay.classList.add('has-error');
                 if (overlayTitle) overlayTitle.textContent = 'Opération interrompue';
@@ -624,12 +657,6 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
             if (!handler) throw new Error('Opération serveur non reconnue.');
             endpoint.searchParams.set('handler', `${handler}Stream`);
             const formData = typeof FormData === 'function' ? new FormData(form, button || undefined) : new FormData(form);
-            if (form.id === 'publish-form') {
-                const password = document.querySelector('[data-steam-password]')?.value || '';
-                const guardCode = document.querySelector('[data-steam-guard-code]')?.value || '';
-                if (password) formData.set('steamPassword', password);
-                if (guardCode) formData.set('steamGuardCode', guardCode);
-            }
             const response = await fetch(endpoint, { method: 'POST', body: formData, credentials: 'same-origin', signal: activeController.signal });
             await readProgressStream(response, update);
         } catch (error) {
@@ -667,6 +694,7 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
         activeStepTimer = null;
         activeController = null;
         operationActive = false;
+        pendingInteraction = null;
         overlay.classList.remove('is-visible');
         overlay.hidden = true;
         document.documentElement.removeAttribute('aria-busy');
@@ -683,15 +711,52 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
             button.style.minWidth = '';
             button.removeAttribute('aria-disabled');
         });
-        overlay.classList.remove('has-detailed-progress', 'has-error');
+        overlay.classList.remove('has-detailed-progress', 'has-error', 'requires-interaction');
         if (overlayStage) overlayStage.hidden = true;
         if (overlayProgressList) { overlayProgressList.hidden = true; overlayProgressList.replaceChildren(); }
         if (overlayClose) overlayClose.hidden = true;
         if (overlayCancel) overlayCancel.hidden = true;
+        if (overlayInteraction) overlayInteraction.hidden = true;
+        if (overlayInteractionCodeField) overlayInteractionCodeField.hidden = false;
+        if (overlayInteractionCode) overlayInteractionCode.value = '';
+        if (overlayInteractionError) overlayInteractionError.hidden = true;
+        if (overlayInteractionSubmit) overlayInteractionSubmit.textContent = 'Valider et continuer';
         if (overlayTrack) { overlayTrack.classList.remove('is-determinate'); overlayTrack.style.width = ''; }
     };
 
     overlayClose?.addEventListener('click', resetLoading);
+    overlayInteractionCancel?.addEventListener('click', resetLoading);
+    overlayInteractionSubmit?.addEventListener('click', () => {
+        if (!pendingInteraction) return;
+        if (pendingInteraction.kind === 'steam_session_required') {
+            resetLoading();
+            const passwordField = document.querySelector('[data-steam-password]');
+            passwordField?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            window.setTimeout(() => passwordField?.focus(), 350);
+            return;
+        }
+
+        const code = overlayInteractionCode?.value.trim() || '';
+        if (!code) {
+            if (overlayInteractionError) overlayInteractionError.hidden = false;
+            overlayInteractionCode?.focus();
+            return;
+        }
+        const guardField = document.querySelector('[data-steam-guard-code]');
+        if (guardField instanceof HTMLInputElement) guardField.value = code;
+        const retry = { form: pendingInteraction.form, button: pendingInteraction.button };
+        resetLoading();
+        window.setTimeout(() => void startOperationProgress(retry.form, retry.button), 80);
+    });
+    overlayInteractionCode?.addEventListener('input', () => {
+        if (overlayInteractionError) overlayInteractionError.hidden = true;
+    });
+    overlayInteractionCode?.addEventListener('keydown', event => {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            overlayInteractionSubmit?.click();
+        }
+    });
     overlayCancel?.addEventListener('click', () => {
         if (!activeController) return;
         overlayCancel.disabled = true;

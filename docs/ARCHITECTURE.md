@@ -119,7 +119,7 @@ The PZASM scheduler:
 9. either starts the game process PZASM stopped or, for an RCON-only profile, sends `save` and `quit` after a successful upload so its supervisor reloads the pack;
 10. records timestamps and results in the project.
 
-Passwords and Steam Guard codes are never persisted. A supervised login sends them to SteamCMD through standard input; SteamCMD then keeps its own portable refresh token. The scheduler reuses that session, and an expired session fails immediately with a reconnect-required result instead of waiting on a hidden prompt. PZASM records only the last successful verification time. Production automation should use a limited account and a staging server.
+Passwords and Steam Guard codes are never persisted. A supervised login sends the password through SteamCMD standard input. When Steam Guard challenges the machine, the UI requests the current code and retries with SteamCMD's documented `set_steam_guard_code` command, also through standard input. SteamCMD then keeps its own portable refresh token. Manual publishing and the scheduler use only that cached session; an expired session fails immediately with a reconnect-required result instead of waiting on a hidden prompt. PZASM records only the last successful verification time. Production automation should use a limited account and a staging server.
 
 ## Injected connection notice
 

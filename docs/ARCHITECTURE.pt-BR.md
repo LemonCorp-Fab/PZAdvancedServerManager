@@ -51,7 +51,7 @@ Ao adicionar uma origem, o PZASM cria um snapshot privado e calcula seu SHA-256.
 
 O [guia do Steamworks Workshop](https://partner.steamgames.com/doc/features/workshop/implementation) documenta criação e atualização com `workshop_build_item`.
 
-O agendador informa as permissões, valida as dependências, atualiza opcionalmente as origens, constrói, publica e coordena o servidor via RCON quando necessário. Um login supervisionado envia a senha e o código Steam Guard apenas pela entrada padrão do SteamCMD. O SteamCMD mantém seu próprio token na pasta portátil; o gerenciador registra somente o horário da última verificação. Uma sessão expirada falha imediatamente e solicita nova conexão, sem aguardar uma entrada invisível. A interface transmite a saída do SteamCMD ao vivo, aplica um limite de tempo e pode cancelar o processo externo.
+O agendador informa as permissões, valida as dependências, atualiza opcionalmente as origens, constrói, publica e coordena o servidor via RCON quando necessário. Um login supervisionado envia a senha apenas pela entrada padrão do SteamCMD. Se o Steam Guard proteger a conta, a interface solicita o código atual e repete o login com o comando oficial `set_steam_guard_code`, também pela entrada padrão. O SteamCMD mantém seu próprio token na pasta portátil; publicações manuais e agendadas usam somente essa sessão. O gerenciador registra apenas o horário da última verificação. Uma sessão expirada falha imediatamente e solicita nova conexão, sem aguardar uma entrada invisível. A interface transmite a saída do SteamCMD ao vivo, aplica um limite de tempo e pode cancelar o processo externo.
 
 ## Aplicativo externo
 

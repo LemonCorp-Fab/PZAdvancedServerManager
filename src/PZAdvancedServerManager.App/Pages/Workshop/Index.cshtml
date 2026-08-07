@@ -5,6 +5,7 @@
     var targetName = Model.Project?.Name ?? Model.Server?.Name ?? "Exploration libre";
     var targetKind = Model.Project is not null ? "PACK" : Model.Server is not null ? "SERVEUR" : "CATALOGUE";
     var isLocal = Model.Source.Equals("local", StringComparison.OrdinalIgnoreCase);
+    var selectionScope = Model.ProjectId is not null ? $"pack:{Model.ProjectId:N}" : $"server:{Model.ServerName}";
 }
 
 <a class="back-link" asp-page="@(Model.Project is not null ? "/Projects/Edit" : Model.Server is not null ? "/Server/Index" : "/Index")" asp-route-id="@Model.Project?.Id" asp-route-name="@Model.Server?.Name" asp-route-tab="@(Model.Project is not null ? "mods" : "content")">← Retour à @targetName</a>
@@ -56,9 +57,9 @@
 
 @if (isLocal)
 {
-    <form method="post" asp-page-handler="AddLocal" class="catalog-selection-form" data-catalog-selection data-loading-title="Ajout des mods sélectionnés…" data-loading-detail="Résolution des dépendances puis mise à jour contrôlée de la destination.">
+    <form method="post" asp-page-handler="AddLocal" class="catalog-selection-form" data-catalog-selection data-catalog-storage-key="pzasm-catalog:@selectionScope:local" data-catalog-input-name="selectedMods" data-loading-title="Ajout des mods sélectionnés…" data-loading-detail="Résolution des dépendances puis mise à jour contrôlée de la destination.">
         <input type="hidden" asp-for="ProjectId" /><input type="hidden" asp-for="ServerName" /><input type="hidden" asp-for="Source" /><input type="hidden" asp-for="Q" />
-        <div class="catalog-results-heading"><div><span class="eyebrow">BIBLIOTHÈQUE DÉTECTÉE</span><h2>@Model.LocalTotal mods compatibles · page @Model.PageNumber</h2></div><div class="action-row"><button class="button ghost" type="button" data-catalog-select-all>Tout sélectionner</button><button class="button ghost" type="button" data-catalog-clear>Effacer</button></div></div>
+        <div class="catalog-results-heading"><div><span class="eyebrow">BIBLIOTHÈQUE DÉTECTÉE</span><h2>@Model.LocalTotal mods compatibles · page @Model.PageNumber</h2></div><div class="action-row"><button class="button ghost" type="button" data-catalog-select-all>Tout sélectionner sur cette page</button><button class="button ghost" type="button" data-catalog-deselect-page>Désélectionner la page</button></div></div>
         @if (Model.LocalMods.Count == 0)
         {
             <div class="empty-state"><h3>Aucun mod correspondant</h3><p>Modifiez la recherche ou vérifiez les installations détectées depuis le tableau de bord.</p></div>
@@ -70,7 +71,7 @@
                 {
                     var included = Model.IncludedModIds.Contains(mod.ModId);
                     <label class="local-catalog-card @(included ? "is-included" : "")">
-                        <input type="checkbox" name="selectedMods" value="@IndexModel.SelectionKey(mod)" disabled="@included" />
+                        <input type="checkbox" name="selectedMods" value="@IndexModel.SelectionKey(mod)" data-catalog-title="@mod.Name" data-catalog-detail="Mod ID @mod.ModId@(mod.WorkshopId == 0 ? " · local" : $" · Workshop {mod.WorkshopId}")" disabled="@included" />
                         <span class="local-mod-mark">@mod.Name[..Math.Min(2, mod.Name.Length)].ToUpperInvariant()</span>
                         <span class="local-mod-copy"><strong>@mod.Name</strong><small>Mod ID · @mod.ModId</small><small>@(mod.WorkshopId == 0 ? "Mod local" : $"Workshop {mod.WorkshopId}") · @mod.SelectedVersionFolder</small>@if (mod.RequiredModIds.Length > 0) { <em>@mod.RequiredModIds.Length dépendance(s) résolue(s) automatiquement</em> }</span>
                         <span class="catalog-state">@(included ? "DÉJÀ AJOUTÉ" : "SÉLECTIONNER")</span>
@@ -83,14 +84,20 @@
                 @if (Model.LocalHasNext) { <a class="button ghost" asp-page="/Workshop/Index" asp-route-projectId="@Model.ProjectId" asp-route-serverName="@Model.ServerName" asp-route-source="local" asp-route-q="@Model.Q" asp-route-pageNumber="@(Model.PageNumber + 1)">Page suivante →</a> }
             </div>
         }
-        <div class="catalog-selection-bar"><span><strong data-catalog-count>0</strong> sélection(s)<small>Les dépendances trouvées localement seront incluses automatiquement.</small></span><button class="button primary" type="submit" disabled>Ajouter la sélection</button></div>
+        <div class="catalog-selection-bar" data-catalog-cart>
+            <div class="catalog-selection-header"><span><strong><b data-catalog-count>0</b> mod(s) sélectionné(s)</strong><small>Votre sélection est conservée entre les pages et les recherches.</small></span><button class="button ghost compact-button" type="button" data-catalog-clear-all>Vider toute la sélection</button></div>
+            <p class="catalog-selection-empty" data-catalog-selection-empty>Aucun mod sélectionné pour le moment.</p>
+            <div class="catalog-selected-list" data-catalog-selected-list aria-live="polite"></div>
+            <div data-catalog-hidden-inputs hidden></div>
+            <div class="catalog-selection-footer"><small>Les dépendances trouvées localement seront incluses automatiquement.</small><button class="button primary" type="submit" disabled>Ajouter la sélection</button></div>
+        </div>
     </form>
 }
 else
 {
-    <form method="post" asp-page-handler="AddWorkshop" class="catalog-selection-form" data-catalog-selection data-loading-title="Téléchargement des mods Workshop…" data-loading-detail="SteamCMD télécharge chaque item, puis le manager analyse les mod.info et leurs dépendances.">
+    <form method="post" asp-page-handler="AddWorkshop" class="catalog-selection-form" data-catalog-selection data-catalog-storage-key="pzasm-catalog:@selectionScope:workshop" data-catalog-input-name="selectedWorkshopIds" data-loading-title="Téléchargement des mods Workshop…" data-loading-detail="SteamCMD télécharge chaque item, puis le manager analyse les mod.info et leurs dépendances.">
         <input type="hidden" asp-for="ProjectId" /><input type="hidden" asp-for="ServerName" /><input type="hidden" asp-for="Source" /><input type="hidden" asp-for="Q" /><input type="hidden" asp-for="Sort" /><input type="hidden" asp-for="Tag" /><input type="hidden" asp-for="PageNumber" />
-        <div class="catalog-results-heading"><div><span class="eyebrow">WORKSHOP PROJECT ZOMBOID</span><h2>@Model.Catalog.Items.Count résultats · page @Model.Catalog.Page</h2></div><div class="action-row"><button class="button ghost" type="button" data-catalog-select-all>Tout sélectionner</button><button class="button ghost" type="button" data-catalog-clear>Effacer</button></div></div>
+        <div class="catalog-results-heading"><div><span class="eyebrow">WORKSHOP PROJECT ZOMBOID</span><h2>@Model.Catalog.Items.Count résultats · page @Model.Catalog.Page</h2></div><div class="action-row"><button class="button ghost" type="button" data-catalog-select-all>Tout sélectionner sur cette page</button><button class="button ghost" type="button" data-catalog-deselect-page>Désélectionner la page</button></div></div>
         @if (Model.Catalog.Items.Count == 0)
         {
             <div class="empty-state"><h3>Aucun item trouvé</h3><p>Essayez un autre terme, retirez le tag ou collez directement un Workshop ID.</p></div>
@@ -103,7 +110,7 @@ else
                     var included = Model.IncludedWorkshopIds.Contains(item.WorkshopId);
                     <article class="workshop-catalog-card @(included ? "is-included" : "")">
                         <label>
-                            <input type="checkbox" name="selectedWorkshopIds" value="@item.WorkshopId" disabled="@included" />
+                            <input type="checkbox" name="selectedWorkshopIds" value="@item.WorkshopId" data-catalog-title="@item.Title" data-catalog-detail="Workshop @item.WorkshopId" disabled="@included" />
                             <span class="workshop-preview">@if (!string.IsNullOrWhiteSpace(item.PreviewUrl)) { <img src="@item.PreviewUrl" alt="" loading="lazy" referrerpolicy="no-referrer" /> } else { <span>W</span> }<span class="catalog-state">@(included ? "DÉJÀ AJOUTÉ" : "SÉLECTIONNER")</span></span>
                             <span class="workshop-card-copy"><span class="workshop-id">ID @item.WorkshopId</span><strong>@item.Title</strong><span class="workshop-stats"><span>@item.Subscriptions.ToString("N0") abonnés</span><span>@IndexModel.FormatBytes(item.FileSize)</span><span>@(item.UpdatedAt?.LocalDateTime.ToString("dd/MM/yyyy") ?? "date inconnue")</span></span><small>@item.Description</small><span class="tag-row">@foreach (var itemTag in item.Tags.Take(6)) { <span>@itemTag</span> }</span></span>
                         </label>
@@ -117,6 +124,12 @@ else
             <span>Page @Model.Catalog.Page</span>
             @if (Model.Catalog.HasNext) { <a class="button ghost" asp-page="/Workshop/Index" asp-route-projectId="@Model.ProjectId" asp-route-serverName="@Model.ServerName" asp-route-source="workshop" asp-route-q="@Model.Q" asp-route-sort="@Model.Sort" asp-route-tag="@Model.Tag" asp-route-pageNumber="@(Model.Catalog.Page + 1)">Page suivante →</a> }
         </div>
-        <div class="catalog-selection-bar"><span><strong data-catalog-count>0</strong> sélection(s)<small>Chaque item sera téléchargé anonymement puis inspecté avant modification.</small></span><button class="button primary" type="submit" disabled>Ajouter et analyser</button></div>
+        <div class="catalog-selection-bar" data-catalog-cart>
+            <div class="catalog-selection-header"><span><strong><b data-catalog-count>0</b> mod(s) sélectionné(s)</strong><small>Votre sélection est conservée entre les pages, recherches et tris.</small></span><button class="button ghost compact-button" type="button" data-catalog-clear-all>Vider toute la sélection</button></div>
+            <p class="catalog-selection-empty" data-catalog-selection-empty>Aucun mod sélectionné pour le moment.</p>
+            <div class="catalog-selected-list" data-catalog-selected-list aria-live="polite"></div>
+            <div data-catalog-hidden-inputs hidden></div>
+            <div class="catalog-selection-footer"><small>Chaque item sera téléchargé anonymement puis inspecté avant modification.</small><button class="button primary" type="submit" disabled>Ajouter et analyser</button></div>
+        </div>
     </form>
 }

@@ -28,7 +28,7 @@ Consulta el [estudio completo de arquitectura](docs/ARCHITECTURE.es.md).
 - proyectos independientes y reutilizables, cada uno con su GUID y Workshop ID;
 - instantáneas privadas SHA-256 para fijar exactamente las versiones de origen;
 - importación por Workshop ID y adición de dependencias `require=` disponibles;
-- catálogo Workshop interno con búsqueda, ordenación, etiquetas, vistas previas, paginación, selección múltiple y acceso directo por ID;
+- catálogo Workshop interno con búsqueda, ordenación, etiquetas, vistas previas, paginación, acceso directo por ID y cesta de selección persistente entre páginas con eliminación individual;
 - selector visual compartido para packs y listas `WorkshopItems`/`Mods` de servidores locales o dedicados, conservando la edición en bruto;
 - instalación portátil de SteamCMD en un clic desde Valve para Windows y Linux, también mediante `pzasm steamcmd install`;
 - descarga anónima de fuentes públicas del Workshop, separada de la cuenta autenticada de publicación;

@@ -336,10 +336,24 @@ label small { display: block; margin-top: 6px; color: var(--muted); font-weight:
 .local-catalog-card > .catalog-state { position: static; white-space: nowrap; }
 .catalog-pagination { display: flex; min-height: 60px; margin: 18px 0 82px; align-items: center; justify-content: space-between; gap: 12px; }
 .catalog-pagination > span { color: var(--muted); font-weight: 750; }
-.catalog-selection-bar { position: sticky; z-index: 25; bottom: 14px; display: flex; max-width: 820px; padding: 14px 16px; margin: 24px auto 0; align-items: center; justify-content: space-between; gap: 20px; border: 1px solid #4b613f; border-radius: 14px; background: rgba(19,27,19,.96); box-shadow: 0 18px 50px rgba(0,0,0,.45); backdrop-filter: blur(16px); }
-.catalog-selection-bar span, .catalog-selection-bar strong, .catalog-selection-bar small { display: block; }
-.catalog-selection-bar strong { color: var(--green); font-size: 1.15rem; }
-.catalog-selection-bar small { margin-top: 2px; color: var(--muted); }
+.catalog-selection-bar { position: sticky; z-index: 25; bottom: 14px; display: grid; width: min(940px, calc(100% - 24px)); padding: 15px 16px; margin: 24px auto 0; gap: 12px; border: 1px solid #4b613f; border-radius: 16px; background: rgba(19,27,19,.97); box-shadow: 0 18px 50px rgba(0,0,0,.45); backdrop-filter: blur(16px); }
+.catalog-selection-header, .catalog-selection-footer { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.catalog-selection-header > span, .catalog-selection-header strong, .catalog-selection-header small { display: block; }
+.catalog-selection-header strong { color: #e5efdf; font-size: 1rem; }
+.catalog-selection-header strong b { display: inline; color: var(--green); font-size: 1.25rem; }
+.catalog-selection-header small, .catalog-selection-footer small { margin-top: 2px; color: var(--muted); }
+.compact-button { min-height: 34px; padding: 7px 10px; font-size: .72rem; }
+.catalog-selection-empty { padding: 11px 12px; margin: 0; color: var(--muted); border: 1px dashed #41503c; border-radius: 10px; text-align: center; font-size: .78rem; }
+.catalog-selection-empty[hidden] { display: none; }
+.catalog-selected-list { display: grid; max-height: 178px; overflow-y: auto; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 7px; scrollbar-color: #5d7550 transparent; }
+.catalog-selected-list:empty { display: none; }
+.catalog-selected-item { display: flex; min-width: 0; padding: 9px 10px; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid #34442f; border-radius: 10px; background: #111811; }
+.catalog-selected-item > span { min-width: 0; }
+.catalog-selected-item strong, .catalog-selected-item small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.catalog-selected-item strong { color: #e2ebdd; font-size: .76rem; }
+.catalog-selected-item small { margin-top: 2px; color: var(--muted); font-size: .65rem; }
+.catalog-selected-remove { padding: 5px 7px; flex: 0 0 auto; color: #e7b7ae; border: 1px solid #65423d; border-radius: 7px; background: #241715; cursor: pointer; font: inherit; font-size: .64rem; font-weight: 800; }
+.catalog-selected-remove:hover { color: #fff0ed; border-color: #a45e53; background: #39201d; }
 
 .app-footer { padding: 30px 0; margin-top: 60px; color: #737e73; border-top: 1px solid var(--line); font-size: .8rem; }
 .app-footer > div { display: flex; justify-content: space-between; gap: 20px; }
@@ -416,8 +430,11 @@ label small { display: block; margin-top: 6px; color: var(--muted); font-weight:
   .catalog-hero { padding: 27px 22px; }
   .catalog-source-tabs, .catalog-search-form, .workshop-catalog-grid { grid-template-columns: 1fr; }
   .catalog-search-form .catalog-query { grid-column: auto; }
-  .catalog-results-heading, .catalog-selection-bar { align-items: stretch; flex-direction: column; }
-  .catalog-selection-bar { bottom: 8px; }
+  .catalog-results-heading { align-items: stretch; flex-direction: column; }
+  .catalog-selection-bar { bottom: 8px; width: 100%; }
+  .catalog-selection-header, .catalog-selection-footer { align-items: stretch; flex-direction: column; }
+  .catalog-selection-header .button, .catalog-selection-footer .button { width: 100%; }
+  .catalog-selected-list { grid-template-columns: 1fr; }
   .local-catalog-card { grid-template-columns: 30px 42px minmax(0,1fr); }
   .local-catalog-card > .catalog-state { grid-column: 2 / -1; justify-self: start; }
   .catalog-pagination { align-items: stretch; flex-direction: column; text-align: center; }

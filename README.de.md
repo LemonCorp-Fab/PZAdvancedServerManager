@@ -28,7 +28,7 @@ Siehe die vollständige [Architektur- und Machbarkeitsstudie](docs/ARCHITECTURE.
 - unabhängige, erneut öffnbare Projekte mit eigener GUID und Workshop-ID;
 - private SHA-256-Snapshots zum exakten Fixieren der Quellversionen;
 - Import per Workshop-ID und Ergänzung verfügbarer `require=`-Abhängigkeiten;
-- interner Workshop-Katalog mit Suche, Sortierung, Tags, Vorschauen, Seitennavigation, Mehrfachauswahl und direkter ID-Suche;
+- interner Workshop-Katalog mit Suche, Sortierung, Tags, Vorschauen, Seitennavigation, direkter ID-Suche und seitenübergreifendem Auswahlkorb mit einzelnem Entfernen;
 - gemeinsamer visueller Selektor für Packs sowie `WorkshopItems`/`Mods` lokaler oder dedizierter Server, bei weiterhin verfügbarer Rohbearbeitung;
 - portable Ein-Klick-Installation von SteamCMD direkt von Valve unter Windows und Linux, auch mit `pzasm steamcmd install`;
 - anonyme Downloads öffentlicher Workshop-Quellen, getrennt vom authentifizierten Herausgeberkonto;

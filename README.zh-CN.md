@@ -28,7 +28,7 @@ Mods=ModIdA;ModIdB;ModIdC;PZASM_Notice_SUFFIX
 - 可重新打开的独立项目，每个项目拥有自己的 GUID 和 Workshop ID；
 - 通过私有 SHA-256 快照精确固定来源版本；
 - 按 Workshop ID 导入，并加入可用的 `require=` 依赖；
-- 内置 Workshop 目录，支持搜索、排序、标签、预览、分页、多选和直接输入 ID；
+- 内置 Workshop 目录，支持搜索、排序、标签、预览、分页、直接输入 ID，以及跨页面保留并可逐项移除的选择清单；
 - 模组包与本地/专用服务器的 `WorkshopItems`、`Mods` 共用可视化选择器，同时保留原始编辑；
 - 在 Windows 和 Linux 上从 Valve 一键安装便携式 SteamCMD，也可运行 `pzasm steamcmd install`；
 - 匿名下载公开的 Workshop 来源内容，并与发布所用的认证账号分离；

@@ -68,7 +68,7 @@ public class IndexModel(
     {
         var contextResult = LoadContext();
         if (contextResult is not null) return contextResult;
-        var ids = selectedWorkshopIds.Where(id => id != 0).Distinct().Take(50).ToArray();
+        var ids = selectedWorkshopIds.Where(id => id != 0).Distinct().ToArray();
         if (ids.Length == 0)
         {
             TempData["Error"] = "Sélectionnez au moins un item Workshop.";

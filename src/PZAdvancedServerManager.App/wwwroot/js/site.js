@@ -47,20 +47,109 @@ document.querySelectorAll('[data-catalog-selection]').forEach(form => {
     const checkboxes = Array.from(form.querySelectorAll('input[type="checkbox"]:not(:disabled)'));
     const count = form.querySelector('[data-catalog-count]');
     const submit = form.querySelector('button[type="submit"]');
+    const selectedList = form.querySelector('[data-catalog-selected-list]');
+    const emptySelection = form.querySelector('[data-catalog-selection-empty]');
+    const hiddenInputs = form.querySelector('[data-catalog-hidden-inputs]');
+    const storageKey = form.dataset.catalogStorageKey;
+    const inputName = form.dataset.catalogInputName;
+    const selections = new Map();
+
+    try {
+        const stored = JSON.parse(window.sessionStorage.getItem(storageKey) || '[]');
+        if (Array.isArray(stored)) {
+            stored.filter(item => item && typeof item.value === 'string' && typeof item.title === 'string')
+                .forEach(item => selections.set(item.value, item));
+        }
+    } catch { }
+
+    checkboxes.forEach(checkbox => {
+        checkbox.checked = selections.has(checkbox.value);
+    });
+
+    form.querySelectorAll('input[type="checkbox"]:disabled').forEach(checkbox => selections.delete(checkbox.value));
+
+    const selectionFrom = checkbox => ({
+        value: checkbox.value,
+        title: checkbox.dataset.catalogTitle || checkbox.value,
+        detail: checkbox.dataset.catalogDetail || ''
+    });
+
+    const renderSelectedList = () => {
+        if (!selectedList) return;
+        selectedList.replaceChildren();
+        selections.forEach(item => {
+            const row = document.createElement('div');
+            row.className = 'catalog-selected-item';
+            const copy = document.createElement('span');
+            const title = document.createElement('strong');
+            const detail = document.createElement('small');
+            const remove = document.createElement('button');
+            title.textContent = item.title;
+            detail.textContent = item.detail;
+            copy.append(title, detail);
+            remove.type = 'button';
+            remove.className = 'catalog-selected-remove';
+            remove.dataset.catalogRemove = item.value;
+            remove.setAttribute('aria-label', `Retirer ${item.title}`);
+            remove.textContent = 'Retirer';
+            row.append(copy, remove);
+            selectedList.append(row);
+        });
+    };
+
+    const renderHiddenInputs = () => {
+        if (!hiddenInputs || !inputName) return;
+        hiddenInputs.replaceChildren();
+        const visibleValues = new Set(checkboxes.filter(checkbox => checkbox.checked).map(checkbox => checkbox.value));
+        selections.forEach(item => {
+            if (visibleValues.has(item.value)) return;
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = inputName;
+            input.value = item.value;
+            hiddenInputs.append(input);
+        });
+    };
+
     const update = () => {
-        const selected = checkboxes.filter(checkbox => checkbox.checked).length;
-        if (count) count.textContent = `${selected}`;
-        if (submit instanceof HTMLButtonElement) submit.disabled = selected === 0;
+        checkboxes.forEach(checkbox => {
+            if (checkbox.checked) selections.set(checkbox.value, selectionFrom(checkbox));
+            else selections.delete(checkbox.value);
+        });
+        if (count) count.textContent = `${selections.size}`;
+        if (submit instanceof HTMLButtonElement) submit.disabled = selections.size === 0;
+        if (emptySelection) emptySelection.hidden = selections.size > 0;
         checkboxes.forEach(checkbox => checkbox.closest('.workshop-catalog-card, .local-catalog-card')?.classList.toggle('is-selected', checkbox.checked));
+        renderSelectedList();
+        renderHiddenInputs();
+        try { window.sessionStorage.setItem(storageKey, JSON.stringify(Array.from(selections.values()))); } catch { }
     };
     checkboxes.forEach(checkbox => checkbox.addEventListener('change', update));
     form.querySelector('[data-catalog-select-all]')?.addEventListener('click', () => {
         checkboxes.forEach(checkbox => { checkbox.checked = true; });
         update();
     });
-    form.querySelector('[data-catalog-clear]')?.addEventListener('click', () => {
+    form.querySelector('[data-catalog-deselect-page]')?.addEventListener('click', () => {
         checkboxes.forEach(checkbox => { checkbox.checked = false; });
         update();
+    });
+    form.querySelector('[data-catalog-clear-all]')?.addEventListener('click', () => {
+        selections.clear();
+        checkboxes.forEach(checkbox => { checkbox.checked = false; });
+        update();
+    });
+    selectedList?.addEventListener('click', event => {
+        if (!(event.target instanceof Element)) return;
+        const button = event.target.closest('[data-catalog-remove]');
+        if (!button) return;
+        selections.delete(button.dataset.catalogRemove);
+        const visible = checkboxes.find(checkbox => checkbox.value === button.dataset.catalogRemove);
+        if (visible) visible.checked = false;
+        update();
+    });
+    form.addEventListener('submit', () => {
+        renderHiddenInputs();
+        try { window.sessionStorage.removeItem(storageKey); } catch { }
     });
     update();
 });

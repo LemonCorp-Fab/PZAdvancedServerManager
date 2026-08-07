@@ -29,7 +29,7 @@ See the complete [architecture and feasibility study](docs/ARCHITECTURE.md).
 - private SHA-256 source snapshots created when a mod is added, preventing a local Steam update from silently changing a future build;
 - explicit snapshot refresh, kept separate from build and publish operations;
 - direct Workshop ID import through SteamCMD, including every compatible `mod.info` and available dependency;
-- internal Project Zomboid Workshop catalog with search, sorting, tags, metadata, previews, pagination, multi-selection, and direct ID lookup;
+- internal Project Zomboid Workshop catalog with search, sorting, tags, metadata, previews, pagination, direct ID lookup, and a persistent cross-page selection cart with per-item removal;
 - one shared selector for pack sources and local/dedicated-server `WorkshopItems` and `Mods` lists, while preserving raw editors;
 - one-click portable SteamCMD installation from Valve on Windows and Linux, also available as `pzasm steamcmd install`;
 - anonymous Workshop source downloads for public server content, kept separate from the authenticated publisher account;

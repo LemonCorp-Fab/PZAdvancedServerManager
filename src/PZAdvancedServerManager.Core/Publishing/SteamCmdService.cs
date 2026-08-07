@@ -12,7 +12,7 @@ public sealed class SteamCmdService(PackageValidator validator)
     {
         if (workshopId == 0) throw new ArgumentOutOfRangeException(nameof(workshopId), "Workshop ID invalide.");
         ValidateExecutable(project.Automation.SteamCmdPath);
-        var login = string.IsNullOrWhiteSpace(project.Automation.SteamUsername) ? "anonymous" : project.Automation.SteamUsername;
+        var login = ResolveDownloadLogin(project);
         var result = await RunAsync(project.Automation.SteamCmdPath,
             ["+login", login, "+workshop_download_item", PzasmConstants.ProjectZomboidSteamAppId, workshopId.ToString(), "validate", "+quit"], cancellationToken);
         var steamCmdRoot = Path.GetDirectoryName(project.Automation.SteamCmdPath)!;
@@ -26,7 +26,7 @@ public sealed class SteamCmdService(PackageValidator validator)
         if (workshopIds.Length == 0) return new SteamCmdResult(0, "Aucune source Workshop à actualiser.", string.Empty);
         ValidateExecutable(project.Automation.SteamCmdPath);
 
-        var login = string.IsNullOrWhiteSpace(project.Automation.SteamUsername) ? "anonymous" : project.Automation.SteamUsername;
+        var login = ResolveDownloadLogin(project);
         var arguments = new List<string> { "+login", login };
         foreach (var id in workshopIds)
         {
@@ -123,6 +123,11 @@ public sealed class SteamCmdService(PackageValidator validator)
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path) || (!fileName.Equals("steamcmd.exe", StringComparison.OrdinalIgnoreCase) && !fileName.Equals("steamcmd.sh", StringComparison.OrdinalIgnoreCase)))
             throw new FileNotFoundException("SteamCMD est introuvable. Indiquez le chemin exact vers steamcmd.exe ou steamcmd.sh.", path);
     }
+
+    private static string ResolveDownloadLogin(PackageProject project) =>
+        project.Automation.AnonymousWorkshopDownloads || string.IsNullOrWhiteSpace(project.Automation.SteamUsername)
+            ? "anonymous"
+            : project.Automation.SteamUsername;
 }
 
 public sealed record SteamCmdResult(int ExitCode, string StandardOutput, string StandardError)

@@ -16,6 +16,7 @@ public sealed class ApplicationPaths
         LogsRoot = Path.Combine(DataRoot, "logs");
         LocksRoot = Path.Combine(DataRoot, "locks");
         ProfilesRoot = Path.Combine(DataRoot, "profiles");
+        ToolsRoot = Path.Combine(DataRoot, "tools");
 
         Directory.CreateDirectory(ProjectsRoot);
         Directory.CreateDirectory(BuildsRoot);
@@ -23,6 +24,7 @@ public sealed class ApplicationPaths
         Directory.CreateDirectory(LogsRoot);
         Directory.CreateDirectory(LocksRoot);
         Directory.CreateDirectory(ProfilesRoot);
+        Directory.CreateDirectory(ToolsRoot);
     }
 
     public string DataRoot { get; }
@@ -32,6 +34,9 @@ public sealed class ApplicationPaths
     public string LogsRoot { get; }
     public string LocksRoot { get; }
     public string ProfilesRoot { get; }
+    public string ToolsRoot { get; }
+    public string SteamCmdRoot => Path.Combine(ToolsRoot, "steamcmd");
+    public string SteamCmdExecutable => Path.Combine(SteamCmdRoot, OperatingSystem.IsWindows() ? "steamcmd.exe" : "steamcmd.sh");
 
     public string ProjectFile(Guid id) => Path.Combine(ProjectsRoot, $"{id:N}{PzasmConstants.ProjectFileExtension}");
     public string BuildRoot(Guid id) => Path.Combine(BuildsRoot, id.ToString("N"));

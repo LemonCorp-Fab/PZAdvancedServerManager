@@ -9,6 +9,123 @@ document.querySelectorAll('[data-mod-filter]').forEach(filter => {
     });
 });
 
+document.querySelectorAll('[data-tabs]').forEach(tabSet => {
+    const buttons = Array.from(tabSet.querySelectorAll(':scope > [role="tablist"] [data-tab-target]'));
+    const panels = Array.from(tabSet.querySelectorAll(':scope > .workspace-form > [data-tab-panel], :scope > [data-tab-panel]'));
+    if (buttons.length === 0 || panels.length === 0) return;
+    const storageKey = `pzasm-tab:${window.location.pathname}:${tabSet.dataset.tabs}`;
+
+    const activate = name => {
+        if (!panels.some(panel => panel.dataset.tabPanel === name)) name = buttons[0].dataset.tabTarget;
+        buttons.forEach((button, index) => {
+            const active = button.dataset.tabTarget === name;
+            button.classList.toggle('is-active', active);
+            button.setAttribute('aria-selected', active ? 'true' : 'false');
+            button.tabIndex = active ? 0 : -1;
+            if (!button.id) button.id = `${tabSet.dataset.tabs}-tab-${index}`;
+        });
+        panels.forEach(panel => {
+            const active = panel.dataset.tabPanel === name;
+            panel.hidden = !active;
+            const owner = buttons.find(button => button.dataset.tabTarget === panel.dataset.tabPanel);
+            if (owner) panel.setAttribute('aria-labelledby', owner.id);
+        });
+        tabSet.querySelectorAll(':scope > .workspace-form').forEach(form => {
+            form.classList.toggle('has-active-panel', Boolean(form.querySelector(`[data-tab-panel="${CSS.escape(name)}"]`)));
+        });
+        try { window.sessionStorage.setItem(storageKey, name); } catch { }
+    };
+
+    buttons.forEach(button => button.addEventListener('click', () => activate(button.dataset.tabTarget)));
+    let initial = buttons[0].dataset.tabTarget;
+    try { initial = window.sessionStorage.getItem(storageKey) || initial; } catch { }
+    activate(initial);
+});
+
+document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
+    const rawInput = sorter.closest('[data-tab-panel]')?.querySelector('[data-map-raw]');
+    const manualTemplate = document.querySelector('[data-map-manual-template]');
+    if (!rawInput) return;
+    const knownRows = new Map(Array.from(sorter.querySelectorAll('[data-map-item]')).map(row => [row.dataset.mapName.toLocaleLowerCase(), row]));
+    let draggedRow = null;
+
+    const rows = () => Array.from(sorter.querySelectorAll('[data-map-item]'));
+    const update = () => {
+        rows().forEach((row, index) => {
+            const rank = row.querySelector('[data-map-rank]');
+            if (rank) rank.textContent = `${index + 1}`;
+        });
+        rawInput.value = rows().map(row => row.dataset.mapName).join(';');
+    };
+    const createManualRow = name => {
+        if (!(manualTemplate instanceof HTMLTemplateElement)) return null;
+        const row = manualTemplate.content.firstElementChild.cloneNode(true);
+        row.dataset.mapName = name;
+        row.querySelector('[data-map-manual-name]').textContent = name;
+        knownRows.set(name.toLocaleLowerCase(), row);
+        bindDrag(row);
+        return row;
+    };
+    const move = (row, direction) => {
+        const sibling = direction < 0 ? row.previousElementSibling : row.nextElementSibling;
+        if (!sibling) return;
+        if (direction < 0) sorter.insertBefore(row, sibling);
+        else sorter.insertBefore(sibling, row);
+        update();
+    };
+    const bindDrag = row => {
+        row.addEventListener('dragstart', event => {
+            draggedRow = row;
+            row.classList.add('is-dragging');
+            event.dataTransfer.effectAllowed = 'move';
+        });
+        row.addEventListener('dragend', () => {
+            row.classList.remove('is-dragging');
+            draggedRow = null;
+            update();
+        });
+        row.addEventListener('dragover', event => {
+            if (!draggedRow || draggedRow === row) return;
+            event.preventDefault();
+            const bounds = row.getBoundingClientRect();
+            sorter.insertBefore(draggedRow, event.clientY < bounds.top + bounds.height / 2 ? row : row.nextElementSibling);
+        });
+    };
+
+    knownRows.forEach(bindDrag);
+    sorter.addEventListener('click', event => {
+        if (!(event.target instanceof Element)) return;
+        const row = event.target.closest('[data-map-item]');
+        if (!row) return;
+        if (event.target.closest('[data-map-up]')) move(row, -1);
+        if (event.target.closest('[data-map-down]')) move(row, 1);
+    });
+    sorter.closest('[data-tab-panel]')?.querySelector('[data-map-apply-recommended]')?.addEventListener('click', () => {
+        Array.from(knownRows.values())
+            .filter(row => row.dataset.recommendedRank !== undefined)
+            .sort((left, right) => Number(left.dataset.recommendedRank) - Number(right.dataset.recommendedRank))
+            .forEach(row => sorter.append(row));
+        update();
+    });
+    sorter.closest('[data-tab-panel]')?.querySelector('[data-map-vanilla-last]')?.addEventListener('click', () => {
+        const vanilla = Array.from(knownRows.values()).find(row => row.classList.contains('is-vanilla'));
+        if (vanilla) sorter.append(vanilla);
+        update();
+    });
+    rawInput.addEventListener('change', () => {
+        const names = rawInput.value.split(';').map(value => value.trim()).filter(Boolean);
+        names.forEach(name => {
+            const key = name.toLocaleLowerCase();
+            const row = knownRows.get(key) || createManualRow(name);
+            if (row) sorter.append(row);
+        });
+        const selected = new Set(names.map(name => name.toLocaleLowerCase()));
+        rows().filter(row => !selected.has(row.dataset.mapName.toLocaleLowerCase())).forEach(row => row.remove());
+        update();
+    });
+    update();
+});
+
 (() => {
     const overlay = document.querySelector('[data-loading-overlay]');
     if (!overlay) return;
@@ -95,6 +212,10 @@ document.querySelectorAll('[data-mod-filter]').forEach(filter => {
     document.addEventListener('submit', event => {
         const form = event.target;
         if (!(form instanceof HTMLFormElement) || form.dataset.loadingSkip === 'true') return;
+        if (form.dataset.loadingCommitting === 'true') {
+            delete form.dataset.loadingCommitting;
+            return;
+        }
         if (form.dataset.loadingBusy === 'true') {
             event.preventDefault();
             return;
@@ -108,7 +229,10 @@ document.querySelectorAll('[data-mod-filter]').forEach(filter => {
             button,
             form
         });
-        window.setTimeout(() => HTMLFormElement.prototype.submit.call(form), navigationDelay);
+        window.setTimeout(() => {
+            form.dataset.loadingCommitting = 'true';
+            form.requestSubmit(button || undefined);
+        }, navigationDelay);
     });
 
     document.addEventListener('click', event => {

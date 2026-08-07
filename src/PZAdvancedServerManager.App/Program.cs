@@ -21,6 +21,8 @@ builder.Services.AddSingleton<PzEnvironmentService>();
 builder.Services.AddSingleton<PackageValidator>();
 builder.Services.AddSingleton<PackageBuildService>();
 builder.Services.AddSingleton<SteamCmdService>();
+builder.Services.AddSingleton<SteamCmdInstaller>();
+builder.Services.AddSingleton<MapPriorityService>();
 builder.Services.AddSingleton<ServerOrchestrationService>();
 builder.Services.AddSingleton<ServerProfileService>();
 builder.Services.AddSingleton<PackageSourceSnapshotService>();

@@ -4,6 +4,10 @@
 @{
     ViewData["Title"] = Model.Project.Name;
     var selectedIds = Model.Project.Mods.Select(x => x.ModId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    var enabledMods = Model.Project.Mods.Count(x => x.Enabled);
+    var documentedMods = Model.Project.Mods.Count(x => x.Enabled && x.Permission.Status != PermissionStatus.Unknown);
+    var pinnedMods = Model.Project.Mods.Count(x => x.Enabled && Directory.Exists(x.PinnedSourceRoot));
+    var mapConflicts = Model.MapAnalysis.Entries.Sum(x => x.Conflicts.Count) / 2;
 }
 
 <a class="back-link" asp-page="/Index">← Tableau de bord</a>
@@ -11,139 +15,271 @@
 @if (TempData["Message"] is string message) { <div class="toast-message">@message</div> }
 @if (TempData["Error"] is string error) { <div class="error-message">@error</div> }
 
-<section class="project-hero">
-    <div>
-        <span class="eyebrow">PROJET @Model.Project.StableSuffix</span>
+<section class="project-hero workspace-hero">
+    <div class="workspace-title">
+        <span class="eyebrow">PACK @Model.Project.StableSuffix</span>
         <h1>@Model.Project.Name</h1>
-        <p>Workshop ID : @(Model.Project.PublishedWorkshopId == 0 ? "nouvel item — sera mémorisé après publication" : Model.Project.PublishedWorkshopId)</p>
+        <p>@(Model.Project.PublishedWorkshopId == 0 ? "Nouvel item Workshop — l’identifiant sera mémorisé après la première publication." : $"Workshop ID {Model.Project.PublishedWorkshopId}")</p>
+        <div class="project-kpis">
+            <span><strong>@enabledMods</strong> mods</span>
+            <span><strong>@Model.MapAnalysis.Entries.Count</strong> cartes</span>
+            <span><strong>@pinnedMods/@enabledMods</strong> figés</span>
+            <span class="@(mapConflicts > 0 ? "kpi-warning" : "")"><strong>@mapConflicts</strong> conflits de cellules</span>
+        </div>
     </div>
-    <div class="action-row">
-        <form method="post" asp-page-handler="Build" data-loading-title="Construction du pack…" data-loading-detail="Assemblage des snapshots figés, calcul des hashes et génération des fichiers Workshop."><button class="button secondary" type="submit">Construire localement</button></form>
-        <form method="post" asp-page-handler="RefreshSources" data-loading-title="Actualisation des sources…" data-loading-detail="SteamCMD télécharge les versions actuelles, puis PZASM remplace les snapshots de manière atomique." onsubmit="return confirm('Télécharger les versions actuelles des sources Workshop et remplacer les snapshots figés de ce pack ? Aucun publish ne sera effectué.');"><button class="button ghost" type="submit">Actualiser les sources figées</button></form>
-        <form method="post" asp-page-handler="Publish" data-loading-title="Publication Steam Workshop…" data-loading-detail="Validation, construction, coordination éventuelle du serveur et mise à jour du Workshop ID de ce pack." onsubmit="return confirm('Publier ou mettre à jour cet item Workshop maintenant ? Si le serveur coordonné est en ligne, PZASM exécutera save/quit puis le redémarrera.');"><button class="button primary" type="submit" disabled="@(!Model.Validation.CanPublish)">Publier avec SteamCMD</button></form>
+    <div class="hero-actions">
+        <form method="post" asp-page-handler="Build" data-loading-title="Construction du pack…" data-loading-detail="Assemblage des snapshots figés, calcul des hashes et génération des fichiers Workshop."><button class="button secondary" type="submit">Construire</button></form>
+        <form method="post" asp-page-handler="RefreshSources" data-loading-title="Actualisation des sources…" data-loading-detail="SteamCMD télécharge les versions actuelles, puis PZASM remplace les snapshots de manière atomique." onsubmit="return confirm('Télécharger les versions actuelles des sources Workshop et remplacer les snapshots figés de ce pack ? Aucun publish ne sera effectué.');"><button class="button ghost" type="submit">Actualiser les sources</button></form>
+        <form method="post" asp-page-handler="Publish" data-loading-title="Publication Steam Workshop…" data-loading-detail="Validation, construction, coordination éventuelle du serveur et mise à jour du Workshop ID de ce pack." onsubmit="return confirm('Publier ou mettre à jour cet item Workshop maintenant ? Si le serveur coordonné est en ligne, PZASM exécutera save/quit puis le redémarrera.');"><button class="button primary" type="submit" disabled="@(!Model.Validation.CanPublish)">Publier</button></form>
     </div>
 </section>
 
 @if (Model.Validation.Issues.Count > 0)
 {
-    <section class="validation-box @(Model.Validation.CanPublish ? "ok" : "warning")">
-        <div><strong>@(Model.Validation.CanPublish ? "Prêt à publier" : "Points à corriger")</strong><span>Construction : @(Model.Validation.CanBuild ? "possible" : "bloquée") · Publication : @(Model.Validation.CanPublish ? "possible" : "bloquée") · Planification : @(!Model.Project.Automation.Enabled ? "désactivée" : Model.Validation.CanAutomate ? "valide" : "à corriger")</span></div>
+    <details class="validation-box @(Model.Validation.CanPublish ? "ok" : "warning")" open="@(!Model.Validation.CanPublish)">
+        <summary><div><strong>@(Model.Validation.CanPublish ? "Configuration exploitable" : "Points à corriger")</strong><span>Build @(Model.Validation.CanBuild ? "prêt" : "bloqué") · Publication @(Model.Validation.CanPublish ? "prête" : "bloquée") · Planification @(!Model.Project.Automation.Enabled ? "désactivée" : Model.Validation.CanAutomate ? "prête" : "à corriger")</span></div><span class="count-pill">@Model.Validation.Issues.Count</span></summary>
         <ul>@foreach (var issue in Model.Validation.Issues) { <li class="@(issue.IsError ? "issue-error" : "")">@issue.Message</li> }</ul>
-    </section>
+    </details>
 }
 
-<form method="post" asp-page-handler="Save" class="panel editor-form" data-loading-title="Enregistrement du projet…" data-loading-detail="Mise à jour de la configuration, de la planification et des paramètres de publication.">
-    <div class="panel-heading"><div><span class="eyebrow">IDENTITÉ ET DISTRIBUTION</span><h2>Configuration du pack</h2></div><button class="button primary" type="submit">Enregistrer</button></div>
-    <div class="form-grid two">
-        <label><span>Nom du pack</span><input asp-for="Form.Name" /></label>
-        <label><span>Version PZ cible</span><input asp-for="Form.TargetPzVersion" /></label>
-        <label class="full"><span>Description visible en jeu et sur le Workshop</span><textarea asp-for="Form.Description" rows="4" placeholder="Présentez le serveur, son ambiance et le rôle du pack..."></textarea></label>
-        <label><span>Mode de packaging</span><select asp-for="Form.Mode" asp-items="Html.GetEnumSelectList<PackageMode>()"></select><small>Bundle conserve tous les Mod IDs et évite les collisions de fusion.</small></label>
-        <label><span>Workshop ID existant</span><input asp-for="Form.PublishedWorkshopId" /><small>Laissez 0 pour créer un item; l'ID créé sera ensuite conservé.</small></label>
-        <label><span>Visibilité Workshop</span><select asp-for="Form.Visibility" asp-items="Html.GetEnumSelectList<WorkshopVisibility>()"></select></label>
-        <label><span>Tags</span><input asp-for="Form.Tags" placeholder="Mod, Build 42" /></label>
-        <label class="full"><span>Image d'aperçu personnalisée</span><input asp-for="Form.PreviewImagePath" placeholder="Chemin local .png ou .jpg — aperçu PZASM généré si vide" /></label>
-        <label class="full"><span>Ordre des cartes serveur</span><input asp-for="Form.MapOrder" placeholder="MapA;MapB;Muldraugh, KY" /><small>Séparateur : point-virgule. L'ordre est important dans Project Zomboid; les cartes détectées sont ajoutées automatiquement.</small></label>
-    </div>
+<form id="install-steamcmd-form" method="post" asp-page-handler="InstallSteamCmd" data-loading-title="Installation de SteamCMD…" data-loading-detail="Téléchargement depuis Valve, extraction dans l’espace portable du gestionnaire et première initialisation."></form>
 
-    <div class="subsection">
-        <div><span class="eyebrow">FENÊTRE À LA CONNEXION</span><h3>Information transparente des joueurs</h3></div>
-        <label class="switch-row"><input asp-for="Form.InjectConnectionNotice" /><span><strong>Injecter la fenêtre PZASM</strong><small>Activé par défaut. Affiche le nom du programme, votre description, l'avertissement de droits et la liste exhaustive des mods.</small></span></label>
-        <label><span>Titre de la fenêtre</span><input asp-for="Form.NoticeTitle" /></label>
-    </div>
+<div class="workspace" data-tabs="project-editor">
+    <nav class="workspace-tabs" aria-label="Sections du pack" role="tablist">
+        <button type="button" role="tab" data-tab-target="overview">Vue d’ensemble</button>
+        <button type="button" role="tab" data-tab-target="mods">Mods & droits <span>@enabledMods</span></button>
+        <button type="button" role="tab" data-tab-target="maps">Cartes <span>@Model.MapAnalysis.Entries.Count</span></button>
+        <button type="button" role="tab" data-tab-target="distribution">Distribution</button>
+        <button type="button" role="tab" data-tab-target="automation">Planification</button>
+        <button type="button" role="tab" data-tab-target="expert">Expert</button>
+    </nav>
 
-    <div class="subsection legal-check">
-        <span class="eyebrow">DÉCLARATION OBLIGATOIRE</span>
-        <label class="switch-row"><input asp-for="Form.LegalWarningAccepted" /><span><strong>Je comprends que je suis responsable des autorisations</strong><small>Le programme et LemonCorp ne sont pas responsables de la redistribution effectuée par les utilisateurs. Un pack public, non listé ou serveur peut nécessiter l'accord de chaque auteur. PZASM bloque la publication tant que chaque source n'est pas documentée.</small></span></label>
-        <p class="fine-print">Consultez la <a href="https://projectzomboid.com/blog/modding-policy/" target="_blank" rel="noreferrer">politique officielle de modding Project Zomboid</a> et l'<a href="https://steamcommunity.com/workshop/workshopsubmitinfo/" target="_blank" rel="noreferrer">accord légal du Workshop Steam</a> avant toute publication.</p>
-    </div>
-
-    <div class="subsection">
-        <span class="eyebrow">STEAMCMD ET PLANIFICATION</span><h3>Mises à jour du même item Workshop</h3>
-        <div class="form-grid two">
-            <label><span>Chemin SteamCMD</span><input asp-for="Form.SteamCmdPath" placeholder="steamcmd.exe ou /opt/steamcmd/steamcmd.sh" /></label>
-            <label><span>Compte Steam</span><input asp-for="Form.SteamUsername" autocomplete="username" /><small>Aucun mot de passe n'est stocké. Authentifiez SteamCMD une première fois manuellement.</small></label>
-            <label><span>Heures quotidiennes</span><input asp-for="Form.DailyTimes" placeholder="04:00, 16:00" /></label>
-            <label><span>Serveur coordonné</span><input asp-for="Form.CoordinatedServerName" list="server-config-names" placeholder="servertest" /><small>Obligatoire pour une publication planifiée : PZASM exécute save/quit par RCON, publie, puis redémarre si le serveur était actif.</small></label>
-            <datalist id="server-config-names">@foreach (var serverName in Model.ServerConfigNames) { <option value="@serverName"></option> }</datalist>
-            <div class="check-stack">
-                <label><input asp-for="Form.AutomationEnabled" /> Activer la planification</label>
-                <label><input asp-for="Form.RefreshSources" /> Actualiser les sources Workshop avant le build</label>
-                <label><input asp-for="Form.PublishAfterBuild" /> Publier après validation et build</label>
+    <form method="post" asp-page-handler="Save" class="workspace-form" data-loading-title="Enregistrement du projet…" data-loading-detail="Mise à jour de la configuration, de l’ordre des cartes et des paramètres de publication.">
+        <section class="workspace-panel" data-tab-panel="overview" role="tabpanel">
+            <div class="panel-heading">
+                <div><span class="eyebrow">ESSENTIEL</span><h2>Identité et comportement du pack</h2><p>Les réglages les plus fréquents, sans exposer les détails techniques.</p></div>
             </div>
-        </div>
-        <p class="fine-print">Rien n'est automatique par défaut : l'administrateur déclenche la publication ou active lui-même ces horaires. La planification ne s'exécute que lorsque le service PZASM est lancé. Les droits incomplets et l'absence de coordination serveur bloquent la publication automatique.</p>
-    </div>
-</form>
-
-<section class="panel">
-    <div class="panel-heading"><div><span class="eyebrow">SOURCES LOCALES ET WORKSHOP</span><h2>Mods inclus</h2></div><div class="action-row"><a class="button ghost" href="https://steamcommunity.com/workshop/browse/?appid=108600" target="_blank" rel="noreferrer">Parcourir le Workshop ↗</a><a class="button ghost" asp-page="/Projects/Edit" asp-route-id="@Model.Project.Id" asp-route-refresh="true">Relancer la détection</a></div></div>
-    <form method="post" asp-page-handler="ImportWorkshop" class="add-mod-row" data-loading-title="Import de l’item Workshop…" data-loading-detail="Téléchargement SteamCMD, analyse des mod.info et création des snapshots figés.">
-        <input name="workshopId" type="number" min="1" required placeholder="Workshop ID à télécharger avec SteamCMD" />
-        <button class="button secondary" type="submit">Télécharger et figer l'item</button>
-    </form>
-    <p class="fine-print">L'import utilise le chemin SteamCMD enregistré plus haut, analyse tous les <code>mod.info</code> de l'item et ajoute les dépendances disponibles. Aucun item n'est publié pendant cette opération.</p>
-    <input class="mod-filter" type="search" data-mod-filter placeholder="Filtrer par nom, Mod ID ou Workshop ID…" autocomplete="off" />
-    <form method="post" asp-page-handler="AddMod" class="add-mod-row" data-loading-title="Ajout du mod au pack…" data-loading-detail="Copie de la source dans un snapshot privé et ajout des dépendances disponibles.">
-        <select name="selectionKey" required data-mod-select>
-            <option value="">Choisir parmi @Model.InstalledMods.Count mods détectés…</option>
-            @foreach (var mod in Model.InstalledMods.Where(x => !selectedIds.Contains(x.ModId)))
-            {
-                <option value="@EditModel.SelectionKey(mod)">@mod.Name — @mod.ModId — @(mod.WorkshopId == 0 ? "local" : $"Workshop {mod.WorkshopId}")</option>
-            }
-        </select>
-        <button class="button primary" type="submit">Ajouter</button>
-    </form>
-
-    @if (Model.Project.Mods.Count == 0)
-    {
-        <div class="empty-state compact"><h3>Le pack est vide</h3><p>Ajoutez des mods. En mode Bundle, leurs dossiers et Mod IDs sont préservés sans fusionner leurs répertoires <code>media</code>.</p></div>
-    }
-    else
-    {
-        <div class="mod-list">
-        @foreach (var mod in Model.Project.Mods.OrderBy(x => x.Order))
-        {
-            <details class="mod-card" open="@(mod.Permission.Status == PermissionStatus.Unknown)">
-                <summary>
-                    <span class="order-number">@(mod.Order + 1)</span>
-                    <span><strong>@mod.Name</strong><small>Mod ID: @mod.ModId · Workshop: @(mod.WorkshopId == 0 ? "local" : mod.WorkshopId) · version: @(string.IsNullOrWhiteSpace(mod.SelectedVersionFolder) ? "racine" : mod.SelectedVersionFolder)</small></span>
-                    <span class="rights-badge @mod.Permission.Status.ToString().ToLowerInvariant()">@mod.Permission.Status</span>
-                </summary>
-                <div class="mod-details">
-                    <p class="source-path"><strong>Origine :</strong> @mod.SourceModRoot</p>
-                    <p class="fine-print"><strong>Snapshot figé :</strong> @(Directory.Exists(mod.PinnedSourceRoot) ? $"{mod.PinnedAt?.LocalDateTime:dd/MM/yyyy HH:mm} · SHA-256 {mod.PinnedContentHash[..Math.Min(12, mod.PinnedContentHash.Length)]}…" : "sera créé au prochain build")</p>
-                    @if (mod.RequiredModIds.Length > 0) { <p class="fine-print"><strong>Dépendances :</strong> @string.Join(", ", mod.RequiredModIds)</p> }
-                    @if (mod.MapFolders.Length > 0) { <p class="fine-print"><strong>Cartes :</strong> @string.Join(", ", mod.MapFolders)</p> }
-                    @if (!string.IsNullOrWhiteSpace(mod.SourceUrl)) { <a href="@mod.SourceUrl" target="_blank" rel="noreferrer">Voir le mod d'origine sur Steam ↗</a> }
-                    <form method="post" asp-page-handler="UpdateMod" class="form-grid two" data-loading-title="Enregistrement des droits…" data-loading-detail="Mise à jour des informations d’auteur, de licence et des preuves associées.">
-                        <input type="hidden" name="modReferenceId" value="@mod.Id" />
-                        <label><span>Statut de l'autorisation</span><select name="permissionStatus">
-                            @foreach (var status in Enum.GetValues<PermissionStatus>())
-                            {
-                                if (status == mod.Permission.Status) { <option value="@status" selected>@status</option> }
-                                else { <option value="@status">@status</option> }
-                            }
-                        </select></label>
-                        <label><span>Auteur / détenteur des droits</span><input name="rightsHolder" value="@mod.Permission.RightsHolder" placeholder="@mod.Author" /></label>
-                        <label><span>Preuve publique / licence</span><input name="publicEvidenceUrl" value="@mod.Permission.PublicEvidenceUrl" placeholder="https://..." /></label>
-                        <label><span>Pièce privée locale</span><input name="privateAttachmentPath" value="@mod.Permission.PrivateAttachmentPath" placeholder="Capture, email exporté… jamais publié" /></label>
-                        <label class="full"><span>Notes et conditions reçues</span><textarea name="permissionNotes" rows="2">@mod.Permission.Notes</textarea></label>
-                        <div class="full action-row"><button class="button secondary" type="submit">Enregistrer les droits</button></div>
-                    </form>
-                    <div class="mod-actions">
-                        <form method="post" asp-page-handler="Move" data-loading-title="Mise à jour de l’ordre…"><input type="hidden" name="modReferenceId" value="@mod.Id" /><input type="hidden" name="direction" value="-1" /><button class="icon-button" title="Monter" type="submit">↑</button></form>
-                        <form method="post" asp-page-handler="Move" data-loading-title="Mise à jour de l’ordre…"><input type="hidden" name="modReferenceId" value="@mod.Id" /><input type="hidden" name="direction" value="1" /><button class="icon-button" title="Descendre" type="submit">↓</button></form>
-                        <form method="post" asp-page-handler="RemoveMod" data-loading-title="Retrait du mod…" data-loading-detail="Mise à jour du projet et suppression de son snapshot privé uniquement." onsubmit="return confirm('Retirer ce mod du projet ? Les fichiers source resteront intacts.');"><input type="hidden" name="modReferenceId" value="@mod.Id" /><button class="button danger" type="submit">Retirer</button></form>
+            <div class="form-section-grid">
+                <section class="setting-card wide">
+                    <div class="setting-heading"><span class="step-number">01</span><div><h3>Présentation</h3><p>Ce que les joueurs verront sur le Workshop et à la connexion.</p></div></div>
+                    <div class="form-grid two">
+                        <label><span>Nom du pack</span><input asp-for="Form.Name" /></label>
+                        <label class="full"><span>Description publique</span><textarea asp-for="Form.Description" rows="5" placeholder="Présentez le serveur, son ambiance et le rôle du pack…"></textarea></label>
                     </div>
-                </div>
-            </details>
-        }
-        </div>
-    }
-</section>
+                </section>
 
-<section class="panel">
-    <div class="panel-heading"><div><span class="eyebrow">APERÇU PUBLIC</span><h2>Description Workshop générée</h2></div><span class="count-pill">@Model.Project.Mods.Count(x => x.Enabled) sources</span></div>
-    <pre class="description-preview">@Model.WorkshopDescription</pre>
-</section>
+                <section class="setting-card">
+                    <div class="setting-heading"><span class="step-number">02</span><div><h3>Mode de packaging</h3><p>Bundle est le mode fiable pour conserver les Mod IDs.</p></div></div>
+                    <div class="choice-grid">
+                        <label class="choice-card"><input asp-for="Form.Mode" type="radio" value="@PackageMode.Bundle" /><span><strong>Bundle</strong><small>Plusieurs mods internes, un seul Workshop ID. Recommandé.</small></span></label>
+                        <label class="choice-card danger-choice"><input asp-for="Form.Mode" type="radio" value="@PackageMode.FusionStrict" /><span><strong>Fusion stricte</strong><small>Un seul Mod ID, avec blocage immédiat des collisions non identiques.</small></span></label>
+                    </div>
+                </section>
+
+                <section class="setting-card">
+                    <div class="setting-heading"><span class="step-number">03</span><div><h3>Fenêtre à la connexion</h3><p>Informe clairement les joueurs du contenu installé.</p></div></div>
+                    <label class="switch-row"><input asp-for="Form.InjectConnectionNotice" /><span><strong>Afficher la fenêtre PZASM</strong><small>Votre description, l’avertissement de droits et la liste exhaustive des mods.</small></span></label>
+                    <label><span>Titre affiché</span><input asp-for="Form.NoticeTitle" /></label>
+                </section>
+
+                <section class="setting-card wide legal-check">
+                    <div class="setting-heading"><span class="step-number">04</span><div><h3>Droits et responsabilité</h3><p>@documentedMods/@enabledMods sources possèdent actuellement un statut documenté.</p></div></div>
+                    <label class="switch-row"><input asp-for="Form.LegalWarningAccepted" /><span><strong>Je confirme être responsable des autorisations</strong><small>Le programme et LemonCorp ne sont pas responsables de la redistribution effectuée. Une publication publique, non listée ou serveur peut nécessiter l’accord de chaque auteur.</small></span></label>
+                    <p class="fine-print">Consultez la <a href="https://projectzomboid.com/blog/modding-policy/" target="_blank" rel="noreferrer">politique officielle de modding</a> et l’<a href="https://steamcommunity.com/workshop/workshopsubmitinfo/" target="_blank" rel="noreferrer">accord légal du Workshop</a>.</p>
+                </section>
+            </div>
+        </section>
+
+        <section class="workspace-panel" data-tab-panel="maps" role="tabpanel">
+            <div class="panel-heading">
+                <div><span class="eyebrow">PRIORITÉ DES CARTES</span><h2>Ordre intelligent et conflits réels</h2><p>Les cartes en haut gagnent les cellules qui se chevauchent. L’analyse utilise les fichiers <code>map.info</code>, <code>lots=</code> et <code>*.lotheader</code> présents dans les snapshots.</p></div>
+                <div class="action-row"><button class="button primary" type="button" data-map-apply-recommended>Appliquer l’ordre conseillé</button><button class="button ghost" type="button" data-map-vanilla-last>Vanilla en dernier</button></div>
+            </div>
+
+            @if (Model.MapAnalysis.Entries.Count == 1 && Model.MapAnalysis.Entries[0].IsVanilla)
+            {
+                <div class="empty-state compact"><h3>Aucune carte de mod détectée</h3><p>Ajoutez un mod contenant <code>media/maps</code>. L’assistant construira alors un ordre recommandé.</p></div>
+            }
+
+            <div class="map-order-summary">
+                <div><strong>@Model.MapAnalysis.Entries.Count</strong><span>entrées actives</span></div>
+                <div class="@(mapConflicts > 0 ? "summary-alert" : "")"><strong>@mapConflicts</strong><span>chevauchements détectés</span></div>
+                <div><strong>Haut → bas</strong><span>priorité forte → faible</span></div>
+            </div>
+
+            <div class="map-sorter" data-map-sorter>
+                @foreach (var entry in Model.MapAnalysis.Entries)
+                {
+                    <article class="map-order-item @(entry.IsVanilla ? "is-vanilla" : entry.Conflicts.Count > 0 ? "has-conflict" : "")" draggable="true" data-map-item data-map-name="@entry.FolderName" data-recommended-rank="@entry.RecommendedRank">
+                        <button class="drag-handle" type="button" title="Glisser pour réordonner" aria-label="Glisser @entry.FolderName">⋮⋮</button>
+                        <span class="map-rank" data-map-rank>@(entry.CurrentRank + 1)</span>
+                        <div class="map-order-copy">
+                            <div class="map-title-row"><strong>@entry.FolderName</strong>@if (entry.IsVanilla) { <span class="priority-badge base">BASE VANILLA</span> } else if (entry.Conflicts.Count > 0) { <span class="priority-badge warning">CONFLIT</span> } else { <span class="priority-badge">COMPATIBLE</span> }</div>
+                            <small>@entry.SourceModName@if (!string.IsNullOrWhiteSpace(entry.SourceModId)) { <text> · Mod ID @entry.SourceModId</text> } · @entry.CellCount cellule(s)</small>
+                            <p>@entry.Recommendation</p>
+                            @if (entry.Conflicts.Count > 0) { <div class="conflict-list">@foreach (var conflict in entry.Conflicts) { <span>@conflict</span> }</div> }
+                        </div>
+                        <div class="map-order-actions"><button class="icon-button" type="button" data-map-up title="Monter">↑</button><button class="icon-button" type="button" data-map-down title="Descendre">↓</button></div>
+                    </article>
+                }
+            </div>
+
+            <details class="expert-disclosure">
+                <summary>Édition brute de <code>Map=</code></summary>
+                <label><span>Ordre exact séparé par des points-virgules</span><input asp-for="Form.MapOrder" data-map-raw spellcheck="false" /><small>Les entrées inconnues sont conservées. Utilisez ce champ uniquement si un auteur de carte fournit un ordre spécifique.</small></label>
+            </details>
+        </section>
+
+        <section class="workspace-panel" data-tab-panel="distribution" role="tabpanel">
+            <div class="panel-heading"><div><span class="eyebrow">STEAM WORKSHOP</span><h2>Distribution et publication</h2><p>Les téléchargements de sources et la publication utilisent des identités distinctes.</p></div></div>
+            <div class="form-section-grid">
+                <section class="setting-card wide steamcmd-card @(Model.SteamCmdStatus.Installed ? "is-ready" : "needs-setup")">
+                    <div class="tool-status">
+                        <span class="tool-icon">SC</span>
+                        <div><span class="eyebrow">OUTIL PORTABLE</span><h3>@(Model.SteamCmdStatus.Installed ? "SteamCMD est prêt" : "SteamCMD n’est pas encore installé")</h3><p>@(Model.SteamCmdStatus.Installed ? Model.SteamCmdStatus.ExecutablePath : "Télécharge l’archive officielle de Valve dans le dossier de données du gestionnaire, sans modifier votre installation Steam.")</p></div>
+                        <button class="button @(Model.SteamCmdStatus.Installed ? "ghost" : "primary")" type="submit" form="install-steamcmd-form">@(Model.SteamCmdStatus.Installed ? "Réinstaller / vérifier" : "Installer en un clic")</button>
+                    </div>
+                </section>
+
+                <section class="setting-card">
+                    <div class="setting-heading"><span class="step-number">01</span><div><h3>Sources Workshop</h3><p>Les serveurs peuvent télécharger les contenus publics sans compte.</p></div></div>
+                    <label class="switch-row"><input asp-for="Form.AnonymousWorkshopDownloads" /><span><strong>Utiliser la connexion anonyme</strong><small>Recommandé pour importer et actualiser les sources. En cas de restriction d’un item, désactivez cette option pour utiliser le compte éditeur.</small></span></label>
+                    <label><span>Chemin SteamCMD</span><input asp-for="Form.SteamCmdPath" placeholder="steamcmd.exe ou /opt/steamcmd/steamcmd.sh" /></label>
+                </section>
+
+                <section class="setting-card">
+                    <div class="setting-heading"><span class="step-number">02</span><div><h3>Compte éditeur</h3><p>Obligatoire uniquement pour créer ou mettre à jour votre item.</p></div></div>
+                    <label><span>Nom du compte Steam</span><input asp-for="Form.SteamUsername" autocomplete="username" /><small>Le mot de passe et les codes Steam Guard ne sont jamais stockés par PZASM.</small></label>
+                    <div class="info-callout"><strong>Publication authentifiée</strong><p>SteamCMD demandera l’authentification dans sa propre session. L’import anonyme reste indépendant.</p></div>
+                </section>
+
+                <section class="setting-card wide">
+                    <div class="setting-heading"><span class="step-number">03</span><div><h3>Fiche Workshop</h3><p>Contrôlez l’identifiant, la visibilité, les tags et l’image.</p></div></div>
+                    <div class="form-grid two">
+                        <label><span>Workshop ID existant</span><input asp-for="Form.PublishedWorkshopId" /><small>0 crée un nouvel item; l’identifiant renvoyé sera conservé.</small></label>
+                        <label><span>Visibilité</span><select asp-for="Form.Visibility" asp-items="Html.GetEnumSelectList<WorkshopVisibility>()"></select></label>
+                        <label><span>Tags</span><input asp-for="Form.Tags" placeholder="Mod, Build 42" /></label>
+                        <label><span>Image personnalisée</span><input asp-for="Form.PreviewImagePath" placeholder="Chemin .png ou .jpg — aperçu généré si vide" /></label>
+                    </div>
+                </section>
+
+                <section class="setting-card wide">
+                    <div class="panel-heading"><div><span class="eyebrow">APERÇU PUBLIC</span><h3>Description Workshop générée</h3></div><span class="count-pill">@enabledMods sources</span></div>
+                    <pre class="description-preview">@Model.WorkshopDescription</pre>
+                </section>
+            </div>
+        </section>
+
+        <section class="workspace-panel" data-tab-panel="automation" role="tabpanel">
+            <div class="panel-heading"><div><span class="eyebrow">AUTOMATISATION CONTRÔLÉE</span><h2>Fenêtres de maintenance</h2><p>La planification reste désactivée tant que vous ne l’activez pas explicitement.</p></div></div>
+            <div class="form-section-grid">
+                <section class="setting-card">
+                    <div class="setting-heading"><span class="step-number">01</span><div><h3>Horaires</h3><p>Une ou plusieurs heures locales au format HH:mm.</p></div></div>
+                    <label><span>Heures quotidiennes</span><input asp-for="Form.DailyTimes" placeholder="04:00, 16:00" /></label>
+                    <label class="switch-row"><input asp-for="Form.AutomationEnabled" /><span><strong>Activer la planification</strong><small>Le service doit rester lancé pour exécuter les horaires.</small></span></label>
+                </section>
+                <section class="setting-card">
+                    <div class="setting-heading"><span class="step-number">02</span><div><h3>Serveur coordonné</h3><p>Évite qu’une ancienne version reste chargée en mémoire.</p></div></div>
+                    <label><span>Profil serveur</span><input asp-for="Form.CoordinatedServerName" list="server-config-names" placeholder="servertest" /></label>
+                    <datalist id="server-config-names">@foreach (var serverName in Model.ServerConfigNames) { <option value="@serverName"></option> }</datalist>
+                </section>
+                <section class="setting-card wide">
+                    <div class="setting-heading"><span class="step-number">03</span><div><h3>Pipeline programmé</h3><p>Choisissez précisément ce qui se produit pendant la fenêtre.</p></div></div>
+                    <div class="choice-grid three">
+                        <label class="switch-row"><input asp-for="Form.RefreshSources" /><span><strong>Actualiser</strong><small>Télécharger les sources Workshop avant le build.</small></span></label>
+                        <label class="switch-row"><input asp-for="Form.PublishAfterBuild" /><span><strong>Publier</strong><small>Mettre à jour le même item après validation.</small></span></label>
+                        <div class="info-callout"><strong>Redémarrage coordonné</strong><p>Si le serveur est actif : save, quit, publication, puis redémarrage.</p></div>
+                    </div>
+                </section>
+            </div>
+        </section>
+
+        <section class="workspace-panel" data-tab-panel="expert" role="tabpanel">
+            <div class="panel-heading"><div><span class="eyebrow">VALEURS EXACTES</span><h2>Mode expert</h2><p>Ces champs restent disponibles pour les versions et environnements particuliers.</p></div></div>
+            <div class="form-section-grid">
+                <section class="setting-card">
+                    <div class="setting-heading"><span class="step-number">01</span><div><h3>Compatibilité</h3><p>Sélection des dossiers versionnés présents dans les mods.</p></div></div>
+                    <label><span>Version PZ cible</span><input asp-for="Form.TargetPzVersion" /><small>Exemple : 42.20.2. Le sélecteur choisit le dossier compatible le plus récent sans dépasser cette version.</small></label>
+                </section>
+                <section class="setting-card">
+                    <div class="setting-heading"><span class="step-number">02</span><div><h3>Identifiants stables</h3><p>Valeurs en lecture seule utilisées dans les builds.</p></div></div>
+                    <dl class="technical-values"><dt>Suffixe</dt><dd>@Model.Project.StableSuffix</dd><dt>Notice Mod ID</dt><dd>@Model.Project.NoticeModId</dd><dt>Fusion Mod ID</dt><dd>@Model.Project.FusionModId</dd></dl>
+                </section>
+                <section class="setting-card wide">
+                    <div class="warning-callout"><strong>Les snapshots restent la source du build</strong><p>Changer un chemin ici ne modifie jamais les sources Steam. Utilisez l’actualisation explicite pour remplacer les versions figées.</p></div>
+                    <dl class="technical-values"><dt>Projet</dt><dd>@Model.Project.Id</dd><dt>Créé</dt><dd>@Model.Project.CreatedAt.LocalDateTime</dd><dt>Dernier build</dt><dd>@(Model.Project.LastBuiltAt?.LocalDateTime.ToString() ?? "Jamais")</dd><dt>Dernière publication</dt><dd>@(Model.Project.LastPublishedAt?.LocalDateTime.ToString() ?? "Jamais")</dd></dl>
+                </section>
+            </div>
+        </section>
+
+        <div class="workspace-savebar"><span><strong>Modifications du pack</strong><small>L’identifiant stable et le Workshop ID existant sont conservés.</small></span><button class="button primary" type="submit">Enregistrer les réglages</button></div>
+    </form>
+
+    <section class="workspace-panel" data-tab-panel="mods" role="tabpanel">
+        <div class="panel-heading">
+            <div><span class="eyebrow">SOURCES FIGÉES</span><h2>Mods, dépendances et autorisations</h2><p>Chaque source est copiée dans un snapshot privé avant d’entrer dans un build.</p></div>
+            <div class="action-row"><a class="button ghost" href="https://steamcommunity.com/workshop/browse/?appid=108600" target="_blank" rel="noreferrer">Parcourir le Workshop ↗</a><a class="button ghost" asp-page="/Projects/Edit" asp-route-id="@Model.Project.Id" asp-route-refresh="true">Relancer la détection</a></div>
+        </div>
+
+        <div class="mod-add-grid">
+            <form method="post" asp-page-handler="ImportWorkshop" class="setting-card add-source-card" data-loading-title="Import de l’item Workshop…" data-loading-detail="Téléchargement SteamCMD, analyse des mod.info et création des snapshots figés.">
+                <span class="eyebrow">PAR WORKSHOP ID</span><h3>Télécharger et figer</h3><p>Importe tous les Mod IDs compatibles contenus dans un item.</p>
+                <div class="add-mod-row"><input name="workshopId" type="number" min="1" required placeholder="Workshop ID" /><button class="button secondary" type="submit">Importer</button></div>
+            </form>
+            <form method="post" asp-page-handler="AddMod" class="setting-card add-source-card" data-loading-title="Ajout du mod au pack…" data-loading-detail="Copie de la source dans un snapshot privé et ajout des dépendances disponibles.">
+                <span class="eyebrow">DEPUIS LE DISQUE</span><h3>Ajouter une source détectée</h3><p>Sélectionnez un mod local ou déjà téléchargé par Steam.</p>
+                <input class="mod-filter" type="search" data-mod-filter placeholder="Filtrer par nom, Mod ID ou Workshop ID…" autocomplete="off" />
+                <div class="add-mod-row"><select name="selectionKey" required data-mod-select><option value="">Choisir parmi @Model.InstalledMods.Count mods détectés…</option>@foreach (var mod in Model.InstalledMods.Where(x => !selectedIds.Contains(x.ModId))) { <option value="@EditModel.SelectionKey(mod)">@mod.Name — @mod.ModId — @(mod.WorkshopId == 0 ? "local" : $"Workshop {mod.WorkshopId}")</option> }</select><button class="button primary" type="submit">Ajouter</button></div>
+            </form>
+        </div>
+
+        @if (Model.Project.Mods.Count == 0)
+        {
+            <div class="empty-state compact"><h3>Le pack est vide</h3><p>Ajoutez des mods. En mode Bundle, leurs dossiers et Mod IDs sont préservés sans fusionner leurs répertoires <code>media</code>.</p></div>
+        }
+        else
+        {
+            <div class="mod-list">
+            @foreach (var mod in Model.Project.Mods.OrderBy(x => x.Order))
+            {
+                <details class="mod-card" open="@(mod.Permission.Status == PermissionStatus.Unknown)">
+                    <summary>
+                        <span class="order-number">@(mod.Order + 1)</span>
+                        <span><strong>@mod.Name</strong><small>Mod ID @mod.ModId · @(mod.WorkshopId == 0 ? "source locale" : $"Workshop {mod.WorkshopId}") · @(string.IsNullOrWhiteSpace(mod.SelectedVersionFolder) ? "racine" : mod.SelectedVersionFolder)</small></span>
+                        @if (Directory.Exists(mod.PinnedSourceRoot)) { <span class="snapshot-badge">FIGÉ</span> }
+                        <span class="rights-badge @mod.Permission.Status.ToString().ToLowerInvariant()">@mod.Permission.Status</span>
+                    </summary>
+                    <div class="mod-details">
+                        <div class="mod-metadata"><div><span>Origine</span><strong>@mod.SourceModRoot</strong></div><div><span>Snapshot</span><strong>@(Directory.Exists(mod.PinnedSourceRoot) ? $"{mod.PinnedAt?.LocalDateTime:dd/MM/yyyy HH:mm} · {mod.PinnedContentHash[..Math.Min(12, mod.PinnedContentHash.Length)]}…" : "En attente")</strong></div>@if (mod.RequiredModIds.Length > 0) { <div><span>Dépendances</span><strong>@string.Join(", ", mod.RequiredModIds)</strong></div> }@if (mod.MapFolders.Length > 0) { <div><span>Cartes</span><strong>@string.Join(", ", mod.MapFolders)</strong></div> }</div>
+                        @if (!string.IsNullOrWhiteSpace(mod.SourceUrl)) { <a href="@mod.SourceUrl" target="_blank" rel="noreferrer">Voir la source originale sur Steam ↗</a> }
+                        <form method="post" asp-page-handler="UpdateMod" class="rights-form" data-loading-title="Enregistrement des droits…" data-loading-detail="Mise à jour des informations d’auteur, de licence et des preuves associées.">
+                            <input type="hidden" name="modReferenceId" value="@mod.Id" />
+                            <div class="form-grid two">
+                                <label><span>Statut de l’autorisation</span><select name="permissionStatus">@foreach (var status in Enum.GetValues<PermissionStatus>()) { if (status == mod.Permission.Status) { <option value="@status" selected>@status</option> } else { <option value="@status">@status</option> } }</select></label>
+                                <label><span>Auteur / détenteur</span><input name="rightsHolder" value="@mod.Permission.RightsHolder" placeholder="@mod.Author" /></label>
+                                <label><span>Preuve publique / licence</span><input name="publicEvidenceUrl" value="@mod.Permission.PublicEvidenceUrl" placeholder="https://…" /></label>
+                                <label><span>Pièce privée locale</span><input name="privateAttachmentPath" value="@mod.Permission.PrivateAttachmentPath" placeholder="Capture ou email exporté — jamais publié" /></label>
+                                <label class="full"><span>Notes et conditions reçues</span><textarea name="permissionNotes" rows="2">@mod.Permission.Notes</textarea></label>
+                            </div>
+                            <div class="mod-footer-actions"><button class="button secondary" type="submit">Enregistrer les droits</button></div>
+                        </form>
+                        <div class="mod-actions">
+                            <form method="post" asp-page-handler="Move" data-loading-title="Mise à jour de l’ordre…"><input type="hidden" name="modReferenceId" value="@mod.Id" /><input type="hidden" name="direction" value="-1" /><button class="icon-button" title="Monter" type="submit">↑</button></form>
+                            <form method="post" asp-page-handler="Move" data-loading-title="Mise à jour de l’ordre…"><input type="hidden" name="modReferenceId" value="@mod.Id" /><input type="hidden" name="direction" value="1" /><button class="icon-button" title="Descendre" type="submit">↓</button></form>
+                            <form method="post" asp-page-handler="RemoveMod" data-loading-title="Retrait du mod…" data-loading-detail="Mise à jour du projet et suppression de son snapshot privé uniquement." onsubmit="return confirm('Retirer ce mod du projet ? Les fichiers source resteront intacts.');"><input type="hidden" name="modReferenceId" value="@mod.Id" /><button class="button danger" type="submit">Retirer</button></form>
+                        </div>
+                    </div>
+                </details>
+            }
+            </div>
+        }
+    </section>
+</div>
+
+<template data-map-manual-template>
+    <article class="map-order-item is-manual" draggable="true" data-map-item data-map-name="">
+        <button class="drag-handle" type="button" aria-label="Glisser l’entrée">⋮⋮</button><span class="map-rank" data-map-rank></span>
+        <div class="map-order-copy"><div class="map-title-row"><strong data-map-manual-name></strong><span class="priority-badge manual">MANUEL</span></div><small>Entrée brute conservée</small><p>Cette carte n’a pas été détectée dans les snapshots actuels.</p></div>
+        <div class="map-order-actions"><button class="icon-button" type="button" data-map-up title="Monter">↑</button><button class="icon-button" type="button" data-map-down title="Descendre">↓</button></div>
+    </article>
+</template>

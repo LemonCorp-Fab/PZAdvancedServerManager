@@ -28,13 +28,17 @@ Mods=ModIdA;ModIdB;ModIdC;PZASM_Notice_SUFFIX
 - 可重新打开的独立项目，每个项目拥有自己的 GUID 和 Workshop ID；
 - 通过私有 SHA-256 快照精确固定来源版本；
 - 按 Workshop ID 导入，并加入可用的 `require=` 依赖；
+- 在 Windows 和 Linux 上从 Valve 一键安装便携式 SteamCMD，也可运行 `pzasm steamcmd install`；
+- 匿名下载公开的 Workshop 来源内容，并与发布所用的认证账号分离；
 - Bundle 不重写 manifest、Lua、脚本、地图或资源；
 - Strict Fusion 对相同文件去重，并报告冲突；
 - 完整生成 Workshop 描述、公开清单和锁定文件；
 - 记录作者、许可证、授权和不会公开的私有证明；
 - 默认启用、可关闭的连接提示窗口；
 - 创建 Workshop 条目并持续更新同一条目；
-- 带备份和编码保留的服务器配置编辑器；
+- 现代化标签式项目工作区，提供引导设置和精确值专家控件；
+- 地图优先级助手会分析 `map.info`、`lots=` 依赖和 `.lotheader` 单元格冲突，并支持拖放与原始 `Map=` 编辑；
+- 服务器引导编辑器覆盖身份、访问、RCON、会话、备份和内容，同时保留完整 INI 原始编辑器；
 - 通过 RCON 执行 `save`/`quit` 并协调重启；
 - Windows/Linux 本地 UI 与无界面 CLI；
 - 带跨进程锁的 `automation run` 守护进程。
@@ -53,6 +57,7 @@ chmod +x Start-PZASM.sh
 ```
 
 UI 默认仅监听本机的 `http://localhost:5160`。使用 `--data-root <路径>` 可让 UI 与 CLI 共用指定数据目录。
+可从仪表板或“分发”标签安装 SteamCMD。公开的 Project Zomboid 来源默认匿名下载；只有发布操作需要发布者账号。
 
 ## 推荐流程
 
@@ -61,13 +66,14 @@ UI 默认仅监听本机的 `http://localhost:5160`。使用 `--data-root <路�
 3. 为每个来源记录作者和授权信息。
 4. 检查模组与地图顺序。
 5. 本地构建并检查 `pack.lock.json` 和 `server-config.txt`。
-6. 配置 SteamCMD，并先以私有可见性发布。
+6. 一键安装 SteamCMD，配置发布者账号，并先以私有可见性发布。
 7. 在投入生产前使用测试服务器验证。
 
 ## 无界面 CLI
 
 ```bash
 dotnet run --project src/PZAdvancedServerManager.Cli -- scan
+dotnet run --project src/PZAdvancedServerManager.Cli -- steamcmd install
 dotnet run --project src/PZAdvancedServerManager.Cli -- project create --name "主服务器"
 dotnet run --project src/PZAdvancedServerManager.Cli -- project import-workshop --id <guid> --workshop-id 1234567890
 dotnet run --project src/PZAdvancedServerManager.Cli -- project validate --id <guid>

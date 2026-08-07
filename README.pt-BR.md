@@ -28,13 +28,17 @@ Leia o [estudo completo de arquitetura](docs/ARCHITECTURE.pt-BR.md).
 - projetos independentes e reabertos posteriormente, cada um com GUID e Workshop ID próprios;
 - snapshots privados SHA-256 para fixar exatamente as versões de origem;
 - importação por Workshop ID e inclusão das dependências `require=` disponíveis;
+- instalação portátil do SteamCMD em um clique diretamente da Valve no Windows e Linux, também com `pzasm steamcmd install`;
+- downloads anônimos de fontes públicas do Workshop, separados da conta autenticada de publicação;
 - Bundle sem reescrever manifests, Lua, scripts, mapas ou assets;
 - Strict Fusion com desduplicação de arquivos idênticos e relatório de conflitos;
 - descrição do Workshop, manifesto público e lockfile completos;
 - registro de autores, licenças, permissões e provas privadas não publicadas;
 - janela de conexão opcional, ativada por padrão;
 - criação e atualizações posteriores do mesmo item Workshop;
-- editor de perfis de servidor com backups e preservação de codificação;
+- espaço de projeto moderno com abas, configurações guiadas e controles avançados de valores exatos;
+- assistente de prioridade de mapas baseado em `map.info`, dependências `lots=`, conflitos de células `.lotheader`, arrastar e soltar e edição bruta de `Map=`;
+- editor guiado do servidor para identidade, acesso, RCON, sessão, backups e conteúdo, além do editor INI completo;
 - encerramento RCON com `save`/`quit` e reinício coordenado;
 - UI local e CLI headless para Windows e Linux;
 - daemon `automation run` com bloqueios entre processos.
@@ -53,6 +57,7 @@ chmod +x Start-PZASM.sh
 ```
 
 A UI escuta localmente em `http://localhost:5160`. Use `--data-root <caminho>` para compartilhar o diretório de dados entre a UI e o CLI.
+O SteamCMD pode ser instalado pelo painel ou pela aba Distribuição. Fontes públicas do Project Zomboid são baixadas anonimamente por padrão; somente a publicação exige a conta editora.
 
 ## Fluxo recomendado
 
@@ -61,13 +66,14 @@ A UI escuta localmente em `http://localhost:5160`. Use `--data-root <caminho>` p
 3. Registre autor e autorização de cada origem.
 4. Revise a ordem dos mods e mapas.
 5. Construa e examine `pack.lock.json` e `server-config.txt`.
-6. Configure o SteamCMD e publique primeiro como privado.
+6. Instale o SteamCMD em um clique, configure a conta editora e publique primeiro como privado.
 7. Teste em um servidor de staging antes da produção.
 
 ## CLI headless
 
 ```bash
 dotnet run --project src/PZAdvancedServerManager.Cli -- scan
+dotnet run --project src/PZAdvancedServerManager.Cli -- steamcmd install
 dotnet run --project src/PZAdvancedServerManager.Cli -- project create --name "Servidor principal"
 dotnet run --project src/PZAdvancedServerManager.Cli -- project import-workshop --id <guid> --workshop-id 1234567890
 dotnet run --project src/PZAdvancedServerManager.Cli -- project validate --id <guid>

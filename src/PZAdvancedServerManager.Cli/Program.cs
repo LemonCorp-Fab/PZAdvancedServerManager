@@ -27,6 +27,7 @@ internal sealed class PzasmCli
                 "projects" => ListProjects(services.Store, parsed),
                 "project" => await ProjectAsync(args, parsed, services),
                 "server" => await ServerAsync(args, parsed, services),
+                "steamcmd" => await SteamCmdAsync(args, parsed, services),
                 "automation" => await AutomationAsync(args, parsed, services),
                 _ => Fail($"Commande inconnue : {args[0]}")
             };
@@ -71,7 +72,7 @@ internal sealed class PzasmCli
 
     private static async Task<int> ProjectAsync(string[] raw, CliArguments args, CliServices services)
     {
-        if (raw.Length < 2) return Fail("Sous-commande requise : create, show, duplicate, delete, add, import-workshop, remove, rights, configure, refresh, validate, build ou publish.");
+        if (raw.Length < 2) return Fail("Sous-commande requise : create, show, duplicate, delete, add, import-workshop, remove, rights, configure, maps, refresh, validate, build ou publish.");
         var action = raw[1].ToLowerInvariant();
         if (action == "create")
         {
@@ -143,6 +144,18 @@ internal sealed class PzasmCli
                 services.Store.Save(current);
                 Console.WriteLine("Projet configuré.");
                 return 0;
+            case "maps":
+                {
+                    var analysis = services.MapPriority.Analyze(current);
+                    if (args.Has("apply-recommended"))
+                    {
+                        if (!args.Has("yes")) return Fail("Ordre non modifié. Ajoutez --yes avec --apply-recommended pour enregistrer la recommandation.", 3);
+                        current.MapOrder = analysis.RecommendedOrder.ToList();
+                        services.Store.Save(current);
+                    }
+                    WriteJson(analysis);
+                    return 0;
+                }
             case "refresh":
                 {
                     var refresh = await services.Lifecycle.RefreshSourcesAsync(current);
@@ -275,6 +288,38 @@ internal sealed class PzasmCli
         return 0;
     }
 
+    private static async Task<int> SteamCmdAsync(string[] raw, CliArguments args, CliServices services)
+    {
+        if (raw.Length < 2) return Fail("Sous-commande requise : status ou install.");
+        switch (raw[1].ToLowerInvariant())
+        {
+            case "status":
+                var status = services.SteamCmdInstaller.GetStatus();
+                if (args.Has("json")) WriteJson(status);
+                else Console.WriteLine(status.Installed ? $"SteamCMD prêt : {status.ExecutablePath}" : $"SteamCMD non installé. Emplacement prévu : {status.ExecutablePath}");
+                return status.Installed ? 0 : 4;
+            case "install":
+                var result = await services.SteamCmdInstaller.InstallAsync();
+                if (args.Get("id") is { } projectId)
+                {
+                    if (!Guid.TryParse(projectId, out var parsedId)) throw new ArgumentException("--id doit être un GUID de projet.");
+                    var project = services.Store.Get(parsedId) ?? throw new InvalidOperationException("Projet PZASM introuvable.");
+                    project.Automation.SteamCmdPath = result.ExecutablePath;
+                    services.Store.Save(project);
+                }
+                if (args.Has("json")) WriteJson(result);
+                else
+                {
+                    Console.WriteLine($"SteamCMD installé : {result.ExecutablePath}");
+                    Console.WriteLine(result.Bootstrapped ? "Initialisation terminée." : "L'extraction a réussi, mais l'initialisation doit être vérifiée.");
+                    if (!string.IsNullOrWhiteSpace(result.Output)) Console.WriteLine(result.Output);
+                }
+                return result.Bootstrapped ? 0 : 2;
+            default:
+                return Fail($"Sous-commande steamcmd inconnue : {raw[1]}");
+        }
+    }
+
     private static void Configure(PackageProject project, CliArguments args)
     {
         if (args.Get("name") is { } name) project.Name = name;
@@ -284,6 +329,7 @@ internal sealed class PzasmCli
         if (args.GetUlong("workshop-id") is { } workshopId) project.PublishedWorkshopId = workshopId;
         if (args.Get("steamcmd") is { } steamCmd) project.Automation.SteamCmdPath = steamCmd;
         if (args.Get("steam-user") is { } user) project.Automation.SteamUsername = user;
+        if (args.Get("anonymous-downloads") is { } anonymousDownloads) project.Automation.AnonymousWorkshopDownloads = bool.Parse(anonymousDownloads);
         if (args.Get("server") is { } server) project.Automation.CoordinatedServerName = server;
         if (args.Get("automation") is { } automation) project.Automation.Enabled = bool.Parse(automation);
         if (args.Get("schedule") is { } schedule) project.Automation.DailyTimes = schedule.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -340,6 +386,7 @@ Chaque projet représente un pack global indépendant avec son propre Workshop I
   pzasm project remove --id <guid> --mod-id <id>
   pzasm project rights --id <guid> --mod-id <id> --status <Unknown|AuthorOwned|ExplicitPermission|CompatibleLicense|Denied> [--evidence-url <url>] [--private-proof <path>] [--notes <texte>]
   pzasm project configure --id <guid> [--description <texte>] [--workshop-id <id>] [--steamcmd <path>] [--steam-user <nom>] [--server <profil>] [--automation true] [--schedule 04:00,16:00] [--accept-legal]
+  pzasm project maps --id <guid> [--apply-recommended --yes]
   pzasm project refresh --id <guid>
   pzasm project validate --id <guid>
   pzasm project build --id <guid>
@@ -352,6 +399,8 @@ Chaque projet représente un pack global indépendant avec son propre Workshop I
   pzasm server start --name <profil>
   pzasm server stop --name <profil> --yes
   pzasm server apply --name <profil> --id <guid> --yes
+  pzasm steamcmd status [--json]
+  pzasm steamcmd install [--id <guid>] [--json]
   pzasm automation once
   pzasm automation execute --id <guid>
   pzasm automation run [--interval 30]
@@ -393,7 +442,7 @@ internal sealed class CliServices
     {
         Paths = paths;
         Store = new PackageProjectStore(paths);
-        var discovery = new PzDiscoveryService();
+        var discovery = new PzDiscoveryService(paths);
         Environment = new PzEnvironmentService(discovery);
         Validator = new PackageValidator();
         var snapshots = new PackageSourceSnapshotService(paths);
@@ -402,9 +451,11 @@ internal sealed class CliServices
         Servers = new ServerProfileService(paths, Environment, orchestration);
         var builder = new PackageBuildService(paths, Validator);
         var steamCmd = new SteamCmdService(Validator);
+        MapPriority = new MapPriorityService();
         Lifecycle = new PackageLifecycleService(paths, Store, snapshots, builder, steamCmd, Servers);
         Automation = new PackageAutomationService(paths, Store, Lifecycle);
         WorkshopImport = new WorkshopImportService(steamCmd, discovery, Environment, Projects);
+        SteamCmdInstaller = new SteamCmdInstaller(paths);
     }
 
     public ApplicationPaths Paths { get; }
@@ -415,5 +466,7 @@ internal sealed class CliServices
     public PackageLifecycleService Lifecycle { get; }
     public PackageAutomationService Automation { get; }
     public WorkshopImportService WorkshopImport { get; }
+    public SteamCmdInstaller SteamCmdInstaller { get; }
+    public MapPriorityService MapPriority { get; }
     public ServerProfileService Servers { get; }
 }

@@ -68,6 +68,7 @@ public sealed class PackageAutomationSettings
     public string[] DailyTimes { get; set; } = [];
     public string SteamCmdPath { get; set; } = string.Empty;
     public string SteamUsername { get; set; } = string.Empty;
+    public bool AnonymousWorkshopDownloads { get; set; } = true;
     public bool RefreshWorkshopSourcesBeforeBuild { get; set; } = true;
     public bool PublishAfterBuild { get; set; } = true;
     public string CoordinatedServerName { get; set; } = string.Empty;

@@ -1,10 +1,11 @@
 using System.Text.RegularExpressions;
 using Microsoft.Win32;
 using PZAdvancedServerManager.Core.Domain;
+using PZAdvancedServerManager.Core.Infrastructure;
 
 namespace PZAdvancedServerManager.Core.Pz;
 
-public sealed partial class PzDiscoveryService
+public sealed partial class PzDiscoveryService(ApplicationPaths paths)
 {
     public PzInstallation DiscoverInstallation()
     {
@@ -12,7 +13,7 @@ public sealed partial class PzDiscoveryService
         var client = FindFirstExisting(steamLibraries.Select(x => Path.Combine(x, "steamapps", "common", "ProjectZomboid")));
         var dedicated = FindFirstExisting(steamLibraries.Select(x => Path.Combine(x, "steamapps", "common", "Project Zomboid Dedicated Server")));
         var workshop = FindFirstExisting(steamLibraries.Select(x => Path.Combine(x, "steamapps", "workshop", "content", PzasmConstants.ProjectZomboidSteamAppId)));
-        var steamCmd = FindFirstExisting(steamLibraries.SelectMany(x => new[]
+        var steamCmdCandidates = new[] { paths.SteamCmdExecutable }.Concat(steamLibraries.SelectMany(x => new[]
         {
             Path.Combine(x, "steamcmd", "steamcmd.exe"),
             Path.Combine(x, "steamapps", "common", "SteamCMD", "steamcmd.exe"),
@@ -20,6 +21,7 @@ public sealed partial class PzDiscoveryService
             Path.Combine(x, "steamcmd", "steamcmd.sh"),
             Path.Combine(x, "steamapps", "common", "SteamCMD", "steamcmd.sh")
         }));
+        var steamCmd = FindFirstExisting(steamCmdCandidates);
 
         return new PzInstallation
         {

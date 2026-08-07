@@ -29,6 +29,8 @@ See the complete [architecture and feasibility study](docs/ARCHITECTURE.md).
 - private SHA-256 source snapshots created when a mod is added, preventing a local Steam update from silently changing a future build;
 - explicit snapshot refresh, kept separate from build and publish operations;
 - direct Workshop ID import through SteamCMD, including every compatible `mod.info` and available dependency;
+- one-click portable SteamCMD installation from Valve on Windows and Linux, also available as `pzasm steamcmd install`;
+- anonymous Workshop source downloads for public server content, kept separate from the authenticated publisher account;
 - project duplication and local deletion without changing source mods or deleting Workshop items;
 - automatic addition of available `require=` dependencies and validation errors for missing dependencies;
 - Bundle builds that preserve original folders, manifests, Mod IDs, Lua, scripts, maps, and assets;
@@ -39,7 +41,9 @@ See the complete [architecture and feasibility study](docs/ARCHITECTURE.md).
 - generation of `workshop.txt`, `steamcmd-item.vdf`, `server-config.txt`, preview PNG, public manifest, and SHA-256 `pack.lock.json`;
 - creation and update of the same Workshop item, with the SteamCMD-written `publishedfileid` saved back into the project;
 - optional daily refresh, build, and publication schedules;
-- full `Zomboid/Server/*.ini` editor with encoding preservation and timestamped backups;
+- modern tabbed project workspace with guided settings and exact-value expert controls;
+- map-priority assistant using `map.info`, `lots=` dependencies, `.lotheader` cell conflicts, drag-and-drop ordering, and a raw `Map=` fallback;
+- guided `Zomboid/Server/*.ini` editor for identity, access, RCON, gameplay, backups, and content, plus the complete raw editor with encoding preservation;
 - safe pack application that only replaces `WorkshopItems`, `Mods`, and `Map`;
 - RCON status, `save`, `quit`, Windows/Linux startup, and coordinated restart around scheduled publication;
 - Windows/Linux CLI for desktop-free and SSH-managed hosts;
@@ -47,7 +51,7 @@ See the complete [architecture and feasibility study](docs/ARCHITECTURE.md).
 
 ## Getting started
 
-Building from source requires Windows or Linux and the [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0). Self-contained CI artifacts do not require the .NET runtime. SteamCMD is required only for source refresh and publication.
+Building from source requires Windows or Linux and the [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0). Self-contained CI artifacts do not require the .NET runtime. SteamCMD can be installed from the dashboard, a project’s Distribution tab, or the CLI. Public source items are downloaded anonymously by default; publishing still requires the owner account.
 
 On Windows, run `Start-PZASM.cmd`, or:
 
@@ -74,7 +78,7 @@ PZASM never modifies Steam sources during a build. It builds from private pinned
 4. Record the author and permission or license evidence for every source.
 5. Review mod and map order.
 6. Build locally and inspect `pack.lock.json` and `server-config.txt`.
-7. Configure SteamCMD, authenticate manually once, and publish with private visibility.
+7. Install SteamCMD in one click, configure the publisher account, authenticate manually once, and publish with private visibility.
 8. Test on a staging server.
 9. Apply the pack from the Servers page; PZASM backs up the `.ini` first.
 
@@ -85,6 +89,7 @@ The CLI uses the same projects as the UI. Every `project create` command creates
 ```bash
 # Local inventory
 dotnet run --project src/PZAdvancedServerManager.Cli -- scan
+dotnet run --project src/PZAdvancedServerManager.Cli -- steamcmd install
 
 # Create and populate a pack
 dotnet run --project src/PZAdvancedServerManager.Cli -- project create --name "Primary server"
@@ -150,7 +155,9 @@ The project targets .NET 9 and requires no database. JSON writes are atomic, and
 
 ## Known limitations
 
-- SteamCMD relies on the Steam account session; PZASM never stores passwords or Steam Guard codes.
+- Public Project Zomboid Workshop sources support anonymous SteamCMD downloads; restricted or private items can still require an authenticated account.
+- Workshop publication relies on the Steam account session; PZASM never stores passwords or Steam Guard codes.
+- Linux SteamCMD may require the distribution's 32-bit runtime libraries; the installer reports bootstrap errors without hiding the extracted tool.
 - A new item can remain hidden until the Workshop legal agreement is accepted.
 - A source update can change dependencies, Mod IDs, maps, or licensing and may be blocked during validation.
 - Strict Fusion does not rewrite Lua namespaces, script IDs, textures, models, vehicles, or maps.

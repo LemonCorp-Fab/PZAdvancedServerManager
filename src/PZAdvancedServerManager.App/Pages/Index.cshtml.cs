@@ -3,20 +3,23 @@ using Microsoft.AspNetCore.Mvc;
 using PZAdvancedServerManager.Core.Domain;
 using PZAdvancedServerManager.Core.Infrastructure;
 using PZAdvancedServerManager.Core.Packaging;
+using PZAdvancedServerManager.Core.Publishing;
 using PZAdvancedServerManager.Core.Pz;
 
 namespace PZAdvancedServerManager.App.Pages;
 
-public class IndexModel(PackageProjectStore store, PackageProjectService projects, PzEnvironmentService environment, ApplicationPaths paths) : PageModel
+public class IndexModel(PackageProjectStore store, PackageProjectService projects, PzEnvironmentService environment, ApplicationPaths paths, SteamCmdInstaller steamCmdInstaller) : PageModel
 {
     public IReadOnlyList<PackageProject> Projects { get; private set; } = [];
     public PzInstallation Installation { get; private set; } = new();
     public string DataRoot => paths.DataRoot;
+    public SteamCmdStatus SteamCmdStatus { get; private set; } = new(false, string.Empty, string.Empty, null, 0);
 
     public void OnGet()
     {
         Projects = store.GetAll();
         Installation = environment.Installation;
+        SteamCmdStatus = steamCmdInstaller.GetStatus();
     }
 
     public IActionResult OnPostCreate(string name)
@@ -43,6 +46,20 @@ public class IndexModel(PackageProjectStore store, PackageProjectService project
     {
         environment.Invalidate();
         TempData["Message"] = "Détection locale actualisée.";
+        return RedirectToPage();
+    }
+
+    public async Task<IActionResult> OnPostInstallSteamCmdAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await steamCmdInstaller.InstallAsync(cancellationToken);
+            environment.Invalidate();
+            TempData[result.Bootstrapped ? "Message" : "Error"] = result.Bootstrapped
+                ? $"SteamCMD installé et prêt : {result.ExecutablePath}"
+                : $"SteamCMD extrait, mais son initialisation a échoué : {result.Output}";
+        }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
         return RedirectToPage();
     }
 }

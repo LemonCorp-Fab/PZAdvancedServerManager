@@ -8,22 +8,23 @@
 @if (TempData["Message"] is string message) { <div class="toast-message">@message</div> }
 @if (TempData["Error"] is string error) { <div class="error-message">@error</div> }
 
-<section class="project-hero">
-    <div><span class="eyebrow">SERVEURS PROJECT ZOMBOID</span><h1>Configurations locales</h1><p>Édition complète des fichiers <code>Zomboid/Server/*.ini</code>, avec sauvegarde automatique avant chaque écriture.</p></div>
+<section class="project-hero workspace-hero">
+    <div class="workspace-title"><span class="eyebrow">SERVEURS PROJECT ZOMBOID</span><h1>Configurations locales</h1><p>Une interface guidée pour les réglages courants, avec l’éditeur INI brut toujours disponible.</p></div>
+    <div class="project-kpis"><span><strong>@Model.Configs.Count</strong> profils</span><span><strong>@Model.Projects.Count</strong> packs</span><span><strong>INI</strong> sauvegardé avant écriture</span></div>
 </section>
 
 <div class="server-layout">
     <aside class="panel server-sidebar">
-        <span class="eyebrow">PROFILS DÉTECTÉS</span>
+        <div class="sidebar-heading"><span class="eyebrow">PROFILS DÉTECTÉS</span><span class="count-pill">@Model.Configs.Count</span></div>
         <nav>
             @foreach (var config in Model.Configs)
             {
                 <a class="@(Model.Selected?.Name == config.Name ? "active" : "")" asp-route-name="@config.Name"><strong>@config.Name</strong><small>@config.Path</small></a>
             }
         </nav>
-        <form method="post" asp-page-handler="Create" class="stack-form" data-loading-title="Création du profil serveur…" data-loading-detail="Génération d’une configuration sûre avec les paramètres de base et RCON.">
+        <form method="post" asp-page-handler="Create" class="stack-form create-server-form" data-loading-title="Création du profil serveur…" data-loading-detail="Génération d’une configuration sûre avec les paramètres de base et RCON.">
             <label><span>Nouveau profil</span><input name="serverName" required placeholder="monserveur" /></label>
-            <button class="button secondary" type="submit">Créer</button>
+            <button class="button secondary" type="submit">Créer le profil</button>
         </form>
     </aside>
 
@@ -34,38 +35,90 @@
     }
     else
     {
-        <section class="panel">
-            <div class="panel-heading"><div><span class="eyebrow">@Model.Selected.Name</span><h2>Résumé des listes PZ</h2></div><span class="server-status @(Model.SelectedServerOnline ? "online" : "offline")">@(Model.SelectedServerOnline ? "EN LIGNE" : "ARRÊTÉ / RCON INDISPONIBLE")</span></div>
+        <section class="panel server-command-center">
+            <div class="panel-heading">
+                <div><span class="eyebrow">@Model.Selected.Name</span><h2>Centre de contrôle</h2><p>@Model.Selected.Path</p></div>
+                <span class="server-status @(Model.SelectedServerOnline ? "online" : "offline")">@(Model.SelectedServerOnline ? "EN LIGNE" : "ARRÊTÉ / RCON INDISPONIBLE")</span>
+            </div>
             <div class="summary-columns">
-                <div><strong>Workshop items</strong><span>@Model.WorkshopItems.Count</span><p>@string.Join(" · ", Model.WorkshopItems.Take(8))</p></div>
-                <div><strong>Mod IDs</strong><span>@Model.Mods.Count</span><p>@string.Join(" · ", Model.Mods.Take(8))</p></div>
-                <div><strong>Cartes</strong><span>@Model.Maps.Count</span><p>@string.Join(" · ", Model.Maps.Take(8))</p></div>
+                <div><strong>Workshop items</strong><span>@Model.WorkshopItems.Count</span><p>@string.Join(" · ", Model.WorkshopItems.Take(6))</p></div>
+                <div><strong>Mod IDs</strong><span>@Model.Mods.Count</span><p>@string.Join(" · ", Model.Mods.Take(6))</p></div>
+                <div><strong>Cartes</strong><span>@Model.Maps.Count</span><p>@string.Join(" · ", Model.Maps.Take(6))</p></div>
             </div>
-            <div class="action-row server-controls">
-                <form method="post" asp-page-handler="Start" asp-route-name="@Model.Selected.Name" data-loading-title="Démarrage du serveur…" data-loading-detail="Lancement du serveur dédié avec ce profil. Le statut RCON sera disponible après son initialisation."><button class="button primary" type="submit" disabled="@Model.SelectedServerOnline">Démarrer le serveur</button></form>
-                <form method="post" asp-page-handler="Stop" asp-route-name="@Model.Selected.Name" data-loading-title="Arrêt propre du serveur…" data-loading-detail="Envoi de save puis quit par RCON et attente de la fermeture complète." onsubmit="return confirm('Exécuter save puis quit par RCON ? Aucun arrêt forcé ne sera utilisé.');"><button class="button danger" type="submit" disabled="@(!Model.SelectedServerOnline)">Sauvegarder et arrêter</button></form>
-                <span class="fine-print">L'arrêt propre exige <code>RCONPassword</code>. Windows : StartServer64.bat · Linux : start-server.sh.</span>
+            <div class="server-action-grid">
+                <form method="post" asp-page-handler="Start" asp-route-name="@Model.Selected.Name" data-loading-title="Démarrage du serveur…" data-loading-detail="Lancement du serveur dédié avec ce profil. Le statut RCON sera disponible après son initialisation."><button class="server-action primary-action" type="submit" disabled="@Model.SelectedServerOnline"><span class="server-action-icon">▶</span><span><strong>Démarrer</strong><small>Lancer le serveur dédié</small></span></button></form>
+                <form method="post" asp-page-handler="Stop" asp-route-name="@Model.Selected.Name" data-loading-title="Arrêt propre du serveur…" data-loading-detail="Envoi de save puis quit par RCON et attente de la fermeture complète." onsubmit="return confirm('Exécuter save puis quit par RCON ? Aucun arrêt forcé ne sera utilisé.');"><button class="server-action danger-action" type="submit" disabled="@(!Model.SelectedServerOnline)"><span class="server-action-icon">■</span><span><strong>Sauvegarder et arrêter</strong><small>save puis quit par RCON</small></span></button></form>
             </div>
         </section>
-        <section class="panel">
-            <div class="panel-heading"><div><span class="eyebrow">APPLICATION SÛRE</span><h2>Installer un pack sur ce serveur</h2></div></div>
-            <form method="post" asp-page-handler="ApplyPack" asp-route-name="@Model.Selected.Name" class="add-mod-row" data-loading-title="Application du pack au serveur…" data-loading-detail="Sauvegarde du profil puis remplacement contrôlé de WorkshopItems, Mods et Map." onsubmit="return confirm('Remplacer les listes WorkshopItems, Mods et Map de ce serveur par celles du pack ? Une sauvegarde sera créée.');">
-                <select name="projectId" required>
-                    <option value="">Choisir un pack déjà construit et publié…</option>
-                    @foreach (var project in Model.Projects)
-                    {
-                        <option value="@project.Id" disabled="@(project.PublishedWorkshopId == 0 || project.LastBuiltAt is null)">@project.Name — Workshop @(project.PublishedWorkshopId == 0 ? "non publié" : project.PublishedWorkshopId) — @project.Mods.Count(x => x.Enabled) mods</option>
-                    }
-                </select>
-                <button class="button secondary" type="submit">Appliquer au serveur</button>
+
+        <section class="panel pack-apply-panel">
+            <div><span class="eyebrow">APPLICATION SÛRE</span><h3>Installer un pack sur ce serveur</h3><p>Seules les listes <code>WorkshopItems</code>, <code>Mods</code> et <code>Map</code> sont remplacées après sauvegarde.</p></div>
+            <form method="post" asp-page-handler="ApplyPack" asp-route-name="@Model.Selected.Name" class="pack-apply-form" data-loading-title="Application du pack au serveur…" data-loading-detail="Sauvegarde du profil puis remplacement contrôlé de WorkshopItems, Mods et Map." onsubmit="return confirm('Remplacer les listes WorkshopItems, Mods et Map de ce serveur par celles du pack ? Une sauvegarde sera créée.');">
+                <select name="projectId" required><option value="">Choisir un pack construit et publié…</option>@foreach (var project in Model.Projects) { <option value="@project.Id">@project.Name — Workshop @(project.PublishedWorkshopId == 0 ? "non publié" : project.PublishedWorkshopId)</option> }</select>
+                <button class="button primary" type="submit" disabled="@Model.SelectedServerOnline">Appliquer le pack</button>
             </form>
-            <p class="fine-print">Seules les clés <code>WorkshopItems</code>, <code>Mods</code> et <code>Map</code> sont remplacées. Toutes les autres options serveur sont conservées.</p>
+            @if (Model.SelectedServerOnline) { <p class="fine-print warning-text">Arrêtez proprement le serveur avant d’appliquer un pack.</p> }
         </section>
-        <form method="post" asp-page-handler="Save" asp-route-name="@Model.Selected.Name" class="panel editor-form" data-loading-title="Enregistrement de la configuration…" data-loading-detail="Création d’une sauvegarde horodatée puis écriture du profil serveur.">
-            <div class="panel-heading"><div><span class="eyebrow">ÉDITEUR COMPLET</span><h2>@Model.Selected.Path</h2></div><button class="button primary" type="submit" onclick="return confirm('Enregistrer cette configuration ? Une sauvegarde horodatée sera créée.');">Enregistrer avec sauvegarde</button></div>
-            <textarea asp-for="RawContent" class="config-editor" spellcheck="false"></textarea>
-            <p class="fine-print">Les clés inconnues et commentaires sont conservés. Pour appliquer un pack, copiez les trois lignes de son fichier généré <code>server-config.txt</code> : <code>WorkshopItems</code>, <code>Mods</code> et <code>Map</code>.</p>
-        </form>
+
+        <div class="workspace server-workspace" data-tabs="server-editor-@Model.Selected.Name">
+            <nav class="workspace-tabs" aria-label="Sections du serveur" role="tablist">
+                <button type="button" role="tab" data-tab-target="identity">Identité</button>
+                <button type="button" role="tab" data-tab-target="access">Accès & RCON</button>
+                <button type="button" role="tab" data-tab-target="gameplay">Session</button>
+                <button type="button" role="tab" data-tab-target="content">Contenu</button>
+                <button type="button" role="tab" data-tab-target="raw">INI brut</button>
+            </nav>
+
+            <form method="post" asp-page-handler="SaveGuided" asp-route-name="@Model.Selected.Name" class="workspace-form" data-loading-title="Enregistrement de la configuration guidée…" data-loading-detail="Création d’une sauvegarde horodatée puis mise à jour des réglages sélectionnés.">
+                <section class="workspace-panel" data-tab-panel="identity" role="tabpanel">
+                    <div class="panel-heading"><div><span class="eyebrow">VISIBILITÉ</span><h2>Identité du serveur</h2><p>Nom, description et visibilité dans la liste publique.</p></div></div>
+                    <div class="form-section-grid">
+                        <section class="setting-card wide"><div class="form-grid two"><label><span>Nom public</span><input asp-for="Guided.PublicName" /></label><label class="full"><span>Description publique</span><textarea asp-for="Guided.PublicDescription" rows="4"></textarea></label></div></section>
+                        <section class="setting-card"><div class="setting-heading"><span class="step-number">01</span><div><h3>Référencement</h3><p>Contrôle l’apparition dans la liste des serveurs.</p></div></div><label class="switch-row"><input asp-for="Guided.Public" /><span><strong>Serveur public</strong><small>Publier le serveur dans la liste publique.</small></span></label></section>
+                        <section class="setting-card"><div class="setting-heading"><span class="step-number">02</span><div><h3>Connexions</h3><p>Autorise les nouveaux joueurs à rejoindre.</p></div></div><label class="switch-row"><input asp-for="Guided.Open" /><span><strong>Serveur ouvert</strong><small>Désactivez pour fermer temporairement les nouvelles connexions.</small></span></label></section>
+                    </div>
+                </section>
+
+                <section class="workspace-panel" data-tab-panel="access" role="tabpanel">
+                    <div class="panel-heading"><div><span class="eyebrow">RÉSEAU ET SÉCURITÉ</span><h2>Accès et administration</h2><p>Ports, mots de passe et vérification des fichiers Lua.</p></div></div>
+                    <div class="form-section-grid">
+                        <section class="setting-card"><div class="setting-heading"><span class="step-number">01</span><div><h3>Joueurs</h3><p>Accès au serveur et capacité maximale.</p></div></div><div class="form-grid"><label><span>Mot de passe joueur</span><input asp-for="Guided.Password" type="password" autocomplete="new-password" /></label><label><span>Nombre maximal de joueurs</span><input asp-for="Guided.MaxPlayers" type="number" min="1" max="1000" /></label></div></section>
+                        <section class="setting-card"><div class="setting-heading"><span class="step-number">02</span><div><h3>Ports</h3><p>Valeurs utilisées par le serveur et RCON.</p></div></div><div class="form-grid two"><label><span>Port du jeu</span><input asp-for="Guided.DefaultPort" type="number" min="1" max="65535" /></label><label><span>Port RCON</span><input asp-for="Guided.RconPort" type="number" min="1" max="65535" /></label></div><label><span>Mot de passe RCON</span><input asp-for="Guided.RconPassword" type="password" autocomplete="new-password" /><small>Requis pour l’arrêt propre et la coordination des publications.</small></label></section>
+                        <section class="setting-card wide"><div class="choice-grid two"><label class="switch-row"><input asp-for="Guided.DoLuaChecksum" /><span><strong>Vérifier les checksums Lua</strong><small>Recommandé : refuse les clients dont les scripts diffèrent.</small></span></label><div class="warning-callout"><strong>Ne désactivez pas cette vérification pour contourner un mismatch</strong><p>Le gestionnaire synchronise les versions; la protection Lua doit rester active.</p></div></div></section>
+                    </div>
+                </section>
+
+                <section class="workspace-panel" data-tab-panel="gameplay" role="tabpanel">
+                    <div class="panel-heading"><div><span class="eyebrow">SESSION</span><h2>Comportement multijoueur</h2><p>Réglages courants de pause, PvP, sommeil et sauvegardes.</p></div></div>
+                    <div class="form-section-grid">
+                        <section class="setting-card"><div class="setting-heading"><span class="step-number">01</span><div><h3>Monde actif</h3><p>Contrôle l’écoulement du temps sans joueurs.</p></div></div><label class="switch-row"><input asp-for="Guided.PauseEmpty" /><span><strong>Pause quand le serveur est vide</strong><small>Évite que le monde continue sans joueurs connectés.</small></span></label></section>
+                        <section class="setting-card"><div class="setting-heading"><span class="step-number">02</span><div><h3>PvP et sécurité</h3><p>Combat entre joueurs et système de sécurité.</p></div></div><div class="check-stack"><label><input asp-for="Guided.Pvp" /> Autoriser le PvP</label><label><input asp-for="Guided.SafetySystem" /> Activer le système de sécurité</label></div></section>
+                        <section class="setting-card"><div class="setting-heading"><span class="step-number">03</span><div><h3>Sommeil</h3><p>Disponibilité et obligation de dormir.</p></div></div><div class="check-stack"><label><input asp-for="Guided.SleepAllowed" /> Autoriser le sommeil</label><label><input asp-for="Guided.SleepNeeded" /> Rendre le sommeil nécessaire</label></div></section>
+                        <section class="setting-card"><div class="setting-heading"><span class="step-number">04</span><div><h3>Sauvegardes</h3><p>Fréquence du monde et nombre de backups serveur.</p></div></div><div class="form-grid two"><label><span>Sauvegarde toutes les X minutes</span><input asp-for="Guided.SaveWorldEveryMinutes" type="number" min="0" max="1440" /><small>0 conserve le comportement par défaut.</small></label><label><span>Nombre de sauvegardes</span><input asp-for="Guided.BackupsCount" type="number" min="0" max="100" /></label></div></section>
+                    </div>
+                </section>
+
+                <section class="workspace-panel" data-tab-panel="content" role="tabpanel">
+                    <div class="panel-heading"><div><span class="eyebrow">LISTES EXACTES</span><h2>Workshop, mods et cartes</h2><p>Utilisez de préférence « Appliquer le pack ». Ces champs restent disponibles pour les configurations hybrides.</p></div></div>
+                    <div class="warning-callout"><strong>L’ordre est significatif</strong><p>Les Mod IDs suivent l’ordre de chargement. Pour les cartes, les entrées les plus hautes gagnent les conflits et <code>Muldraugh, KY</code> doit normalement rester en dernier.</p></div>
+                    <div class="form-grid">
+                        <label><span>WorkshopItems</span><textarea asp-for="Guided.WorkshopItems" rows="4" class="compact-code-editor" spellcheck="false"></textarea><small>IDs numériques séparés par des points-virgules.</small></label>
+                        <label><span>Mods</span><textarea asp-for="Guided.Mods" rows="7" class="compact-code-editor" spellcheck="false"></textarea><small>Mod IDs internes séparés par des points-virgules.</small></label>
+                        <label><span>Map</span><textarea asp-for="Guided.Map" rows="4" class="compact-code-editor" spellcheck="false"></textarea><small>Dossiers de cartes dans l’ordre de priorité.</small></label>
+                    </div>
+                </section>
+
+                <div class="workspace-savebar"><span><strong>Éditeur guidé</strong><small>Une seule sauvegarde horodatée est créée pour l’ensemble des changements.</small></span><button class="button primary" type="submit">Enregistrer les réglages</button></div>
+            </form>
+
+            <section class="workspace-panel" data-tab-panel="raw" role="tabpanel">
+                <div class="panel-heading"><div><span class="eyebrow">MODE EXPERT</span><h2>Fichier INI complet</h2><p>Les clés inconnues, commentaires, encodage et fins de lignes sont préservés.</p></div></div>
+                <form method="post" asp-page-handler="Save" asp-route-name="@Model.Selected.Name" data-loading-title="Enregistrement du fichier INI…" data-loading-detail="Création d’une sauvegarde horodatée puis écriture atomique du profil serveur." onsubmit="return confirm('Enregistrer le fichier INI brut ? Une sauvegarde horodatée sera créée.');">
+                    <textarea asp-for="RawContent" class="config-editor" spellcheck="false"></textarea>
+                    <div class="raw-editor-footer"><p class="fine-print">Utilisez cet éditeur pour les options non encore exposées dans l’interface guidée.</p><button class="button primary" type="submit">Enregistrer l’INI brut</button></div>
+                </form>
+            </section>
+        </div>
     }
     </div>
 </div>

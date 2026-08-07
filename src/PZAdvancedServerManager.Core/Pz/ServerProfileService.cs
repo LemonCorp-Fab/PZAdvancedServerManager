@@ -65,6 +65,18 @@ public sealed class ServerProfileService(
         return backup;
     }
 
+    public string Update(string name, IReadOnlyDictionary<string, string> values)
+    {
+        if (values.Keys.Any(key => string.IsNullOrWhiteSpace(key) || key.Contains('=') || key.Any(char.IsControl)))
+            throw new ArgumentException("Une clé de configuration est invalide.", nameof(values));
+        var profile = Get(name);
+        var backup = Backup(profile.Path);
+        var document = ServerConfigDocument.Load(profile.Path);
+        foreach (var (key, value) in values) document.Set(key.Trim(), value);
+        document.Save(profile.Path);
+        return backup;
+    }
+
     public async Task<bool> IsOnlineAsync(string name, CancellationToken cancellationToken = default) =>
         await orchestration.IsOnlineAsync(Get(name).Path, cancellationToken);
 

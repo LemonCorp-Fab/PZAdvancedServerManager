@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PZAdvancedServerManager.Core.Domain;
 using PZAdvancedServerManager.Core.Infrastructure;
 using PZAdvancedServerManager.Core.Packaging;
+using PZAdvancedServerManager.Core.Publishing;
 using PZAdvancedServerManager.Core.Pz;
 
 namespace PZAdvancedServerManager.App.Pages.Projects;
@@ -16,13 +17,17 @@ public class EditModel(
     PackageProjectService projects,
     PackageLifecycleService lifecycle,
     WorkshopImportService workshopImport,
-    ServerProfileService servers) : PageModel
+    ServerProfileService servers,
+    MapPriorityService mapPriority,
+    SteamCmdInstaller steamCmdInstaller) : PageModel
 {
     public PackageProject Project { get; private set; } = new();
     public IReadOnlyList<DiscoveredMod> InstalledMods { get; private set; } = [];
     public PackageValidationResult Validation { get; private set; } = new();
     public string WorkshopDescription { get; private set; } = string.Empty;
     public IReadOnlyList<string> ServerConfigNames { get; private set; } = [];
+    public MapOrderAnalysis MapAnalysis { get; private set; } = new([], []);
+    public SteamCmdStatus SteamCmdStatus { get; private set; } = new(false, string.Empty, string.Empty, null, 0);
 
     [BindProperty] public ProjectForm Form { get; set; } = new();
 
@@ -32,6 +37,8 @@ public class EditModel(
         if (project is null) return NotFound();
         Load(project, refresh);
         Form = ProjectForm.From(project);
+        Form.MapOrder = string.Join(';', MapAnalysis.Entries.Select(x => x.FolderName));
+        if (string.IsNullOrWhiteSpace(Form.SteamCmdPath) && SteamCmdStatus.Installed) Form.SteamCmdPath = SteamCmdStatus.ExecutablePath;
         return Page();
     }
 
@@ -167,15 +174,37 @@ public class EditModel(
         return RedirectToPage(new { id });
     }
 
+    public async Task<IActionResult> OnPostInstallSteamCmdAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+        try
+        {
+            var result = await steamCmdInstaller.InstallAsync(cancellationToken);
+            project.Automation.SteamCmdPath = result.ExecutablePath;
+            store.Save(project);
+            environment.Invalidate();
+            TempData[result.Bootstrapped ? "Message" : "Error"] = result.Bootstrapped
+                ? $"SteamCMD installé et initialisé dans l'espace portable du gestionnaire : {result.ExecutablePath}"
+                : $"SteamCMD a été extrait dans {result.ExecutablePath}, mais son initialisation a échoué : {Limit(result.Output, 800)}";
+        }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
+        return RedirectToPage(new { id });
+    }
+
     public static string SelectionKey(DiscoveredMod mod) => Convert.ToBase64String(Encoding.UTF8.GetBytes($"{mod.WorkshopId}|{mod.ModId}|{mod.ModRoot}"));
 
     private void Load(PackageProject project, bool refresh)
     {
         Project = project;
+        SteamCmdStatus = steamCmdInstaller.GetStatus();
+        if (string.IsNullOrWhiteSpace(project.Automation.SteamCmdPath) && SteamCmdStatus.Installed)
+            project.Automation.SteamCmdPath = SteamCmdStatus.ExecutablePath;
         InstalledMods = environment.GetMods(project.TargetPzVersion, refresh);
         Validation = validator.Validate(project);
         WorkshopDescription = WorkshopDescriptionGenerator.Generate(project);
         ServerConfigNames = servers.List().Select(x => x.Name).ToList();
+        MapAnalysis = mapPriority.Analyze(project);
     }
 
     private void ApplyForm(PackageProject project)
@@ -195,6 +224,7 @@ public class EditModel(
         if (Form.LegalWarningAccepted && project.LegalWarningAcceptedAt is null) project.LegalWarningAcceptedAt = DateTimeOffset.UtcNow;
         project.Automation.SteamCmdPath = Form.SteamCmdPath?.Trim() ?? string.Empty;
         project.Automation.SteamUsername = Form.SteamUsername?.Trim() ?? string.Empty;
+        project.Automation.AnonymousWorkshopDownloads = Form.AnonymousWorkshopDownloads;
         project.Automation.Enabled = Form.AutomationEnabled;
         project.Automation.RefreshWorkshopSourcesBeforeBuild = Form.RefreshSources;
         project.Automation.PublishAfterBuild = Form.PublishAfterBuild;
@@ -221,6 +251,7 @@ public class EditModel(
         public bool LegalWarningAccepted { get; set; }
         public string? SteamCmdPath { get; set; }
         public string? SteamUsername { get; set; }
+        public bool AnonymousWorkshopDownloads { get; set; } = true;
         public bool AutomationEnabled { get; set; }
         public bool RefreshSources { get; set; }
         public bool PublishAfterBuild { get; set; }
@@ -243,6 +274,7 @@ public class EditModel(
             LegalWarningAccepted = project.LegalWarningAccepted,
             SteamCmdPath = project.Automation.SteamCmdPath,
             SteamUsername = project.Automation.SteamUsername,
+            AnonymousWorkshopDownloads = project.Automation.AnonymousWorkshopDownloads,
             AutomationEnabled = project.Automation.Enabled,
             RefreshSources = project.Automation.RefreshWorkshopSourcesBeforeBuild,
             PublishAfterBuild = project.Automation.PublishAfterBuild,

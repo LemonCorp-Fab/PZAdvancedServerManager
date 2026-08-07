@@ -24,6 +24,10 @@ public sealed class PackageValidator
             result.Issues.Add(new("STEAMCMD_PATH", "Indiquez un exécutable SteamCMD existant avant publication.", true, Scope: ValidationScope.PublishOnly));
         if (string.IsNullOrWhiteSpace(project.Automation.SteamUsername))
             result.Issues.Add(new("STEAM_USERNAME", "Le compte Steam éditeur est requis avant publication; aucun mot de passe n'est stocké.", true, Scope: ValidationScope.PublishOnly));
+        var configuredMaps = project.MapOrder.Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
+        var vanillaMapIndex = configuredMaps.FindIndex(x => x.Equals("Muldraugh, KY", StringComparison.OrdinalIgnoreCase));
+        if (vanillaMapIndex >= 0 && vanillaMapIndex != configuredMaps.Count - 1)
+            result.Issues.Add(new("MAP_BASE_PRIORITY", "La carte vanilla « Muldraugh, KY » devrait être la dernière de l'ordre des cartes afin que les cartes de mods restent prioritaires.", false, Scope: ValidationScope.Warning));
         if (project.Automation.Enabled)
         {
             if (project.Automation.DailyTimes.Length == 0)

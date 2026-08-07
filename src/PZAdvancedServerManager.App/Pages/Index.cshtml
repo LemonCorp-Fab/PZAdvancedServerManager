@@ -8,6 +8,10 @@
 {
     <div class="toast-message">@message</div>
 }
+@if (TempData["Error"] is string error)
+{
+    <div class="error-message">@error</div>
+}
 
 <section class="hero">
     <div>
@@ -33,9 +37,13 @@
             <dt>Jeu</dt><dd>@(Model.Installation.ClientRoot ?? "Non détecté")</dd>
             <dt>Serveur dédié</dt><dd>@(Model.Installation.DedicatedServerRoot ?? "Non détecté")</dd>
             <dt>Workshop 108600</dt><dd>@(Model.Installation.WorkshopRoot ?? "Non détecté")</dd>
+            <dt>SteamCMD</dt><dd>@(Model.Installation.SteamCmdPath ?? "Non installé")</dd>
             <dt>Données PZASM</dt><dd>@Model.DataRoot</dd>
         </dl>
-        <a class="button secondary" asp-page="/Server/Index">Gérer les configurations serveur</a>
+        <div class="dashboard-actions">
+            <a class="button secondary" asp-page="/Server/Index">Gérer les serveurs</a>
+            <form method="post" asp-page-handler="InstallSteamCmd" data-loading-title="Installation de SteamCMD…" data-loading-detail="Téléchargement depuis Valve, extraction dans l’espace portable du gestionnaire et première initialisation."><button class="button @(Model.SteamCmdStatus.Installed ? "ghost" : "primary")" type="submit">@(Model.SteamCmdStatus.Installed ? "Vérifier SteamCMD" : "Installer SteamCMD")</button></form>
+        </div>
     </article>
 
     <article class="panel create-panel">

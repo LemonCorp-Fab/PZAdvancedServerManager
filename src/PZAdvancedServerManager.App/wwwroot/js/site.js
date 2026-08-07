@@ -719,6 +719,8 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
         if (overlayInteraction) overlayInteraction.hidden = true;
         if (overlayInteractionCodeField) overlayInteractionCodeField.hidden = false;
         if (overlayInteractionCode) overlayInteractionCode.value = '';
+        const transientGuardCode = document.querySelector('[data-steam-guard-code]');
+        if (transientGuardCode instanceof HTMLInputElement) transientGuardCode.value = '';
         if (overlayInteractionError) overlayInteractionError.hidden = true;
         if (overlayInteractionSubmit) overlayInteractionSubmit.textContent = 'Valider et continuer';
         if (overlayTrack) { overlayTrack.classList.remove('is-determinate'); overlayTrack.style.width = ''; }
@@ -742,10 +744,10 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
             overlayInteractionCode?.focus();
             return;
         }
-        const guardField = document.querySelector('[data-steam-guard-code]');
-        if (guardField instanceof HTMLInputElement) guardField.value = code;
         const retry = { form: pendingInteraction.form, button: pendingInteraction.button };
         resetLoading();
+        const guardField = document.querySelector('[data-steam-guard-code]');
+        if (guardField instanceof HTMLInputElement) guardField.value = code;
         window.setTimeout(() => void startOperationProgress(retry.form, retry.button), 80);
     });
     overlayInteractionCode?.addEventListener('input', () => {

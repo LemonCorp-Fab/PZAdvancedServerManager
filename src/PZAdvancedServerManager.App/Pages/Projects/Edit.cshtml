@@ -155,9 +155,9 @@
                 <section class="setting-card">
                     <div class="setting-heading"><span class="step-number">02</span><div><h3>Compte éditeur</h3><p>Obligatoire uniquement pour créer ou mettre à jour votre item.</p></div></div>
                     <label><span>Nom du compte Steam</span><input asp-for="Form.SteamUsername" autocomplete="username" /><small>Le mot de passe et les codes Steam Guard ne sont jamais stockés par PZASM.</small></label>
-                    <div class="form-grid two steam-session-fields">
-                        <label><span>Mot de passe temporaire</span><input name="steamPassword" type="password" autocomplete="current-password" data-steam-password /><small>Utilisé uniquement pour créer ou renouveler la session portable, puis oublié.</small></label>
-                        <label><span>Code Steam Guard — si demandé</span><input name="steamGuardCode" inputmode="text" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" maxlength="12" data-steam-guard-code /><small>Le challenge apparaît automatiquement dans la fenêtre de connexion. Le code n’est utilisé que pour cette tentative.</small></label>
+                    <div class="steam-session-fields">
+                        <label><span>Mot de passe temporaire</span><input name="steamPassword" type="password" autocomplete="current-password" data-steam-password /><small>Utilisé uniquement pour créer ou renouveler la session portable, puis oublié. Le code Steam Guard sera demandé dans le popup uniquement si Steam le réclame.</small></label>
+                        <input name="steamGuardCode" type="hidden" data-steam-guard-code />
                     </div>
                     <div class="steam-session-status @(Model.Project.Automation.SteamSessionVerifiedAt is null ? "needs-login" : "is-ready")">
                         <span class="status-dot" aria-hidden="true"></span>

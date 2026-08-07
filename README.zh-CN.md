@@ -4,7 +4,7 @@
 
 PZ Advanced Server Manager（PZASM）是 Project Zomboid 及其专用服务器的本地管理工具。它把一组版本一致的模组通过**唯一的 Workshop ID**发布，使服务器同步整个模组包，而不是分别同步每个来源条目。
 
-> 状态：Windows 与 Linux 版本均已可用。Bundle、固定快照、多项目、Workshop 导入、SteamCMD、协调计划任务、连接提示、服务器管理和无界面 CLI 均已实现。首次实际发布应始终使用私有条目测试。
+> 状态：Windows 与 Linux 版本均已可用。Bundle、固定快照、内置 Workshop 目录、SteamCMD、独立或协调计划任务、连接提示、服务器管理和无界面 CLI 均已实现。首次实际发布应始终使用私有条目测试。
 
 ## 技术结论
 
@@ -28,6 +28,8 @@ Mods=ModIdA;ModIdB;ModIdC;PZASM_Notice_SUFFIX
 - 可重新打开的独立项目，每个项目拥有自己的 GUID 和 Workshop ID；
 - 通过私有 SHA-256 快照精确固定来源版本；
 - 按 Workshop ID 导入，并加入可用的 `require=` 依赖；
+- 内置 Workshop 目录，支持搜索、排序、标签、预览、分页、多选和直接输入 ID；
+- 模组包与本地/专用服务器的 `WorkshopItems`、`Mods` 共用可视化选择器，同时保留原始编辑；
 - 在 Windows 和 Linux 上从 Valve 一键安装便携式 SteamCMD，也可运行 `pzasm steamcmd install`；
 - 匿名下载公开的 Workshop 来源内容，并与发布所用的认证账号分离；
 - Bundle 不重写 manifest、Lua、脚本、地图或资源；
@@ -58,6 +60,8 @@ chmod +x Start-PZASM.sh
 
 UI 默认仅监听本机的 `http://localhost:5160`。使用 `--data-root <路径>` 可让 UI 与 CLI 共用指定数据目录。
 可从仪表板或“分发”标签安装 SteamCMD。公开的 Project Zomboid 来源默认匿名下载；只有发布操作需要发布者账号。
+
+SteamCMD 可以下载已知 Workshop ID，但不提供完整搜索。内置目录会枚举 Steam Community 的公开结果、获取公开元数据，再把所选条目交给 SteamCMD。定时发布不要求游戏服务器位于本机；RCON 协调是可选功能。
 
 ## 推荐流程
 

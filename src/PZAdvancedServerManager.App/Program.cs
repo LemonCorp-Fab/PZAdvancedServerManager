@@ -22,6 +22,7 @@ builder.Services.AddSingleton<PackageValidator>();
 builder.Services.AddSingleton<PackageBuildService>();
 builder.Services.AddSingleton<SteamCmdService>();
 builder.Services.AddSingleton<SteamCmdInstaller>();
+builder.Services.AddSingleton<WorkshopCatalogService>();
 builder.Services.AddSingleton<MapPriorityService>();
 builder.Services.AddSingleton<ServerOrchestrationService>();
 builder.Services.AddSingleton<ServerProfileService>();

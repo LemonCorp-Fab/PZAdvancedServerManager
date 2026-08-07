@@ -38,8 +38,31 @@ document.querySelectorAll('[data-tabs]').forEach(tabSet => {
 
     buttons.forEach(button => button.addEventListener('click', () => activate(button.dataset.tabTarget)));
     let initial = buttons[0].dataset.tabTarget;
-    try { initial = window.sessionStorage.getItem(storageKey) || initial; } catch { }
+    const requestedTab = new URLSearchParams(window.location.search).get('tab');
+    try { initial = requestedTab || window.sessionStorage.getItem(storageKey) || initial; } catch { initial = requestedTab || initial; }
     activate(initial);
+});
+
+document.querySelectorAll('[data-catalog-selection]').forEach(form => {
+    const checkboxes = Array.from(form.querySelectorAll('input[type="checkbox"]:not(:disabled)'));
+    const count = form.querySelector('[data-catalog-count]');
+    const submit = form.querySelector('button[type="submit"]');
+    const update = () => {
+        const selected = checkboxes.filter(checkbox => checkbox.checked).length;
+        if (count) count.textContent = `${selected}`;
+        if (submit instanceof HTMLButtonElement) submit.disabled = selected === 0;
+        checkboxes.forEach(checkbox => checkbox.closest('.workshop-catalog-card, .local-catalog-card')?.classList.toggle('is-selected', checkbox.checked));
+    };
+    checkboxes.forEach(checkbox => checkbox.addEventListener('change', update));
+    form.querySelector('[data-catalog-select-all]')?.addEventListener('click', () => {
+        checkboxes.forEach(checkbox => { checkbox.checked = true; });
+        update();
+    });
+    form.querySelector('[data-catalog-clear]')?.addEventListener('click', () => {
+        checkboxes.forEach(checkbox => { checkbox.checked = false; });
+        update();
+    });
+    update();
 });
 
 document.querySelectorAll('[data-map-sorter]').forEach(sorter => {

@@ -35,7 +35,7 @@ public sealed class PackageAutomationService(ApplicationPaths paths, PackageProj
                 string message;
                 if (project.Automation.PublishAfterBuild)
                 {
-                    var result = await lifecycle.PublishAsync(project, project.Automation.RefreshWorkshopSourcesBeforeBuild, requireCoordinatedServer: true, cancellationToken);
+                    var result = await lifecycle.PublishAsync(project, project.Automation.RefreshWorkshopSourcesBeforeBuild, requireCoordinatedServer: false, cancellationToken);
                     message = string.IsNullOrWhiteSpace(result.Output) ? "Publication planifiée terminée." : Tail(result.Output);
                 }
                 else

@@ -4,7 +4,7 @@
 
 PZ Advanced Server Manager (PZASM) es un gestor local para Project Zomboid y su servidor dedicado. Distribuye un conjunto coherente de mods mediante **un único Workshop ID**, de modo que el servidor sincronice el paquete completo y no cada elemento de origen por separado.
 
-> Estado: versión funcional para Windows y Linux. Incluye Bundle, instantáneas fijadas, varios proyectos, importación de Workshop, SteamCMD, planificación coordinada, aviso de conexión, gestión del servidor y CLI sin interfaz. Prueba siempre la primera publicación con un elemento privado.
+> Estado: versión funcional para Windows y Linux. Incluye Bundle, instantáneas fijadas, catálogo Workshop interno, SteamCMD, planificación autónoma o coordinada, aviso de conexión, gestión del servidor y CLI sin interfaz. Prueba siempre la primera publicación con un elemento privado.
 
 ## Veredicto técnico
 
@@ -28,6 +28,8 @@ Consulta el [estudio completo de arquitectura](docs/ARCHITECTURE.es.md).
 - proyectos independientes y reutilizables, cada uno con su GUID y Workshop ID;
 - instantáneas privadas SHA-256 para fijar exactamente las versiones de origen;
 - importación por Workshop ID y adición de dependencias `require=` disponibles;
+- catálogo Workshop interno con búsqueda, ordenación, etiquetas, vistas previas, paginación, selección múltiple y acceso directo por ID;
+- selector visual compartido para packs y listas `WorkshopItems`/`Mods` de servidores locales o dedicados, conservando la edición en bruto;
 - instalación portátil de SteamCMD en un clic desde Valve para Windows y Linux, también mediante `pzasm steamcmd install`;
 - descarga anónima de fuentes públicas del Workshop, separada de la cuenta autenticada de publicación;
 - Bundle sin reescritura de manifest, Lua, scripts, mapas ni recursos;
@@ -58,6 +60,8 @@ chmod +x Start-PZASM.sh
 
 La UI escucha localmente en `http://localhost:5160`. Usa `--data-root <ruta>` para compartir un directorio de datos entre la UI y el CLI.
 SteamCMD se instala desde el panel o la pestaña Distribución. Las fuentes públicas de Project Zomboid se descargan anónimamente por defecto; solo la publicación necesita la cuenta editora.
+
+SteamCMD descarga IDs conocidos, pero no ofrece una búsqueda completa. El catálogo interno enumera resultados públicos de Steam Community, obtiene sus metadatos públicos y entrega la selección a SteamCMD. La publicación programada no requiere un servidor local; la coordinación RCON es opcional.
 
 ## Flujo recomendado
 

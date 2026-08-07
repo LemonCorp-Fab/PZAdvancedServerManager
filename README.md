@@ -4,7 +4,7 @@
 
 PZ Advanced Server Manager (PZASM) is a local manager for Project Zomboid and Project Zomboid Dedicated Server. Its primary purpose is to distribute a coherent set of mods through **one Workshop ID**, so the server synchronizes the pack instead of every source item independently.
 
-> Status: functional Windows and Linux release. Bundle mode, pinned source snapshots, multi-project persistence, Workshop import, builds, SteamCMD publishing, coordinated scheduling, the connection notice, server management, and the headless CLI are implemented. Always test a real publication with a private item before using it in production.
+> Status: functional Windows and Linux release. Bundle mode, pinned source snapshots, the internal Workshop catalog, builds, SteamCMD publishing, standalone or coordinated scheduling, the connection notice, server management, and the headless CLI are implemented. Always test a real publication with a private item before using it in production.
 
 ## Technical verdict
 
@@ -29,6 +29,8 @@ See the complete [architecture and feasibility study](docs/ARCHITECTURE.md).
 - private SHA-256 source snapshots created when a mod is added, preventing a local Steam update from silently changing a future build;
 - explicit snapshot refresh, kept separate from build and publish operations;
 - direct Workshop ID import through SteamCMD, including every compatible `mod.info` and available dependency;
+- internal Project Zomboid Workshop catalog with search, sorting, tags, metadata, previews, pagination, multi-selection, and direct ID lookup;
+- one shared selector for pack sources and local/dedicated-server `WorkshopItems` and `Mods` lists, while preserving raw editors;
 - one-click portable SteamCMD installation from Valve on Windows and Linux, also available as `pzasm steamcmd install`;
 - anonymous Workshop source downloads for public server content, kept separate from the authenticated publisher account;
 - project duplication and local deletion without changing source mods or deleting Workshop items;
@@ -40,12 +42,12 @@ See the complete [architecture and feasibility study](docs/ARCHITECTURE.md).
 - an optional connection notice enabled by default, containing the pack description, legal notice, and exhaustive mod list;
 - generation of `workshop.txt`, `steamcmd-item.vdf`, `server-config.txt`, preview PNG, public manifest, and SHA-256 `pack.lock.json`;
 - creation and update of the same Workshop item, with the SteamCMD-written `publishedfileid` saved back into the project;
-- optional daily refresh, build, and publication schedules;
+- optional daily refresh, build, and publication schedules that do not require the game server to be on the same machine;
 - modern tabbed project workspace with guided settings and exact-value expert controls;
 - map-priority assistant using `map.info`, `lots=` dependencies, `.lotheader` cell conflicts, drag-and-drop ordering, and a raw `Map=` fallback;
 - guided `Zomboid/Server/*.ini` editor for identity, access, RCON, gameplay, backups, and content, plus the complete raw editor with encoding preservation;
 - safe pack application that only replaces `WorkshopItems`, `Mods`, and `Map`;
-- RCON status, `save`, `quit`, Windows/Linux startup, and coordinated restart around scheduled publication;
+- RCON status, `save`, `quit`, Windows/Linux startup, and an optional coordinated restart when a local profile is explicitly selected;
 - Windows/Linux CLI for desktop-free and SSH-managed hosts;
 - `automation run` CLI daemon with inter-process locks when the UI and CLI are active at the same time.
 
@@ -90,6 +92,7 @@ The CLI uses the same projects as the UI. Every `project create` command creates
 # Local inventory
 dotnet run --project src/PZAdvancedServerManager.Cli -- scan
 dotnet run --project src/PZAdvancedServerManager.Cli -- steamcmd install
+dotnet run --project src/PZAdvancedServerManager.Cli -- workshop search --query "map Build 42" --sort subscribed
 
 # Create and populate a pack
 dotnet run --project src/PZAdvancedServerManager.Cli -- project create --name "Primary server"
@@ -156,6 +159,7 @@ The project targets .NET 9 and requires no database. JSON writes are atomic, and
 ## Known limitations
 
 - Public Project Zomboid Workshop sources support anonymous SteamCMD downloads; restricted or private items can still require an authenticated account.
+- SteamCMD downloads known Workshop IDs but does not expose a complete search command. The internal catalog enumerates public Steam Community browse results and resolves item metadata through Steam's public details API before SteamCMD downloads the selection.
 - Workshop publication relies on the Steam account session; PZASM never stores passwords or Steam Guard codes.
 - Linux SteamCMD may require the distribution's 32-bit runtime libraries; the installer reports bootstrap errors without hiding the extracted tool.
 - A new item can remain hidden until the Workshop legal agreement is accepted.

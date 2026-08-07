@@ -179,16 +179,17 @@
                     <label class="switch-row"><input asp-for="Form.AutomationEnabled" /><span><strong>Activer la planification</strong><small>Le service doit rester lancé pour exécuter les horaires.</small></span></label>
                 </section>
                 <section class="setting-card">
-                    <div class="setting-heading"><span class="step-number">02</span><div><h3>Serveur coordonné</h3><p>Évite qu’une ancienne version reste chargée en mémoire.</p></div></div>
-                    <label><span>Profil serveur</span><input asp-for="Form.CoordinatedServerName" list="server-config-names" placeholder="servertest" /></label>
+                    <div class="setting-heading"><span class="step-number">02</span><div><h3>Serveur coordonné facultatif</h3><p>Laissez vide si le serveur est distant ou administré séparément.</p></div></div>
+                    <label><span>Profil serveur local — optionnel</span><input asp-for="Form.CoordinatedServerName" list="server-config-names" placeholder="Aucun serveur local" /></label>
                     <datalist id="server-config-names">@foreach (var serverName in Model.ServerConfigNames) { <option value="@serverName"></option> }</datalist>
+                    <div class="info-callout"><strong>Publication autonome</strong><p>Sans profil, le manager actualise, construit et publie normalement. Le redémarrage du serveur distant reste sous votre contrôle.</p></div>
                 </section>
                 <section class="setting-card wide">
                     <div class="setting-heading"><span class="step-number">03</span><div><h3>Pipeline programmé</h3><p>Choisissez précisément ce qui se produit pendant la fenêtre.</p></div></div>
                     <div class="choice-grid three">
                         <label class="switch-row"><input asp-for="Form.RefreshSources" /><span><strong>Actualiser</strong><small>Télécharger les sources Workshop avant le build.</small></span></label>
                         <label class="switch-row"><input asp-for="Form.PublishAfterBuild" /><span><strong>Publier</strong><small>Mettre à jour le même item après validation.</small></span></label>
-                        <div class="info-callout"><strong>Redémarrage coordonné</strong><p>Si le serveur est actif : save, quit, publication, puis redémarrage.</p></div>
+                        <div class="info-callout"><strong>Coordination conditionnelle</strong><p>Un profil local renseigné sera arrêté proprement puis redémarré. Sans profil, seule la publication Workshop est exécutée.</p></div>
                     </div>
                 </section>
             </div>
@@ -218,8 +219,14 @@
     <section class="workspace-panel" data-tab-panel="mods" role="tabpanel">
         <div class="panel-heading">
             <div><span class="eyebrow">SOURCES FIGÉES</span><h2>Mods, dépendances et autorisations</h2><p>Chaque source est copiée dans un snapshot privé avant d’entrer dans un build.</p></div>
-            <div class="action-row"><a class="button ghost" href="https://steamcommunity.com/workshop/browse/?appid=108600" target="_blank" rel="noreferrer">Parcourir le Workshop ↗</a><a class="button ghost" asp-page="/Projects/Edit" asp-route-id="@Model.Project.Id" asp-route-refresh="true">Relancer la détection</a></div>
+            <div class="action-row"><a class="button primary" asp-page="/Workshop/Index" asp-route-projectId="@Model.Project.Id">Ouvrir le catalogue interne</a><a class="button ghost" asp-page="/Projects/Edit" asp-route-id="@Model.Project.Id" asp-route-refresh="true" asp-route-tab="mods">Relancer la détection</a></div>
         </div>
+
+        <section class="catalog-launch-card">
+            <span class="catalog-launch-mark">W</span>
+            <div><span class="eyebrow">SÉLECTION AVANCÉE</span><h3>Workshop et bibliothèque locale unifiés</h3><p>Recherchez, filtrez et sélectionnez plusieurs items, puis laissez SteamCMD télécharger et analyser tous leurs <code>mod.info</code>.</p></div>
+            <div class="action-row"><a class="button primary" asp-page="/Workshop/Index" asp-route-projectId="@Model.Project.Id" asp-route-source="workshop">Explorer le Workshop</a><a class="button secondary" asp-page="/Workshop/Index" asp-route-projectId="@Model.Project.Id" asp-route-source="local">Choisir les mods installés</a></div>
+        </section>
 
         <div class="mod-add-grid">
             <form method="post" asp-page-handler="ImportWorkshop" class="setting-card add-source-card" data-loading-title="Import de l’item Workshop…" data-loading-detail="Téléchargement SteamCMD, analyse des mod.info et création des snapshots figés.">

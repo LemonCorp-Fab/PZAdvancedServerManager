@@ -1,0 +1,122 @@
+@page
+@model PZAdvancedServerManager.App.Pages.Workshop.IndexModel
+@{
+    ViewData["Title"] = "Catalogue de mods";
+    var targetName = Model.Project?.Name ?? Model.Server?.Name ?? "Exploration libre";
+    var targetKind = Model.Project is not null ? "PACK" : Model.Server is not null ? "SERVEUR" : "CATALOGUE";
+    var isLocal = Model.Source.Equals("local", StringComparison.OrdinalIgnoreCase);
+}
+
+<a class="back-link" asp-page="@(Model.Project is not null ? "/Projects/Edit" : Model.Server is not null ? "/Server/Index" : "/Index")" asp-route-id="@Model.Project?.Id" asp-route-name="@Model.Server?.Name" asp-route-tab="@(Model.Project is not null ? "mods" : "content")">← Retour à @targetName</a>
+@if (TempData["Message"] is string message) { <div class="toast-message">@message</div> }
+@if (TempData["Error"] is string error) { <div class="error-message">@error</div> }
+
+<section class="catalog-hero">
+    <div>
+        <span class="eyebrow">@targetKind · @targetName</span>
+        <h1>Catalogue de mods</h1>
+        <p>Explorez le Workshop sans quitter le manager, ou sélectionnez les mods déjà présents dans vos installations Project Zomboid.</p>
+    </div>
+    <div class="catalog-capabilities">
+        <span><strong>Recherche</strong> Steam Community</span>
+        <span><strong>Détails</strong> API publique Steam</span>
+        <span><strong>Import</strong> SteamCMD</span>
+    </div>
+</section>
+
+<nav class="catalog-source-tabs" aria-label="Source des mods">
+    <a class="@(!isLocal ? "active" : "")" asp-page="/Workshop/Index" asp-route-projectId="@Model.ProjectId" asp-route-serverName="@Model.ServerName" asp-route-source="workshop"><span>Workshop public</span><small>Recherche, tendances et téléchargement</small></a>
+    <a class="@(isLocal ? "active" : "")" asp-page="/Workshop/Index" asp-route-projectId="@Model.ProjectId" asp-route-serverName="@Model.ServerName" asp-route-source="local"><span>Installés localement</span><small>Client, Dedicated Server et cache Workshop</small></a>
+</nav>
+
+<section class="panel catalog-filter-panel">
+    <form method="get" class="catalog-search-form" data-loading-title="Recherche dans le catalogue…" data-loading-detail="Interrogation du catalogue public et récupération des détails des items.">
+        <input type="hidden" asp-for="ProjectId" />
+        <input type="hidden" asp-for="ServerName" />
+        <input type="hidden" asp-for="Source" />
+        <label class="catalog-query"><span>Recherche</span><input asp-for="Q" placeholder="Nom, description, Mod ID ou Workshop ID…" autofocus /></label>
+        @if (!isLocal)
+        {
+            <label><span>Classement</span><select asp-for="Sort"><option value="trend">Tendances</option><option value="recent">Plus récents</option><option value="subscribed">Plus abonnés</option><option value="popular">Plus consultés</option><option value="relevance">Pertinence</option></select></label>
+            <label><span>Tag exact</span><input asp-for="Tag" list="workshop-tags" placeholder="Tous les tags" /></label>
+            <datalist id="workshop-tags"><option value="Build 42"></option><option value="Build 41"></option><option value="Map"></option><option value="Multiplayer"></option><option value="QOL"></option><option value="Vehicles"></option><option value="Weapons"></option><option value="Traits"></option></datalist>
+        }
+        <button class="button primary" type="submit">Rechercher</button>
+    </form>
+    @if (!isLocal)
+    {
+        <div class="catalog-provider-note"><span class="tool-icon compact">SC</span><p><strong>SteamCMD ne fournit pas de commande de recherche.</strong> Le manager énumère les pages publiques Steam, récupère les métadonnées via l’API publique, puis confie uniquement le téléchargement à SteamCMD.</p></div>
+    }
+</section>
+
+@if (!Model.SteamCmdStatus.Installed && !isLocal)
+{
+    <div class="warning-callout catalog-warning"><strong>SteamCMD n’est pas installé</strong><p>Vous pouvez parcourir le catalogue, mais l’ajout téléchargé sera indisponible jusqu’à l’installation en un clic depuis le tableau de bord.</p></div>
+}
+
+@if (isLocal)
+{
+    <form method="post" asp-page-handler="AddLocal" class="catalog-selection-form" data-catalog-selection data-loading-title="Ajout des mods sélectionnés…" data-loading-detail="Résolution des dépendances puis mise à jour contrôlée de la destination.">
+        <input type="hidden" asp-for="ProjectId" /><input type="hidden" asp-for="ServerName" /><input type="hidden" asp-for="Source" /><input type="hidden" asp-for="Q" />
+        <div class="catalog-results-heading"><div><span class="eyebrow">BIBLIOTHÈQUE DÉTECTÉE</span><h2>@Model.LocalTotal mods compatibles · page @Model.PageNumber</h2></div><div class="action-row"><button class="button ghost" type="button" data-catalog-select-all>Tout sélectionner</button><button class="button ghost" type="button" data-catalog-clear>Effacer</button></div></div>
+        @if (Model.LocalMods.Count == 0)
+        {
+            <div class="empty-state"><h3>Aucun mod correspondant</h3><p>Modifiez la recherche ou vérifiez les installations détectées depuis le tableau de bord.</p></div>
+        }
+        else
+        {
+            <div class="local-catalog-grid">
+                @foreach (var mod in Model.LocalMods)
+                {
+                    var included = Model.IncludedModIds.Contains(mod.ModId);
+                    <label class="local-catalog-card @(included ? "is-included" : "")">
+                        <input type="checkbox" name="selectedMods" value="@IndexModel.SelectionKey(mod)" disabled="@included" />
+                        <span class="local-mod-mark">@mod.Name[..Math.Min(2, mod.Name.Length)].ToUpperInvariant()</span>
+                        <span class="local-mod-copy"><strong>@mod.Name</strong><small>Mod ID · @mod.ModId</small><small>@(mod.WorkshopId == 0 ? "Mod local" : $"Workshop {mod.WorkshopId}") · @mod.SelectedVersionFolder</small>@if (mod.RequiredModIds.Length > 0) { <em>@mod.RequiredModIds.Length dépendance(s) résolue(s) automatiquement</em> }</span>
+                        <span class="catalog-state">@(included ? "DÉJÀ AJOUTÉ" : "SÉLECTIONNER")</span>
+                    </label>
+                }
+            </div>
+            <div class="catalog-pagination">
+                @if (Model.LocalHasPrevious) { <a class="button ghost" asp-page="/Workshop/Index" asp-route-projectId="@Model.ProjectId" asp-route-serverName="@Model.ServerName" asp-route-source="local" asp-route-q="@Model.Q" asp-route-pageNumber="@(Model.PageNumber - 1)">← Page précédente</a> }
+                <span>Page @Model.PageNumber</span>
+                @if (Model.LocalHasNext) { <a class="button ghost" asp-page="/Workshop/Index" asp-route-projectId="@Model.ProjectId" asp-route-serverName="@Model.ServerName" asp-route-source="local" asp-route-q="@Model.Q" asp-route-pageNumber="@(Model.PageNumber + 1)">Page suivante →</a> }
+            </div>
+        }
+        <div class="catalog-selection-bar"><span><strong data-catalog-count>0</strong> sélection(s)<small>Les dépendances trouvées localement seront incluses automatiquement.</small></span><button class="button primary" type="submit" disabled>Ajouter la sélection</button></div>
+    </form>
+}
+else
+{
+    <form method="post" asp-page-handler="AddWorkshop" class="catalog-selection-form" data-catalog-selection data-loading-title="Téléchargement des mods Workshop…" data-loading-detail="SteamCMD télécharge chaque item, puis le manager analyse les mod.info et leurs dépendances.">
+        <input type="hidden" asp-for="ProjectId" /><input type="hidden" asp-for="ServerName" /><input type="hidden" asp-for="Source" /><input type="hidden" asp-for="Q" /><input type="hidden" asp-for="Sort" /><input type="hidden" asp-for="Tag" /><input type="hidden" asp-for="PageNumber" />
+        <div class="catalog-results-heading"><div><span class="eyebrow">WORKSHOP PROJECT ZOMBOID</span><h2>@Model.Catalog.Items.Count résultats · page @Model.Catalog.Page</h2></div><div class="action-row"><button class="button ghost" type="button" data-catalog-select-all>Tout sélectionner</button><button class="button ghost" type="button" data-catalog-clear>Effacer</button></div></div>
+        @if (Model.Catalog.Items.Count == 0)
+        {
+            <div class="empty-state"><h3>Aucun item trouvé</h3><p>Essayez un autre terme, retirez le tag ou collez directement un Workshop ID.</p></div>
+        }
+        else
+        {
+            <div class="workshop-catalog-grid">
+                @foreach (var item in Model.Catalog.Items)
+                {
+                    var included = Model.IncludedWorkshopIds.Contains(item.WorkshopId);
+                    <article class="workshop-catalog-card @(included ? "is-included" : "")">
+                        <label>
+                            <input type="checkbox" name="selectedWorkshopIds" value="@item.WorkshopId" disabled="@included" />
+                            <span class="workshop-preview">@if (!string.IsNullOrWhiteSpace(item.PreviewUrl)) { <img src="@item.PreviewUrl" alt="" loading="lazy" referrerpolicy="no-referrer" /> } else { <span>W</span> }<span class="catalog-state">@(included ? "DÉJÀ AJOUTÉ" : "SÉLECTIONNER")</span></span>
+                            <span class="workshop-card-copy"><span class="workshop-id">ID @item.WorkshopId</span><strong>@item.Title</strong><span class="workshop-stats"><span>@item.Subscriptions.ToString("N0") abonnés</span><span>@IndexModel.FormatBytes(item.FileSize)</span><span>@(item.UpdatedAt?.LocalDateTime.ToString("dd/MM/yyyy") ?? "date inconnue")</span></span><small>@item.Description</small><span class="tag-row">@foreach (var itemTag in item.Tags.Take(6)) { <span>@itemTag</span> }</span></span>
+                        </label>
+                        <a href="@item.WorkshopUrl" target="_blank" rel="noreferrer" class="workshop-external-link">Voir la fiche Steam ↗</a>
+                    </article>
+                }
+            </div>
+        }
+        <div class="catalog-pagination">
+            @if (Model.Catalog.HasPrevious) { <a class="button ghost" asp-page="/Workshop/Index" asp-route-projectId="@Model.ProjectId" asp-route-serverName="@Model.ServerName" asp-route-source="workshop" asp-route-q="@Model.Q" asp-route-sort="@Model.Sort" asp-route-tag="@Model.Tag" asp-route-pageNumber="@(Model.Catalog.Page - 1)">← Page précédente</a> }
+            <span>Page @Model.Catalog.Page</span>
+            @if (Model.Catalog.HasNext) { <a class="button ghost" asp-page="/Workshop/Index" asp-route-projectId="@Model.ProjectId" asp-route-serverName="@Model.ServerName" asp-route-source="workshop" asp-route-q="@Model.Q" asp-route-sort="@Model.Sort" asp-route-tag="@Model.Tag" asp-route-pageNumber="@(Model.Catalog.Page + 1)">Page suivante →</a> }
+        </div>
+        <div class="catalog-selection-bar"><span><strong data-catalog-count>0</strong> sélection(s)<small>Chaque item sera téléchargé anonymement puis inspecté avant modification.</small></span><button class="button primary" type="submit" disabled>Ajouter et analyser</button></div>
+    </form>
+}

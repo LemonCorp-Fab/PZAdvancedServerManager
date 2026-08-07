@@ -34,8 +34,6 @@ public sealed class PackageValidator
                 result.Issues.Add(new("AUTOMATION_SCHEDULE", "Ajoutez au moins une heure HH:mm pour activer la planification.", true, Scope: ValidationScope.AutomationOnly));
             foreach (var invalid in project.Automation.DailyTimes.Where(x => !TimeOnly.TryParseExact(x, "HH:mm", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _)))
                 result.Issues.Add(new("AUTOMATION_TIME", $"Heure de planification invalide : « {invalid} ». Format attendu : HH:mm.", true, Scope: ValidationScope.AutomationOnly));
-            if (project.Automation.PublishAfterBuild && string.IsNullOrWhiteSpace(project.Automation.CoordinatedServerName))
-                result.Issues.Add(new("AUTOMATION_SERVER", "La publication planifiée exige un profil serveur coordonné afin d'éviter un mismatch pendant que l'ancienne version est en mémoire.", true, Scope: ValidationScope.AutomationOnly));
         }
 
         foreach (var duplicate in project.Mods.Where(x => x.Enabled).GroupBy(x => x.ModId, StringComparer.OrdinalIgnoreCase).Where(x => x.Count() > 1))

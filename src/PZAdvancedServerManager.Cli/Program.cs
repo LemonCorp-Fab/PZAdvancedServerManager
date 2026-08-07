@@ -27,6 +27,7 @@ internal sealed class PzasmCli
                 "projects" => ListProjects(services.Store, parsed),
                 "project" => await ProjectAsync(args, parsed, services),
                 "server" => await ServerAsync(args, parsed, services),
+                "workshop" => await WorkshopAsync(args, parsed, services),
                 "steamcmd" => await SteamCmdAsync(args, parsed, services),
                 "automation" => await AutomationAsync(args, parsed, services),
                 _ => Fail($"Commande inconnue : {args[0]}")
@@ -320,6 +321,26 @@ internal sealed class PzasmCli
         }
     }
 
+    private static async Task<int> WorkshopAsync(string[] raw, CliArguments args, CliServices services)
+    {
+        if (raw.Length < 2 || !raw[1].Equals("search", StringComparison.OrdinalIgnoreCase))
+            return Fail("Sous-commande requise : workshop search.");
+        var query = new WorkshopCatalogQuery(
+            args.Get("query") ?? string.Empty,
+            args.Get("sort") ?? "trend",
+            args.GetInt("page") ?? 1,
+            args.Get("tag") ?? string.Empty);
+        var page = await services.WorkshopCatalog.SearchAsync(query);
+        if (args.Has("json")) WriteJson(page);
+        else
+        {
+            Console.WriteLine($"{page.Items.Count} item(s) Workshop · page {page.Page}");
+            foreach (var item in page.Items)
+                Console.WriteLine($"{item.WorkshopId,12}  {item.Subscriptions,10:N0} abonnés  {item.Title}");
+        }
+        return 0;
+    }
+
     private static void Configure(PackageProject project, CliArguments args)
     {
         if (args.Get("name") is { } name) project.Name = name;
@@ -399,6 +420,7 @@ Chaque projet représente un pack global indépendant avec son propre Workshop I
   pzasm server start --name <profil>
   pzasm server stop --name <profil> --yes
   pzasm server apply --name <profil> --id <guid> --yes
+  pzasm workshop search [--query <texte-ou-id>] [--sort trend|recent|subscribed|popular|relevance] [--tag <tag>] [--page 1] [--json]
   pzasm steamcmd status [--json]
   pzasm steamcmd install [--id <guid>] [--json]
   pzasm automation once
@@ -456,6 +478,7 @@ internal sealed class CliServices
         Automation = new PackageAutomationService(paths, Store, Lifecycle);
         WorkshopImport = new WorkshopImportService(steamCmd, discovery, Environment, Projects);
         SteamCmdInstaller = new SteamCmdInstaller(paths);
+        WorkshopCatalog = new WorkshopCatalogService();
     }
 
     public ApplicationPaths Paths { get; }
@@ -467,6 +490,7 @@ internal sealed class CliServices
     public PackageAutomationService Automation { get; }
     public WorkshopImportService WorkshopImport { get; }
     public SteamCmdInstaller SteamCmdInstaller { get; }
+    public WorkshopCatalogService WorkshopCatalog { get; }
     public MapPriorityService MapPriority { get; }
     public ServerProfileService Servers { get; }
 }

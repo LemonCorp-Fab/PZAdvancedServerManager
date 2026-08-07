@@ -36,17 +36,10 @@ public sealed partial class PzDiscoveryService(ApplicationPaths paths)
     public IReadOnlyList<DiscoveredMod> DiscoverMods(PzInstallation installation, string targetVersion = PzasmConstants.DefaultTargetVersion)
     {
         var roots = new List<(string ModsRoot, ulong WorkshopId)>();
-        if (Directory.Exists(installation.WorkshopRoot))
-        {
-            foreach (var item in Directory.EnumerateDirectories(installation.WorkshopRoot))
-            {
-                if (ulong.TryParse(Path.GetFileName(item), out var workshopId))
-                {
-                    var mods = Path.Combine(item, "mods");
-                    if (Directory.Exists(mods)) roots.Add((mods, workshopId));
-                }
-            }
-        }
+        AddWorkshopMods(roots, installation.WorkshopRoot);
+        AddWorkshopMods(roots, Path.Combine(paths.SteamCmdRoot, "steamapps", "workshop", "content", PzasmConstants.ProjectZomboidSteamAppId));
+        if (installation.DedicatedServerRoot is not null)
+            AddWorkshopMods(roots, Path.Combine(installation.DedicatedServerRoot, "steamapps", "workshop", "content", PzasmConstants.ProjectZomboidSteamAppId));
 
         AddLocalMods(roots, installation.UserZomboidRoot);
         if (installation.ClientRoot is not null) AddLocalMods(roots, installation.ClientRoot);
@@ -115,6 +108,18 @@ public sealed partial class PzDiscoveryService(ApplicationPaths paths)
     {
         var mods = Path.Combine(baseRoot, "mods");
         if (Directory.Exists(mods)) roots.Add((mods, 0));
+    }
+
+    private static void AddWorkshopMods(List<(string ModsRoot, ulong WorkshopId)> roots, string? workshopRoot)
+    {
+        if (!Directory.Exists(workshopRoot)) return;
+        foreach (var item in Directory.EnumerateDirectories(workshopRoot))
+        {
+            if (!ulong.TryParse(Path.GetFileName(item), out var workshopId)) continue;
+            var mods = Path.Combine(item, "mods");
+            if (!Directory.Exists(mods)) mods = Path.Combine(item, "Contents", "mods");
+            if (Directory.Exists(mods)) roots.Add((mods, workshopId));
+        }
     }
 
     private static string? FindFirstExisting(IEnumerable<string> paths) => paths.FirstOrDefault(Directory.Exists) ?? paths.FirstOrDefault(File.Exists);

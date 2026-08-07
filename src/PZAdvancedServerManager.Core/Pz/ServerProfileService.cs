@@ -77,6 +77,24 @@ public sealed class ServerProfileService(
         return backup;
     }
 
+    public ServerContentUpdateResult AddContent(string name, IEnumerable<ulong> workshopIds, IEnumerable<string> modIds)
+    {
+        var profile = Get(name);
+        var document = ServerConfigDocument.Load(profile.Path);
+        var workshop = document.GetList("WorkshopItems").ToList();
+        var mods = document.GetList("Mods").ToList();
+        var addedWorkshop = AppendDistinct(workshop, workshopIds.Where(id => id != 0).Select(id => id.ToString()));
+        var addedMods = AppendDistinct(mods, modIds.Where(id => !string.IsNullOrWhiteSpace(id)));
+        if (addedWorkshop == 0 && addedMods == 0)
+            return new ServerContentUpdateResult(string.Empty, 0, 0, workshop, mods);
+
+        var backup = Backup(profile.Path);
+        document.Set("WorkshopItems", string.Join(';', workshop));
+        document.Set("Mods", string.Join(';', mods));
+        document.Save(profile.Path);
+        return new ServerContentUpdateResult(backup, addedWorkshop, addedMods, workshop, mods);
+    }
+
     public async Task<bool> IsOnlineAsync(string name, CancellationToken cancellationToken = default) =>
         await orchestration.IsOnlineAsync(Get(name).Path, cancellationToken);
 
@@ -136,8 +154,22 @@ public sealed class ServerProfileService(
         File.Copy(path, backup, false);
         return backup;
     }
+
+    private static int AppendDistinct(List<string> target, IEnumerable<string> values)
+    {
+        var known = target.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var added = 0;
+        foreach (var value in values.Select(value => value.Trim()).Where(value => value.Length > 0))
+        {
+            if (!known.Add(value)) continue;
+            target.Add(value);
+            added++;
+        }
+        return added;
+    }
 }
 
 public sealed record ServerConfigEntry(string Name, string Path);
 public sealed record ServerConfigSummary(IReadOnlyList<string> WorkshopItems, IReadOnlyList<string> Mods, IReadOnlyList<string> Maps);
 public sealed record ServerApplyResult(string BackupPath, IReadOnlyList<string> WorkshopItems, IReadOnlyList<string> Mods, IReadOnlyList<string> Maps);
+public sealed record ServerContentUpdateResult(string BackupPath, int AddedWorkshopItems, int AddedMods, IReadOnlyList<string> WorkshopItems, IReadOnlyList<string> Mods);

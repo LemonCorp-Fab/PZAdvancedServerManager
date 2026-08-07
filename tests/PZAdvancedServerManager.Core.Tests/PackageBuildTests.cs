@@ -144,6 +144,26 @@ public sealed class PackageBuildTests : IDisposable
         Assert.Contains(validation.Issues, x => x.Code == "AUTOMATION_TIME");
     }
 
+    [Fact]
+    public void ScheduledPublishDoesNotRequireLocalServerCoordination()
+    {
+        var source = CreateMod("Remote", "remote-id", "return true");
+        var project = ValidProject(PackageMode.Bundle, Ref("remote-id", "Remote", source));
+        var steamCmd = Path.Combine(_root, "steamcmd.exe");
+        File.WriteAllText(steamCmd, string.Empty);
+        project.Automation.SteamCmdPath = steamCmd;
+        project.Automation.SteamUsername = "publisher";
+        project.Automation.Enabled = true;
+        project.Automation.DailyTimes = ["04:00"];
+        project.Automation.PublishAfterBuild = true;
+        project.Automation.CoordinatedServerName = string.Empty;
+
+        var validation = new PackageValidator().Validate(project);
+
+        Assert.True(validation.CanAutomate);
+        Assert.DoesNotContain(validation.Issues, issue => issue.Code == "AUTOMATION_SERVER");
+    }
+
     private PackageProject ValidProject(PackageMode mode, params PackageModReference[] mods) => new()
     {
         Name = "Server Pack",

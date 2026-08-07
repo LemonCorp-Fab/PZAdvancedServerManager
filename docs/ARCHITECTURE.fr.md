@@ -78,7 +78,7 @@ Un mod Project Zomboid ne peut pas gérer de manière fiable SteamCMD, les fichi
 
 ## Sécurité et droits
 
-La [politique officielle Project Zomboid](https://projectzomboid.com/blog/modding-policy/) exige les autorisations appropriées pour les packs publics et non listés. Les droits inconnus autorisent un build local mais bloquent la publication ; un refus bloque le build ; les preuves privées restent hors de `Contents` ; la description publique liste toutes les sources.
+La [politique officielle Project Zomboid](https://projectzomboid.com/blog/modding-policy/) est présentée à l’administrateur, qui reste seul responsable de ses décisions. Les statuts d’autorisation, preuves et accusés de lecture sont uniquement documentaires : ils ne bloquent jamais la construction, la publication ou l’automatisation. Les situations inconnues, sans preuve ou refusées restent clairement signalées ; les preuves privées restent hors de `Contents` et la description publique liste toutes les sources.
 
 Steam peut conserver un nouvel item masqué tant que l’[accord Workshop](https://steamcommunity.com/workshop/workshopsubmitinfo/) n’a pas été accepté.
 

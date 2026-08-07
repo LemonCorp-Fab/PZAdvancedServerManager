@@ -47,7 +47,7 @@ public sealed class PackageBuildTests : IDisposable
     }
 
     [Fact]
-    public void UnknownRights_AllowsLocalBuild_ButBlocksPublication()
+    public void PermissionRecords_AreAdvisoryAndNeverBlockActions()
     {
         var source = CreateMod("Unknown", "unknown", "return true");
         var project = ValidProject(PackageMode.Bundle, new PackageModReference
@@ -58,10 +58,25 @@ public sealed class PackageBuildTests : IDisposable
             SelectedVersionFolder = "common",
             Permission = new() { Status = PermissionStatus.Unknown }
         });
+        var steamCmd = Path.Combine(_root, "steamcmd.exe");
+        File.WriteAllText(steamCmd, string.Empty);
+        project.Automation.SteamCmdPath = steamCmd;
+        project.Automation.SteamUsername = "publisher";
+        project.LegalWarningAccepted = false;
         var validation = new PackageValidator().Validate(project);
         Assert.True(validation.CanBuild);
-        Assert.False(validation.CanPublish);
-        Assert.Contains(validation.Issues, x => x.Code == "RIGHTS_UNKNOWN");
+        Assert.True(validation.CanPublish);
+        Assert.True(validation.CanAutomate);
+        Assert.Contains(validation.Issues, x => x.Code == "RIGHTS_UNKNOWN" && !x.IsError);
+        Assert.Contains(validation.Issues, x => x.Code == "LEGAL_ACK" && !x.IsError);
+
+        project.LegalWarningAccepted = true;
+        project.Mods[0].Permission.Status = PermissionStatus.Denied;
+        validation = new PackageValidator().Validate(project);
+        Assert.True(validation.CanBuild);
+        Assert.True(validation.CanPublish);
+        Assert.True(validation.CanAutomate);
+        Assert.Contains(validation.Issues, x => x.Code == "RIGHTS_DENIED" && !x.IsError);
     }
 
     [Fact]

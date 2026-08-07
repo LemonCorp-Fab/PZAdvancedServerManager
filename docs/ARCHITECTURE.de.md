@@ -59,7 +59,7 @@ Ein Spiel-Mod kann SteamCMD, Zeitpläne außerhalb des Spiels, private Dateien u
 
 ## Sicherheit und Rechte
 
-Die [offizielle Richtlinie](https://projectzomboid.com/blog/modding-policy/) verlangt Genehmigungen für öffentliche und nicht gelistete Pakete. Unbekannte Rechte erlauben einen lokalen Build, blockieren aber die Veröffentlichung. Abgelehnte Rechte blockieren den Build. Private Nachweise bleiben außerhalb von `Contents`, und die öffentliche Beschreibung nennt alle Quellen.
+Die [offizielle Richtlinie](https://projectzomboid.com/blog/modding-policy/) wird dem Administrator angezeigt; für seine Entscheidungen bleibt er allein verantwortlich. Berechtigungsstatus, Nachweise und Lesebestätigung dienen nur der Dokumentation und blockieren niemals Build, Veröffentlichung oder Automatisierung. Unbekannte, unbelegte oder abgelehnte Fälle bleiben deutlich als Warnungen sichtbar; private Nachweise bleiben außerhalb von `Contents`, und die öffentliche Beschreibung nennt alle Quellen.
 
 Steam kann ein neues Item verbergen, bis die [Workshop-Vereinbarung](https://steamcommunity.com/workshop/workshopsubmitinfo/) akzeptiert wurde.
 

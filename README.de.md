@@ -36,6 +36,7 @@ Siehe die vollständige [Architektur- und Machbarkeitsstudie](docs/ARCHITECTURE.
 - Strict Fusion mit Deduplizierung identischer Dateien und Konfliktbericht;
 - vollständige Workshop-Beschreibung, öffentliches Manifest und Lockfile;
 - Erfassung von Autoren, Lizenzen, Berechtigungen und nicht veröffentlichten privaten Nachweisen;
+- rein informative Berechtigungsstatus und Warnungen, die Build, Veröffentlichung oder Automatisierung niemals blockieren; Kontrolle und Verantwortung bleiben beim Administrator;
 - optionales, standardmäßig aktiviertes mehrsprachiges Verbindungsfenster mit vollständiger Liste, angegebenen Mod-Versionen, PZ-Profilen und fixierten Revisionen;
 - Erstellung und spätere Aktualisierung desselben Workshop-Items;
 - moderner responsiver Projektarbeitsbereich mit klareren Gruppen, standardmäßig eingeklappten Rechtekarten, sechs dauerhaft gewählten Sprachen sowie Hell-/Dunkelmodus (standardmäßig hell);

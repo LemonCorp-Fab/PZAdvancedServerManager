@@ -109,7 +109,7 @@ Steam documents that `workshop_build_item` creates an item when `publishedfileid
 The PZASM scheduler:
 
 1. determines whether a configured time is due;
-2. validates permissions, dependencies, project state, and source files;
+2. reports permission records and validates dependencies, project state, and source files;
 3. optionally downloads current source items with SteamCMD;
 4. resolves every source to the matching Mod ID in the SteamCMD cache;
 5. atomically replaces private snapshots and recalculates SHA-256 hashes;
@@ -185,8 +185,8 @@ PZASM therefore enforces these rules:
 
 - the user must acknowledge the global warning;
 - every source has a permission status and evidence fields;
-- unknown permission allows a local build but blocks publication;
-- denied permission blocks the build;
+- permission statuses and evidence are advisory records that never block build, publication, or automation;
+- unknown, missing-evidence, and denied statuses remain clearly visible as warnings so the administrator can make an informed decision;
 - private evidence stays outside `Contents`;
 - the generated public description contains every source;
 - LemonCorp does not certify user-entered declarations and is not responsible for their accuracy.

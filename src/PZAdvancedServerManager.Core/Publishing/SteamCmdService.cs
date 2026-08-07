@@ -49,7 +49,7 @@ public sealed class SteamCmdService(PackageValidator validator)
     {
         var validation = validator.Validate(project);
         if (!validation.CanPublish)
-            throw new InvalidOperationException("Publication bloquée : les droits ou la configuration du pack ne sont pas validés.");
+            throw new InvalidOperationException("Publication bloquée par une erreur technique dans la configuration ou le contenu du pack.");
         ValidateExecutable(project.Automation.SteamCmdPath);
         if (string.IsNullOrWhiteSpace(project.Automation.SteamUsername))
             throw new InvalidOperationException("Le nom de compte Steam est requis. Le mot de passe n'est jamais conservé par PZASM.");

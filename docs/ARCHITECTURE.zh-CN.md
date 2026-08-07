@@ -59,7 +59,7 @@ steamapps/workshop/content/108600/<WorkshopId>/
 
 ## 安全与权利
 
-[官方模组政策](https://projectzomboid.com/blog/modding-policy/)要求公开和不公开列出的模组包取得适当许可。未知权利允许本地构建但阻止发布；明确拒绝会阻止构建；私有证明不会进入 `Contents`；公开描述始终列出所有来源。
+[官方模组政策](https://projectzomboid.com/blog/modding-policy/)会展示给管理员，最终决定及责任由管理员自行承担。授权状态、证明和已读确认仅用于记录，绝不会阻止构建、发布或自动化。未知、缺少证明或已拒绝的情况仍会清晰显示为警告；私有证明不会进入 `Contents`，公开描述始终列出所有来源。
 
 在接受 [Workshop 法律协议](https://steamcommunity.com/workshop/workshopsubmitinfo/)之前，Steam 可能隐藏新条目。
 

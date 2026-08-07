@@ -36,6 +36,7 @@ Consultez l’[étude d’architecture complète](docs/ARCHITECTURE.fr.md).
 - Fusion stricte avec déduplication des fichiers identiques et rapport des collisions ;
 - description Workshop et manifeste public exhaustifs ;
 - suivi des auteurs, licences, autorisations et preuves privées non publiées ;
+- statuts et avertissements d’autorisation purement informatifs, sans blocage de la construction, de la publication ou de l’automatisation ; l’administrateur garde le contrôle et la responsabilité ;
 - popup de connexion multilingue optionnelle activée par défaut, avec la liste exhaustive, les versions déclarées, les profils PZ et les révisions figées ;
 - génération des fichiers Workshop, VDF SteamCMD, configuration serveur et lockfile ;
 - création puis mises à jour du même item Workshop ;

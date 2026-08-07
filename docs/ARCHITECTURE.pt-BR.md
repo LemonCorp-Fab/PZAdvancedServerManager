@@ -51,7 +51,7 @@ Ao adicionar uma origem, o PZASM cria um snapshot privado e calcula seu SHA-256.
 
 O [guia do Steamworks Workshop](https://partner.steamgames.com/doc/features/workshop/implementation) documenta criação e atualização com `workshop_build_item`.
 
-O agendador valida permissões e dependências, atualiza opcionalmente as origens, constrói em uma pasta temporária, executa `save` e `quit` via RCON, publica e reinicia o servidor se ele estava ativo. Senhas e códigos Steam Guard não são armazenados.
+O agendador informa os registros de permissão e valida as dependências, atualiza opcionalmente as origens, constrói em uma pasta temporária, executa `save` e `quit` via RCON, publica e reinicia o servidor se ele estava ativo. Senhas e códigos Steam Guard não são armazenados.
 
 ## Aplicativo externo
 
@@ -59,7 +59,7 @@ Um mod executado dentro do jogo não gerencia de forma confiável SteamCMD, hor�
 
 ## Segurança e direitos
 
-A [política oficial](https://projectzomboid.com/blog/modding-policy/) exige permissões adequadas para pacotes públicos e não listados. Direitos desconhecidos permitem build local, mas bloqueiam a publicação; uma recusa bloqueia o build; provas privadas ficam fora de `Contents`; a descrição pública lista todas as origens.
+A [política oficial](https://projectzomboid.com/blog/modding-policy/) é apresentada ao administrador, que continua sendo o único responsável por suas decisões. Status de permissão, provas e confirmação de leitura são apenas informativos: nunca bloqueiam build, publicação ou automação. Casos desconhecidos, sem prova ou recusados continuam claramente visíveis como avisos; provas privadas ficam fora de `Contents` e a descrição pública lista todas as origens.
 
 O Steam pode ocultar um item novo até o aceite do [acordo do Workshop](https://steamcommunity.com/workshop/workshopsubmitinfo/).
 

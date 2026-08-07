@@ -39,6 +39,7 @@ See the complete [architecture and feasibility study](docs/ARCHITECTURE.md).
 - Strict Fusion builds with identical-file deduplication and incompatible-collision reports;
 - exhaustive Workshop descriptions with author, Mod ID, original link, source Workshop ID, and permission status;
 - public evidence and local private attachments, with private evidence always excluded from `Contents`;
+- advisory permission records and warnings that never block build, publication, or automation; administrators retain full control and responsibility;
 - an optional localized connection notice enabled by default, containing the pack description, legal notice, and exhaustive mod list with declared mod versions, PZ profiles, and pinned revisions;
 - generation of `workshop.txt`, `steamcmd-item.vdf`, `server-config.txt`, preview PNG, public manifest, and SHA-256 `pack.lock.json`;
 - creation and update of the same Workshop item, with the SteamCMD-written `publishedfileid` saved back into the project;

@@ -36,6 +36,7 @@ Leia o [estudo completo de arquitetura](docs/ARCHITECTURE.pt-BR.md).
 - Strict Fusion com desduplicação de arquivos idênticos e relatório de conflitos;
 - descrição do Workshop, manifesto público e lockfile completos;
 - registro de autores, licenças, permissões e provas privadas não publicadas;
+- status e avisos de permissão apenas informativos, sem bloquear build, publicação ou automação; o administrador mantém o controle e a responsabilidade;
 - janela de conexão multilíngue opcional, ativada por padrão, com lista completa, versões declaradas, perfis PZ e revisões fixadas;
 - criação e atualizações posteriores do mesmo item Workshop;
 - espaço de projeto moderno e responsivo, com grupos mais claros, cartões de permissões recolhidos por padrão, seis idiomas persistentes e temas claro/escuro (claro por padrão);

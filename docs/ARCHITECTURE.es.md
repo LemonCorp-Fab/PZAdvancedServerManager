@@ -51,7 +51,7 @@ Al añadir una fuente, PZASM crea una instantánea privada y calcula su SHA-256.
 
 La [guía Steamworks Workshop](https://partner.steamgames.com/doc/features/workshop/implementation) documenta la creación y actualización mediante `workshop_build_item`.
 
-El planificador valida permisos y dependencias, actualiza opcionalmente las fuentes, construye en un directorio temporal, ejecuta `save` y `quit` por RCON, publica y reinicia el servidor si estaba activo. No guarda contraseñas ni códigos Steam Guard.
+El planificador informa de los permisos y valida las dependencias, actualiza opcionalmente las fuentes, construye en un directorio temporal, ejecuta `save` y `quit` por RCON, publica y reinicia el servidor si estaba activo. No guarda contraseñas ni códigos Steam Guard.
 
 ## Aplicación externa
 
@@ -59,7 +59,7 @@ Un mod ejecutado dentro del juego no puede administrar de forma fiable SteamCMD,
 
 ## Seguridad y derechos
 
-La [política oficial](https://projectzomboid.com/blog/modding-policy/) exige permisos adecuados para paquetes públicos y no listados. Permisos desconocidos permiten un build local, pero bloquean la publicación; un rechazo bloquea el build; las pruebas privadas no entran en `Contents`; la descripción pública siempre enumera todas las fuentes.
+La [política oficial](https://projectzomboid.com/blog/modding-policy/) se presenta al administrador, que sigue siendo el único responsable de sus decisiones. Los estados de permiso, las pruebas y la confirmación de lectura son únicamente informativos: nunca bloquean la compilación, publicación o automatización. Las situaciones desconocidas, sin prueba o rechazadas siguen mostrándose claramente; las pruebas privadas no entran en `Contents` y la descripción pública enumera todas las fuentes.
 
 Steam puede ocultar un elemento nuevo hasta aceptar el [acuerdo de Workshop](https://steamcommunity.com/workshop/workshopsubmitinfo/).
 

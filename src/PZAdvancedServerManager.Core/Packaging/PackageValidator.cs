@@ -19,7 +19,7 @@ public sealed class PackageValidator
         if (project.Mods.All(x => !x.Enabled))
             result.Issues.Add(new("NO_MODS", "Ajoutez au moins un mod activé au pack.", true));
         if (!project.LegalWarningAccepted)
-            result.Issues.Add(new("LEGAL_ACK", "L'avertissement sur les droits et autorisations doit être accepté avant publication.", true, Scope: ValidationScope.PublishOnly));
+            result.Issues.Add(new("LEGAL_ACK", "L'avertissement sur les droits et autorisations n'a pas été marqué comme lu. Cela ne bloque ni la construction ni la publication.", false, Scope: ValidationScope.Warning));
         if (string.IsNullOrWhiteSpace(project.Automation.SteamCmdPath) || !File.Exists(project.Automation.SteamCmdPath))
             result.Issues.Add(new("STEAMCMD_PATH", "Indiquez un exécutable SteamCMD existant avant publication.", true, Scope: ValidationScope.PublishOnly));
         if (string.IsNullOrWhiteSpace(project.Automation.SteamUsername))
@@ -71,13 +71,13 @@ public sealed class PackageValidator
             switch (mod.Permission.Status)
             {
                 case PermissionStatus.Unknown:
-                    result.Issues.Add(new("RIGHTS_UNKNOWN", $"Autorisation non documentée pour « {mod.Name} ». Construction locale possible, publication bloquée.", true, mod.Id, ValidationScope.PublishOnly));
+                    result.Issues.Add(new("RIGHTS_UNKNOWN", $"Autorisation non documentée pour « {mod.Name} ». Information consultative : la publication reste disponible.", false, mod.Id, ValidationScope.Warning));
                     break;
                 case PermissionStatus.Denied:
-                    result.Issues.Add(new("RIGHTS_DENIED", $"Le détenteur des droits a refusé l'inclusion de « {mod.Name} ».", true, mod.Id));
+                    result.Issues.Add(new("RIGHTS_DENIED", $"Le statut enregistré indique un refus pour « {mod.Name} ». Cet avertissement ne bloque pas les actions de l'administrateur.", false, mod.Id, ValidationScope.Warning));
                     break;
                 case PermissionStatus.ExplicitPermission or PermissionStatus.CompatibleLicense when string.IsNullOrWhiteSpace(mod.Permission.PublicEvidenceUrl) && string.IsNullOrWhiteSpace(mod.Permission.PrivateAttachmentPath) && string.IsNullOrWhiteSpace(mod.Permission.Notes):
-                    result.Issues.Add(new("RIGHTS_EVIDENCE", $"Ajoutez une preuve ou une note d'autorisation pour « {mod.Name} ».", true, mod.Id, ValidationScope.PublishOnly));
+                    result.Issues.Add(new("RIGHTS_EVIDENCE", $"Aucune preuve ou note d'autorisation n'est jointe pour « {mod.Name} ». Cette documentation est facultative et non bloquante.", false, mod.Id, ValidationScope.Warning));
                     break;
             }
         }

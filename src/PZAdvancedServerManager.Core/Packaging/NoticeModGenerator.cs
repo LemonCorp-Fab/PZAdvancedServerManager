@@ -32,8 +32,14 @@ public static class NoticeModGenerator
         var title = LuaString(project.NoticeTitle);
         var packName = LuaString(project.Name);
         var description = LuaString(project.Description);
-        var legal = LuaString("Ce pack a été assemblé avec PZ Advanced Server Manager. Les auteurs de chaque mod restent propriétaires de leur travail. Le créateur du pack est responsable d'avoir obtenu les autorisations nécessaires.");
-        var modLines = project.Mods.Where(x => x.Enabled).OrderBy(x => x.Order).ThenBy(x => x.Name).Select((x, i) => $"{i + 1}. {x.Name} — Mod ID: {x.ModId} — Workshop: {(x.WorkshopId == 0 ? "local" : x.WorkshopId)} — auteur: {(string.IsNullOrWhiteSpace(x.Author) ? "non renseigné" : x.Author)}");
+        var legalFr = LuaString("Ce pack a été assemblé avec PZ Advanced Server Manager. Les auteurs de chaque mod restent propriétaires de leur travail. Le créateur du pack est responsable d'avoir obtenu les autorisations nécessaires.");
+        var legalEn = LuaString("This pack was assembled with PZ Advanced Server Manager. Each mod remains the property of its author. The pack creator is responsible for obtaining the required permissions.");
+        var legalEs = LuaString("Este paquete fue creado con PZ Advanced Server Manager. Cada mod sigue siendo propiedad de su autor. El creador del paquete es responsable de obtener los permisos necesarios.");
+        var legalDe = LuaString("Dieses Paket wurde mit PZ Advanced Server Manager erstellt. Jeder Mod bleibt Eigentum seines Autors. Der Paketersteller ist für die erforderlichen Genehmigungen verantwortlich.");
+        var legalPt = LuaString("Este pacote foi criado com o PZ Advanced Server Manager. Cada mod continua sendo propriedade do autor. O criador do pacote é responsável pelas permissões necessárias.");
+        var legalZh = LuaString("此模组包由 PZ Advanced Server Manager 组装。每个模组的权利仍归其作者所有，模组包创建者负责取得所需许可。");
+        var modLines = project.Mods.Where(x => x.Enabled).OrderBy(x => x.Order).ThenBy(x => x.Name).Select((x, i) =>
+            $"{i + 1}. {x.Name} — Version: {x.DisplayVersion} — PZ: {(string.IsNullOrWhiteSpace(x.SelectedVersionFolder) ? "root" : x.SelectedVersionFolder)} — Revision: {(string.IsNullOrWhiteSpace(x.PinnedContentHash) ? "not pinned" : x.PinnedContentHash[..Math.Min(12, x.PinnedContentHash.Length)])} — Mod ID: {x.ModId} — Workshop: {(x.WorkshopId == 0 ? "local" : x.WorkshopId)} — Author: {(string.IsNullOrWhiteSpace(x.Author) ? "—" : x.Author)}");
         var exhaustiveList = LuaString(string.Join("\n", modLines));
 
         var lua = $$"""
@@ -43,6 +49,31 @@ require "ISUI/ISButton"
 
 local PZASM_NOTICE_SHOWN = false
 
+local PZASM_TEXT = {
+    fr = { rights = "INFORMATION SUR LES DROITS", mods = "Mods inclus et versions", close = "J'ai compris", legal = {{legalFr}} },
+    en = { rights = "RIGHTS INFORMATION", mods = "Included mods and versions", close = "I understand", legal = {{legalEn}} },
+    es = { rights = "INFORMACIÓN DE DERECHOS", mods = "Mods y versiones incluidos", close = "Entendido", legal = {{legalEs}} },
+    de = { rights = "RECHTEINFORMATIONEN", mods = "Enthaltene Mods und Versionen", close = "Verstanden", legal = {{legalDe}} },
+    pt = { rights = "INFORMAÇÕES DE DIREITOS", mods = "Mods e versões incluídos", close = "Entendi", legal = {{legalPt}} },
+    zh = { rights = "权利信息", mods = "包含的模组与版本", close = "我已了解", legal = {{legalZh}} }
+}
+
+local function pzasmLanguage()
+    local value = "en"
+    local ok, detected = pcall(function()
+        if Translator and Translator.getLanguage then return tostring(Translator.getLanguage():name()) end
+        if getCore and getCore().getOptionLanguageName then return tostring(getCore():getOptionLanguageName()) end
+        return "en"
+    end)
+    if ok and detected then value = string.lower(detected) end
+    if string.find(value, "fr") or string.find(value, "french") then return "fr" end
+    if string.find(value, "es") or string.find(value, "spanish") then return "es" end
+    if string.find(value, "de") or string.find(value, "german") then return "de" end
+    if string.find(value, "pt") or string.find(value, "portugu") then return "pt" end
+    if string.find(value, "zh") or string.find(value, "cn") or string.find(value, "chinese") then return "zh" end
+    return "en"
+end
+
 local function pzasmEscapeRichText(value)
     return string.gsub(string.gsub(value or "", "<", "&lt;"), ">", "&gt;")
 end
@@ -50,6 +81,7 @@ end
 local function pzasmShowPackNotice()
     if PZASM_NOTICE_SHOWN then return end
     PZASM_NOTICE_SHOWN = true
+    local text = PZASM_TEXT[pzasmLanguage()] or PZASM_TEXT.en
 
     local width = math.min(760, getCore():getScreenWidth() - 80)
     local height = math.min(620, getCore():getScreenHeight() - 80)
@@ -68,12 +100,12 @@ local function pzasmShowPackNotice()
     rich.text = "<H1>" .. pzasmEscapeRichText({{title}}) .. "</H1><LINE>" ..
         "<H2>" .. pzasmEscapeRichText({{packName}}) .. "</H2><LINE>" ..
         pzasmEscapeRichText({{description}}) .. "<LINE><LINE>" ..
-        "<RGB:0.84,0.67,0.25>INFORMATION SUR LES DROITS<RGB:1,1,1><LINE>" .. pzasmEscapeRichText({{legal}}) ..
-        "<LINE><LINE><H2>Mods inclus</H2><LINE>" .. string.gsub(pzasmEscapeRichText({{exhaustiveList}}), "\n", "<LINE>")
+        "<RGB:0.84,0.67,0.25>" .. text.rights .. "<RGB:1,1,1><LINE>" .. pzasmEscapeRichText(text.legal) ..
+        "<LINE><LINE><H2>" .. text.mods .. "</H2><LINE>" .. string.gsub(pzasmEscapeRichText({{exhaustiveList}}), "\n", "<LINE>")
     rich:paginate()
     panel:addChild(rich)
 
-    local close = ISButton:new(width - 142, height - 52, 120, 32, "J'ai compris", panel, function(target)
+    local close = ISButton:new(width - 142, height - 52, 120, 32, text.close, panel, function(target)
         target:setVisible(false)
         target:removeFromUIManager()
     end)

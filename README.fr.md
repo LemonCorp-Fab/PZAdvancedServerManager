@@ -36,10 +36,11 @@ Consultez l’[étude d’architecture complète](docs/ARCHITECTURE.fr.md).
 - Fusion stricte avec déduplication des fichiers identiques et rapport des collisions ;
 - description Workshop et manifeste public exhaustifs ;
 - suivi des auteurs, licences, autorisations et preuves privées non publiées ;
-- popup de connexion optionnelle activée par défaut ;
+- popup de connexion multilingue optionnelle activée par défaut, avec la liste exhaustive, les versions déclarées, les profils PZ et les révisions figées ;
 - génération des fichiers Workshop, VDF SteamCMD, configuration serveur et lockfile ;
 - création puis mises à jour du même item Workshop ;
-- espace projet moderne à onglets, réglages guidés et contrôles experts sur les valeurs exactes ;
+- espace projet moderne et adaptatif avec regroupements plus lisibles, cartes de droits repliées par défaut, six langues persistantes et thèmes clair/sombre (clair par défaut) ;
+- progression détaillée des imports Workshop : item courant, phase, compteur, pourcentage, résultat de l’analyse et erreur refermable ;
 - assistant d’ordre des cartes fondé sur `map.info`, les dépendances `lots=`, les conflits de cellules `.lotheader`, le glisser-déposer et l’édition brute de `Map=` ;
 - éditeur serveur guidé pour l’identité, l’accès, RCON, la session, les sauvegardes et le contenu, complété par l’éditeur INI brut avec préservation de l’encodage ;
 - arrêt propre `save`/`quit` par RCON et redémarrage coordonné ;

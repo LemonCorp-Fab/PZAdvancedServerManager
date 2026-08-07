@@ -36,9 +36,10 @@ Consulta el [estudio completo de arquitectura](docs/ARCHITECTURE.es.md).
 - Strict Fusion con deduplicación de archivos idénticos e informe de conflictos;
 - descripción Workshop, manifiesto público y lockfile exhaustivos;
 - registro de autores, licencias, permisos y pruebas privadas no publicadas;
-- ventana de conexión opcional, activada por defecto;
+- ventana de conexión multilingüe opcional, activada por defecto, con lista exhaustiva, versiones declaradas, perfiles PZ y revisiones fijadas;
 - creación y actualización posterior del mismo elemento Workshop;
-- espacio de proyecto moderno con pestañas, ajustes guiados y controles expertos de valores exactos;
+- espacio de proyecto moderno y adaptable, con grupos más claros, tarjetas de permisos plegadas por defecto, seis idiomas persistentes y temas claro/oscuro (claro por defecto);
+- progreso detallado de importación del Workshop con elemento y fase actuales, contador, porcentaje, resultado del análisis y errores recuperables;
 - asistente de prioridad de mapas basado en `map.info`, dependencias `lots=`, conflictos de celdas `.lotheader`, arrastrar y soltar y edición manual de `Map=`;
 - editor guiado del servidor para identidad, acceso, RCON, sesión, copias y contenido, además del editor INI completo;
 - parada RCON mediante `save`/`quit` y reinicio coordinado;

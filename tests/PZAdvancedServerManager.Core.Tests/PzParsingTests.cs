@@ -12,11 +12,13 @@ public sealed class PzParsingTests : IDisposable
     {
         Write("mod.info", "id=legacy");
         Write("42.0/mod.info", "id=base42");
-        Write("42.13/mod.info", "id=modern42");
+        Write("42.13/mod.info", "id=modern42\nversion=2.4.1");
         Write("43.0/mod.info", "id=future");
         var selected = PzVersionSelector.SelectManifest(_root, "42.20.2", out var folder);
         Assert.Equal("42.13", folder);
-        Assert.Equal("modern42", ModInfoParser.Parse(selected).Id);
+        var info = ModInfoParser.Parse(selected);
+        Assert.Equal("modern42", info.Id);
+        Assert.Equal("2.4.1", info.Version);
     }
 
     [Fact]

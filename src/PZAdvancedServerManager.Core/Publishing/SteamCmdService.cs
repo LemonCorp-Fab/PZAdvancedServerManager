@@ -111,6 +111,7 @@ public sealed class SteamCmdService(PackageValidator validator)
                 var info = ModInfoParser.Parse(manifest);
                 if (!info.Id.Equals(reference.ModId, StringComparison.OrdinalIgnoreCase)) continue;
                 reference.SourceModRoot = candidate;
+                reference.Version = info.Version;
                 reference.SelectedVersionFolder = selected;
                 break;
             }

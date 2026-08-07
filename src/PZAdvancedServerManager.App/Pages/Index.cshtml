@@ -77,7 +77,7 @@ else
                     <div class="project-top"><span class="mode-badge">@(project.Mode == PackageMode.Bundle ? "BUNDLE CONSEILLÉ" : "FUSION STRICTE")</span><span>@project.UpdatedAt.LocalDateTime.ToString("dd/MM HH:mm")</span></div>
                     <h3>@project.Name</h3>
                     <p>@project.Description</p>
-                    <div class="project-meta"><span>@project.Mods.Count(x => x.Enabled) mods</span><span>Workshop: @(project.PublishedWorkshopId == 0 ? "à créer" : project.PublishedWorkshopId)</span></div>
+                    <div class="project-meta"><span>@project.Mods.Count(x => x.Enabled) mods</span><span>PZ @project.TargetPzVersion</span><span>Workshop: @(project.PublishedWorkshopId == 0 ? "à créer" : project.PublishedWorkshopId)</span></div>
                 </a>
                 <div class="project-card-actions">
                     <form method="post" asp-page-handler="Duplicate" data-loading-title="Duplication du pack…" data-loading-detail="Copie de la configuration et création de snapshots indépendants."><input type="hidden" name="id" value="@project.Id" /><button class="button ghost" type="submit">Dupliquer</button></form>

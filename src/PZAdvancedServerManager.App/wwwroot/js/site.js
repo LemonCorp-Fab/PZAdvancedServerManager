@@ -9,6 +9,30 @@ document.querySelectorAll('[data-mod-filter]').forEach(filter => {
     });
 });
 
+document.querySelectorAll('details.mod-card').forEach(card => {
+    const label = card.querySelector('.mod-expand-hint > span');
+    const update = () => { if (label) label.textContent = card.open ? 'Masquer les détails' : 'Afficher les détails'; };
+    card.addEventListener('toggle', update);
+    update();
+});
+
+(() => {
+    const root = document.documentElement;
+    const themeToggle = document.querySelector('[data-theme-toggle]');
+    const themeIcon = document.querySelector('[data-theme-icon]');
+    const themeLabel = document.querySelector('[data-theme-label]');
+    const applyTheme = theme => {
+        const selected = theme === 'dark' ? 'dark' : 'light';
+        root.dataset.theme = selected;
+        if (themeIcon) themeIcon.textContent = selected === 'dark' ? '☾' : '☀';
+        if (themeLabel) themeLabel.textContent = selected === 'dark' ? 'Mode sombre' : 'Mode clair';
+        themeToggle?.setAttribute('aria-pressed', selected === 'dark' ? 'true' : 'false');
+        try { window.localStorage.setItem('pzasm-theme', selected); } catch { }
+    };
+    themeToggle?.addEventListener('click', () => applyTheme(root.dataset.theme === 'dark' ? 'light' : 'dark'));
+    applyTheme(root.dataset.theme);
+})();
+
 document.querySelectorAll('[data-tabs]').forEach(tabSet => {
     const buttons = Array.from(tabSet.querySelectorAll(':scope > [role="tablist"] [data-tab-target]'));
     const panels = Array.from(tabSet.querySelectorAll(':scope > .workspace-form > [data-tab-panel], :scope > [data-tab-panel]'));
@@ -80,6 +104,7 @@ document.querySelectorAll('[data-catalog-selection]').forEach(form => {
         selections.forEach(item => {
             const row = document.createElement('div');
             row.className = 'catalog-selected-item';
+            row.dataset.catalogValue = item.value;
             const copy = document.createElement('span');
             const title = document.createElement('strong');
             const detail = document.createElement('small');
@@ -149,7 +174,9 @@ document.querySelectorAll('[data-catalog-selection]').forEach(form => {
     });
     form.addEventListener('submit', () => {
         renderHiddenInputs();
-        try { window.sessionStorage.removeItem(storageKey); } catch { }
+        if (!form.matches('[data-workshop-progress]')) {
+            try { window.sessionStorage.removeItem(storageKey); } catch { }
+        }
     });
     update();
 });
@@ -244,6 +271,12 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
 
     const overlayTitle = overlay.querySelector('[data-loading-title]');
     const overlayDetail = overlay.querySelector('[data-loading-detail]');
+    const overlayStage = overlay.querySelector('[data-loading-stage]');
+    const overlayCounter = overlay.querySelector('[data-loading-counter]');
+    const overlayCurrent = overlay.querySelector('[data-loading-current]');
+    const overlayTrack = overlay.querySelector('[data-loading-track]');
+    const overlayProgressList = overlay.querySelector('[data-loading-progress-list]');
+    const overlayClose = overlay.querySelector('[data-loading-close]');
     const buttonContent = new WeakMap();
     const navigationDelay = 160;
     let operationActive = false;
@@ -301,6 +334,105 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
         requestAnimationFrame(() => overlay.classList.add('is-visible'));
     };
 
+    const startWorkshopProgress = async (form, button) => {
+        showLoading({
+            title: form.dataset.loadingTitle,
+            detail: 'Préparation de la file de téléchargement et vérification de la destination.',
+            button,
+            form
+        });
+        overlay.classList.add('has-detailed-progress');
+        if (overlayStage) overlayStage.hidden = false;
+        if (overlayProgressList) overlayProgressList.hidden = false;
+        if (overlayTrack) {
+            overlayTrack.classList.add('is-determinate');
+            overlayTrack.style.width = '0%';
+        }
+
+        const selectedItems = Array.from(form.querySelectorAll('[data-catalog-selected-list] [data-catalog-value]')).map(row => ({
+            value: row.dataset.catalogValue,
+            title: row.querySelector('strong')?.textContent?.trim() || `Workshop ${row.dataset.catalogValue}`,
+            detail: row.querySelector('small')?.textContent?.trim() || `Workshop ${row.dataset.catalogValue}`
+        }));
+        const rows = new Map();
+        overlayProgressList?.replaceChildren();
+        selectedItems.forEach((item, index) => {
+            const row = document.createElement('div');
+            row.className = 'loading-progress-item';
+            row.dataset.workshopId = item.value;
+            const marker = document.createElement('span');
+            marker.textContent = `${index + 1}`;
+            const copy = document.createElement('span');
+            const title = document.createElement('strong');
+            const detail = document.createElement('small');
+            title.textContent = item.title;
+            detail.textContent = 'En attente';
+            copy.append(title, detail);
+            row.append(marker, copy);
+            overlayProgressList?.append(row);
+            rows.set(item.value, { row, detail, title: item.title });
+        });
+
+        const updateProgress = record => {
+            if (record.type === 'progress') {
+                const item = rows.get(String(record.workshopId));
+                rows.forEach(({ row }) => row.classList.remove('is-current'));
+                if (item) {
+                    item.row.classList.add('is-current');
+                    item.row.classList.toggle('is-complete', record.phase === 'complete');
+                    item.detail.textContent = record.message;
+                    item.row.scrollIntoView({ block: 'nearest' });
+                }
+                const fraction = record.phase === 'complete' ? 1 : record.phase === 'inspect' ? .68 : .22;
+                const percent = Math.max(2, Math.min(100, ((record.index + fraction) / record.total) * 100));
+                if (overlayTrack) overlayTrack.style.width = `${percent}%`;
+                if (overlayCounter) overlayCounter.textContent = `${record.index + 1} / ${record.total}`;
+                if (overlayCurrent) overlayCurrent.textContent = item?.title || `Workshop ${record.workshopId}`;
+                if (overlayDetail) overlayDetail.textContent = record.message;
+            } else if (record.type === 'finalizing') {
+                rows.forEach(({ row }) => row.classList.remove('is-current'));
+                if (overlayCurrent) overlayCurrent.textContent = 'Finalisation';
+                if (overlayDetail) overlayDetail.textContent = record.message;
+                if (overlayTrack) overlayTrack.style.width = '96%';
+            } else if (record.type === 'done') {
+                try { window.sessionStorage.removeItem(form.dataset.catalogStorageKey); } catch { }
+                rows.forEach(({ row }) => row.classList.add('is-complete'));
+                if (overlayTitle) overlayTitle.textContent = 'Import terminé';
+                if (overlayCurrent) overlayCurrent.textContent = record.message;
+                if (overlayDetail) overlayDetail.textContent = 'Redirection vers votre configuration…';
+                if (overlayTrack) overlayTrack.style.width = '100%';
+                window.setTimeout(() => window.location.assign(record.redirectUrl), 650);
+            } else if (record.type === 'error') {
+                overlay.classList.add('has-error');
+                if (overlayTitle) overlayTitle.textContent = 'Import interrompu';
+                if (overlayDetail) overlayDetail.textContent = record.message;
+                if (overlayCurrent) overlayCurrent.textContent = 'Une intervention est nécessaire';
+                if (overlayClose) overlayClose.hidden = false;
+            }
+        };
+
+        try {
+            const endpoint = new URL(form.action, window.location.href);
+            endpoint.searchParams.set('handler', 'ImportWorkshopStream');
+            const response = await fetch(endpoint, { method: 'POST', body: new FormData(form), credentials: 'same-origin' });
+            if (!response.ok || !response.body) throw new Error(`Le serveur a répondu ${response.status}.`);
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            while (true) {
+                const { done, value } = await reader.read();
+                buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+                lines.filter(Boolean).forEach(line => updateProgress(JSON.parse(line)));
+                if (done) break;
+            }
+            if (buffer.trim()) updateProgress(JSON.parse(buffer));
+        } catch (error) {
+            updateProgress({ type: 'error', message: error instanceof Error ? error.message : String(error) });
+        }
+    };
+
     const resetLoading = () => {
         operationActive = false;
         overlay.classList.remove('is-visible');
@@ -319,7 +451,14 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
             button.style.minWidth = '';
             button.removeAttribute('aria-disabled');
         });
+        overlay.classList.remove('has-detailed-progress', 'has-error');
+        if (overlayStage) overlayStage.hidden = true;
+        if (overlayProgressList) { overlayProgressList.hidden = true; overlayProgressList.replaceChildren(); }
+        if (overlayClose) overlayClose.hidden = true;
+        if (overlayTrack) { overlayTrack.classList.remove('is-determinate'); overlayTrack.style.width = ''; }
     };
+
+    overlayClose?.addEventListener('click', resetLoading);
 
     document.addEventListener('submit', event => {
         const form = event.target;
@@ -333,6 +472,12 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
             return;
         }
         if (event.defaultPrevented) return;
+        if (form.matches('[data-workshop-progress]')) {
+            event.preventDefault();
+            const button = event.submitter instanceof HTMLButtonElement ? event.submitter : form.querySelector('button[type="submit"]');
+            void startWorkshopProgress(form, button);
+            return;
+        }
         event.preventDefault();
         const button = event.submitter instanceof HTMLButtonElement ? event.submitter : form.querySelector('button[type="submit"]');
         showLoading({

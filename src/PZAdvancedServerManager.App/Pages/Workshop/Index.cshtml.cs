@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using PZAdvancedServerManager.Core.Domain;
@@ -118,6 +119,79 @@ public class IndexModel(
         return RedirectBack();
     }
 
+    public async Task<IActionResult> OnPostImportWorkshopStreamAsync(ulong[] selectedWorkshopIds, CancellationToken cancellationToken)
+    {
+        Response.ContentType = "application/x-ndjson; charset=utf-8";
+        Response.Headers.CacheControl = "no-cache, no-store";
+        Response.Headers.Append("X-Accel-Buffering", "no");
+        var ids = selectedWorkshopIds.Where(id => id != 0).Distinct().ToArray();
+        var contextResult = LoadContext();
+        if (contextResult is not null || ids.Length == 0)
+        {
+            await WriteProgressAsync(new { type = "error", message = ids.Length == 0 ? "Sélection vide." : "Destination introuvable." }, cancellationToken);
+            return new EmptyResult();
+        }
+
+        try
+        {
+            var addedMods = 0;
+            if (Project is not null)
+            {
+                EnsureProjectSteamCmd(Project);
+                for (var index = 0; index < ids.Length; index++)
+                {
+                    var id = ids[index];
+                    await WriteProgressAsync(new { type = "progress", phase = "download", index, total = ids.Length, workshopId = id, message = "Téléchargement SteamCMD et vérification des fichiers…" }, cancellationToken);
+                    var result = await workshopImport.ImportAsync(Project, id, cancellationToken);
+                    addedMods += result.AddedMods;
+                    await WriteProgressAsync(new { type = "progress", phase = "complete", index, total = ids.Length, workshopId = id, message = $"Snapshot figé · {result.AddedMods} nouveau(x) Mod ID" }, cancellationToken);
+                }
+                TempData["Message"] = $"{ids.Length} item(s) Workshop téléchargé(s), {addedMods} nouveau(x) Mod ID figé(s) dans le pack.";
+            }
+            else if (Server is not null)
+            {
+                var status = steamCmdInstaller.GetStatus();
+                if (!status.Installed) throw new FileNotFoundException("Installez SteamCMD depuis le tableau de bord avant de télécharger des mods serveur.", status.ExecutablePath);
+                var downloadSettings = new PackageProject
+                {
+                    Name = "Server content import",
+                    TargetPzVersion = PzasmConstants.DefaultTargetVersion,
+                    Automation = { SteamCmdPath = status.ExecutablePath, AnonymousWorkshopDownloads = true }
+                };
+                var discovered = new List<DiscoveredMod>();
+                for (var index = 0; index < ids.Length; index++)
+                {
+                    var id = ids[index];
+                    await WriteProgressAsync(new { type = "progress", phase = "download", index, total = ids.Length, workshopId = id, message = "Téléchargement SteamCMD…" }, cancellationToken);
+                    var download = await steamCmd.DownloadWorkshopItemAsync(downloadSettings, id, cancellationToken);
+                    if (!download.SteamCmd.Success) throw new InvalidOperationException($"Téléchargement de l’item {id} échoué : {Tail(download.SteamCmd.CombinedOutput)}");
+                    await WriteProgressAsync(new { type = "progress", phase = "inspect", index, total = ids.Length, workshopId = id, message = "Lecture des mod.info, versions et dépendances…" }, cancellationToken);
+                    var itemMods = discovery.DiscoverWorkshopItem(download.ContentRoot, id, TargetVersion);
+                    discovered.AddRange(itemMods);
+                    await WriteProgressAsync(new { type = "progress", phase = "complete", index, total = ids.Length, workshopId = id, message = $"{itemMods.Count} Mod ID compatible(s) détecté(s)" }, cancellationToken);
+                }
+                if (discovered.Count == 0) throw new InvalidOperationException("Les items téléchargés ne contiennent aucun mod.info compatible.");
+                await WriteProgressAsync(new { type = "finalizing", message = "Résolution globale des dépendances et sauvegarde du profil serveur…" }, cancellationToken);
+                environment.Invalidate();
+                var expanded = ExpandDependencies(discovered, environment.GetMods(TargetVersion, refresh: true).Concat(discovered));
+                var result = servers.AddContent(Server.Name, expanded.Select(mod => mod.WorkshopId).Concat(ids), expanded.Select(mod => mod.ModId));
+                addedMods = result.AddedMods;
+                TempData["Message"] = $"Configuration serveur mise à jour : {result.AddedWorkshopItems} Workshop ID et {result.AddedMods} Mod ID ajoutés. Sauvegarde : {DisplayBackup(result.BackupPath)}";
+            }
+
+            var redirectUrl = Project is not null
+                ? Url.Page("/Projects/Edit", null, new { id = Project.Id, tab = "mods" })
+                : Url.Page("/Server/Index", null, new { name = Server!.Name, tab = "content" });
+            await WriteProgressAsync(new { type = "done", message = $"Import terminé · {addedMods} nouveau(x) Mod ID", redirectUrl }, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch (Exception exception)
+        {
+            await WriteProgressAsync(new { type = "error", message = exception.Message }, CancellationToken.None);
+        }
+        return new EmptyResult();
+    }
+
     public IActionResult OnPostAddLocal(string[] selectedMods)
     {
         var contextResult = LoadContext();
@@ -159,6 +233,12 @@ public class IndexModel(
         >= 1024 => $"{bytes / 1024d:0.0} Kio",
         _ => $"{bytes} o"
     };
+
+    public static string DisplayVersion(DiscoveredMod mod) => !string.IsNullOrWhiteSpace(mod.Version)
+        ? mod.Version
+        : !string.IsNullOrWhiteSpace(mod.SelectedVersionFolder)
+            ? $"PZ {mod.SelectedVersionFolder}"
+            : "non déclarée";
 
     private IActionResult? LoadContext()
     {
@@ -235,4 +315,10 @@ public class IndexModel(
 
     private static string Tail(string value) => value.Length <= 1200 ? value : value[^1200..];
     private static string DisplayBackup(string value) => string.IsNullOrWhiteSpace(value) ? "aucun changement nécessaire" : value;
+
+    private async Task WriteProgressAsync(object value, CancellationToken cancellationToken)
+    {
+        await Response.WriteAsync(JsonSerializer.Serialize(value) + "\n", cancellationToken);
+        await Response.Body.FlushAsync(cancellationToken);
+    }
 }

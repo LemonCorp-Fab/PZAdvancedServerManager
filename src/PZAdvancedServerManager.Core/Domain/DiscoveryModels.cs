@@ -18,6 +18,7 @@ public sealed class DiscoveredMod
     public string Author { get; init; } = string.Empty;
     public string Description { get; init; } = string.Empty;
     public string Poster { get; init; } = string.Empty;
+    public string Version { get; init; } = string.Empty;
     public string EffectiveManifestPath { get; init; } = string.Empty;
     public string SelectedVersionFolder { get; init; } = string.Empty;
     public string[] RequiredModIds { get; init; } = [];
@@ -33,6 +34,7 @@ public sealed class ModInfo
     public string Author { get; init; } = string.Empty;
     public string Description { get; init; } = string.Empty;
     public string Poster { get; init; } = string.Empty;
+    public string Version { get; init; } = string.Empty;
     public string[] Required { get; init; } = [];
     public IReadOnlyDictionary<string, string> Properties { get; init; } = new Dictionary<string, string>();
 }

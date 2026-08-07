@@ -89,6 +89,7 @@ public sealed class PackageModReference
     public string PinnedSourceRoot { get; set; } = string.Empty;
     public DateTimeOffset? PinnedAt { get; set; }
     public string PinnedContentHash { get; set; } = string.Empty;
+    public string Version { get; set; } = string.Empty;
     public string SelectedVersionFolder { get; set; } = string.Empty;
     public string SourceUrl { get; set; } = string.Empty;
     public int Order { get; set; }
@@ -104,6 +105,13 @@ public sealed class PackageModReference
     public string EffectiveFolderName => string.IsNullOrWhiteSpace(SourceFolderName)
         ? Path.GetFileName(Path.TrimEndingDirectorySeparator(SourceModRoot))
         : SourceFolderName;
+
+    [JsonIgnore]
+    public string DisplayVersion => !string.IsNullOrWhiteSpace(Version)
+        ? Version
+        : !string.IsNullOrWhiteSpace(SelectedVersionFolder)
+            ? $"PZ {SelectedVersionFolder}"
+            : "non déclarée";
 }
 
 public sealed class PermissionEvidence

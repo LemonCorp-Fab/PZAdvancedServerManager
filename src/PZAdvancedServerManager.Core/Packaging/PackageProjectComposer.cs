@@ -21,6 +21,7 @@ public static class PackageProjectComposer
                 Author = current.Author,
                 SourceModRoot = current.ModRoot,
                 SourceFolderName = Path.GetFileName(Path.TrimEndingDirectorySeparator(current.ModRoot)),
+                Version = current.Version,
                 SelectedVersionFolder = current.SelectedVersionFolder,
                 SourceUrl = current.WorkshopUrl,
                 RequiredModIds = current.RequiredModIds,

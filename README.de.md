@@ -36,9 +36,10 @@ Siehe die vollständige [Architektur- und Machbarkeitsstudie](docs/ARCHITECTURE.
 - Strict Fusion mit Deduplizierung identischer Dateien und Konfliktbericht;
 - vollständige Workshop-Beschreibung, öffentliches Manifest und Lockfile;
 - Erfassung von Autoren, Lizenzen, Berechtigungen und nicht veröffentlichten privaten Nachweisen;
-- optionales, standardmäßig aktiviertes Verbindungsfenster;
+- optionales, standardmäßig aktiviertes mehrsprachiges Verbindungsfenster mit vollständiger Liste, angegebenen Mod-Versionen, PZ-Profilen und fixierten Revisionen;
 - Erstellung und spätere Aktualisierung desselben Workshop-Items;
-- moderner Projektarbeitsbereich mit Tabs, geführten Einstellungen und Expertenfeldern für exakte Werte;
+- moderner responsiver Projektarbeitsbereich mit klareren Gruppen, standardmäßig eingeklappten Rechtekarten, sechs dauerhaft gewählten Sprachen sowie Hell-/Dunkelmodus (standardmäßig hell);
+- detaillierter Workshop-Importfortschritt mit aktuellem Item, Phase, Zähler, Prozentwert, Analyseergebnis und behebbaren Fehlern;
 - Kartenprioritäts-Assistent auf Basis von `map.info`, `lots=`-Abhängigkeiten, `.lotheader`-Zellkonflikten, Drag-and-drop und roher `Map=`-Bearbeitung;
 - geführter Servereditor für Identität, Zugriff, RCON, Sitzung, Sicherungen und Inhalte plus vollständiger INI-Roheditor;
 - geordnetes RCON-`save`/`quit` und koordinierter Neustart;

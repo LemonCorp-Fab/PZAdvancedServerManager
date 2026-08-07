@@ -13,7 +13,7 @@ public sealed class PackageBuildTests : IDisposable
     {
         var source = CreateMod("FirstFolder", "first-id", "return 'first'");
         var project = ValidProject(PackageMode.Bundle,
-            new PackageModReference { ModId = "first-id", Name = "First Mod", SourceModRoot = source, SelectedVersionFolder = "common", WorkshopId = 123, SourceUrl = "https://example.test/123", Permission = new() { Status = PermissionStatus.AuthorOwned } });
+            new PackageModReference { ModId = "first-id", Name = "First Mod", Version = "1.2.3", SourceModRoot = source, SelectedVersionFolder = "common", WorkshopId = 123, SourceUrl = "https://example.test/123", Permission = new() { Status = PermissionStatus.AuthorOwned } });
         project.PublishedWorkshopId = 999;
         project.InjectConnectionNotice = true;
 
@@ -22,6 +22,8 @@ public sealed class PackageBuildTests : IDisposable
 
         Assert.True(File.Exists(Path.Combine(result.WorkshopContentRoot, "mods", "FirstFolder", "common", "media", "lua", "client", "test.lua")));
         Assert.True(File.Exists(Path.Combine(result.WorkshopContentRoot, "mods", project.NoticeModId, "common", "media", "lua", "client", "PZASM_PackNotice.lua")));
+        var notice = File.ReadAllText(Path.Combine(result.WorkshopContentRoot, "mods", project.NoticeModId, "common", "media", "lua", "client", "PZASM_PackNotice.lua"));
+        Assert.Contains("Version: 1.2.3", notice);
         var publicManifest = File.ReadAllText(Path.Combine(result.WorkshopContentRoot, "pzasm-pack-manifest.json"));
         Assert.Contains("first-id", publicManifest);
         Assert.DoesNotContain("privateAttachmentPath", publicManifest, StringComparison.OrdinalIgnoreCase);

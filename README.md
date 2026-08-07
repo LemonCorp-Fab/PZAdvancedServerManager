@@ -39,11 +39,12 @@ See the complete [architecture and feasibility study](docs/ARCHITECTURE.md).
 - Strict Fusion builds with identical-file deduplication and incompatible-collision reports;
 - exhaustive Workshop descriptions with author, Mod ID, original link, source Workshop ID, and permission status;
 - public evidence and local private attachments, with private evidence always excluded from `Contents`;
-- an optional connection notice enabled by default, containing the pack description, legal notice, and exhaustive mod list;
+- an optional localized connection notice enabled by default, containing the pack description, legal notice, and exhaustive mod list with declared mod versions, PZ profiles, and pinned revisions;
 - generation of `workshop.txt`, `steamcmd-item.vdf`, `server-config.txt`, preview PNG, public manifest, and SHA-256 `pack.lock.json`;
 - creation and update of the same Workshop item, with the SteamCMD-written `publishedfileid` saved back into the project;
 - optional daily refresh, build, and publication schedules that do not require the game server to be on the same machine;
-- modern tabbed project workspace with guided settings and exact-value expert controls;
+- modern responsive project workspace with clearer grouping, folded mod-rights cards, persistent French/English/Spanish/German/Portuguese/Chinese selection, and light/dark themes (light by default);
+- detailed Workshop import feedback with the current item, phase, item counter, completion percentage, analysis result, and recoverable error state;
 - map-priority assistant using `map.info`, `lots=` dependencies, `.lotheader` cell conflicts, drag-and-drop ordering, and a raw `Map=` fallback;
 - guided `Zomboid/Server/*.ini` editor for identity, access, RCON, gameplay, backups, and content, plus the complete raw editor with encoding preservation;
 - safe pack application that only replaces `WorkshopItems`, `Mods`, and `Map`;

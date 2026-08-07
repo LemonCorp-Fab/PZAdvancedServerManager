@@ -1,9 +1,10 @@
 ﻿<!DOCTYPE html>
-<html lang="fr">
+<html lang="fr" data-theme="light">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>@ViewData["Title"] — PZ Advanced Server Manager</title>
+    <script>document.documentElement.dataset.theme = localStorage.getItem('pzasm-theme') || 'light';</script>
     <script type="importmap"></script>
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
@@ -20,8 +21,11 @@
                 <span class="eyebrow">OPÉRATION EN COURS</span>
                 <strong data-loading-title>Chargement…</strong>
                 <p data-loading-detail>Veuillez patienter quelques instants.</p>
+                <div class="loading-stage" data-loading-stage hidden><span data-loading-counter>0 / 0</span><strong data-loading-current>Préparation…</strong></div>
             </div>
-            <div class="loading-track" aria-hidden="true"><span></span></div>
+            <div class="loading-track" aria-hidden="true"><span data-loading-track></span></div>
+            <div class="loading-progress-list" data-loading-progress-list hidden></div>
+            <button class="button secondary loading-close" type="button" data-loading-close hidden>Fermer</button>
         </div>
     </div>
     <header>
@@ -41,6 +45,10 @@
                             <a class="nav-link" asp-area="" asp-page="/Server/Index">Serveurs</a>
                         </li>
                     </ul>
+                    <div class="app-preferences" aria-label="Préférences d’affichage">
+                        <label class="language-control"><span class="visually-hidden">Langue</span><select data-language-select aria-label="Langue de l’interface"><option value="fr">Français</option><option value="en">English</option><option value="es">Español</option><option value="de">Deutsch</option><option value="pt-BR">Português</option><option value="zh-CN">简体中文</option></select></label>
+                        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Changer le thème"><span data-theme-icon>☀</span><span data-theme-label>Mode clair</span></button>
+                    </div>
                 </div>
             </div>
         </nav>
@@ -59,6 +67,7 @@
 
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="~/js/site-i18n.js" asp-append-version="true"></script>
     <script src="~/js/site.js" asp-append-version="true"></script>
 
     @await RenderSectionAsync("Scripts", required: false)

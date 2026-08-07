@@ -236,7 +236,7 @@
             <form method="post" asp-page-handler="AddMod" class="setting-card add-source-card" data-loading-title="Ajout du mod au pack…" data-loading-detail="Copie de la source dans un snapshot privé et ajout des dépendances disponibles.">
                 <span class="eyebrow">DEPUIS LE DISQUE</span><h3>Ajouter une source détectée</h3><p>Sélectionnez un mod local ou déjà téléchargé par Steam.</p>
                 <input class="mod-filter" type="search" data-mod-filter placeholder="Filtrer par nom, Mod ID ou Workshop ID…" autocomplete="off" />
-                <div class="add-mod-row"><select name="selectionKey" required data-mod-select><option value="">Choisir parmi @Model.InstalledMods.Count mods détectés…</option>@foreach (var mod in Model.InstalledMods.Where(x => !selectedIds.Contains(x.ModId))) { <option value="@EditModel.SelectionKey(mod)">@mod.Name — @mod.ModId — @(mod.WorkshopId == 0 ? "local" : $"Workshop {mod.WorkshopId}")</option> }</select><button class="button primary" type="submit">Ajouter</button></div>
+                <div class="add-mod-row"><select name="selectionKey" required data-mod-select><option value="">Choisir parmi @Model.InstalledMods.Count mods détectés…</option>@foreach (var mod in Model.InstalledMods.Where(x => !selectedIds.Contains(x.ModId))) { <option value="@EditModel.SelectionKey(mod)">@mod.Name — version @(string.IsNullOrWhiteSpace(mod.Version) ? string.IsNullOrWhiteSpace(mod.SelectedVersionFolder) ? "non déclarée" : $"PZ {mod.SelectedVersionFolder}" : mod.Version) — @mod.ModId — @(mod.WorkshopId == 0 ? "local" : $"Workshop {mod.WorkshopId}")</option> }</select><button class="button primary" type="submit">Ajouter</button></div>
             </form>
         </div>
 
@@ -249,15 +249,14 @@
             <div class="mod-list">
             @foreach (var mod in Model.Project.Mods.OrderBy(x => x.Order))
             {
-                <details class="mod-card" open="@(mod.Permission.Status == PermissionStatus.Unknown)">
+                <details class="mod-card">
                     <summary>
                         <span class="order-number">@(mod.Order + 1)</span>
-                        <span><strong>@mod.Name</strong><small>Mod ID @mod.ModId · @(mod.WorkshopId == 0 ? "source locale" : $"Workshop {mod.WorkshopId}") · @(string.IsNullOrWhiteSpace(mod.SelectedVersionFolder) ? "racine" : mod.SelectedVersionFolder)</small></span>
-                        @if (Directory.Exists(mod.PinnedSourceRoot)) { <span class="snapshot-badge">FIGÉ</span> }
-                        <span class="rights-badge @mod.Permission.Status.ToString().ToLowerInvariant()">@mod.Permission.Status</span>
+                        <span class="mod-summary-copy"><strong>@mod.Name</strong><small>Mod ID @mod.ModId · @(mod.WorkshopId == 0 ? "source locale" : $"Workshop {mod.WorkshopId}")</small><span class="mod-version-line"><b>Version @mod.DisplayVersion</b><em>Profil PZ @(string.IsNullOrWhiteSpace(mod.SelectedVersionFolder) ? "racine" : mod.SelectedVersionFolder)</em>@if (!string.IsNullOrWhiteSpace(mod.PinnedContentHash)) { <em>Révision @mod.PinnedContentHash[..Math.Min(10, mod.PinnedContentHash.Length)]</em> }</span></span>
+                        <span class="mod-summary-status">@if (Directory.Exists(mod.PinnedSourceRoot)) { <span class="snapshot-badge">FIGÉ</span> }<span class="rights-badge @mod.Permission.Status.ToString().ToLowerInvariant()">@mod.Permission.Status</span><span class="mod-expand-hint"><span>Afficher les détails</span><i aria-hidden="true">⌄</i></span></span>
                     </summary>
                     <div class="mod-details">
-                        <div class="mod-metadata"><div><span>Origine</span><strong>@mod.SourceModRoot</strong></div><div><span>Snapshot</span><strong>@(Directory.Exists(mod.PinnedSourceRoot) ? $"{mod.PinnedAt?.LocalDateTime:dd/MM/yyyy HH:mm} · {mod.PinnedContentHash[..Math.Min(12, mod.PinnedContentHash.Length)]}…" : "En attente")</strong></div>@if (mod.RequiredModIds.Length > 0) { <div><span>Dépendances</span><strong>@string.Join(", ", mod.RequiredModIds)</strong></div> }@if (mod.MapFolders.Length > 0) { <div><span>Cartes</span><strong>@string.Join(", ", mod.MapFolders)</strong></div> }</div>
+                        <div class="mod-metadata"><div><span>Version du mod</span><strong>@mod.DisplayVersion</strong></div><div><span>Compatibilité PZ</span><strong>@(string.IsNullOrWhiteSpace(mod.SelectedVersionFolder) ? "racine / legacy" : mod.SelectedVersionFolder)</strong></div><div><span>Origine</span><strong>@mod.SourceModRoot</strong></div><div><span>Révision figée</span><strong>@(Directory.Exists(mod.PinnedSourceRoot) ? $"{mod.PinnedAt?.LocalDateTime:dd/MM/yyyy HH:mm} · {mod.PinnedContentHash[..Math.Min(12, mod.PinnedContentHash.Length)]}…" : "En attente")</strong></div>@if (mod.RequiredModIds.Length > 0) { <div><span>Dépendances</span><strong>@string.Join(", ", mod.RequiredModIds)</strong></div> }@if (mod.MapFolders.Length > 0) { <div><span>Cartes</span><strong>@string.Join(", ", mod.MapFolders)</strong></div> }</div>
                         @if (!string.IsNullOrWhiteSpace(mod.SourceUrl)) { <a href="@mod.SourceUrl" target="_blank" rel="noreferrer">Voir la source originale sur Steam ↗</a> }
                         <form method="post" asp-page-handler="UpdateMod" class="rights-form" data-loading-title="Enregistrement des droits…" data-loading-detail="Mise à jour des informations d’auteur, de licence et des preuves associées.">
                             <input type="hidden" name="modReferenceId" value="@mod.Id" />

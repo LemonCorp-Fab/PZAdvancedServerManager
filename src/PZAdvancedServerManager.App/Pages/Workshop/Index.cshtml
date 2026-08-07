@@ -71,9 +71,9 @@
                 {
                     var included = Model.IncludedModIds.Contains(mod.ModId);
                     <label class="local-catalog-card @(included ? "is-included" : "")">
-                        <input type="checkbox" name="selectedMods" value="@IndexModel.SelectionKey(mod)" data-catalog-title="@mod.Name" data-catalog-detail="Mod ID @mod.ModId@(mod.WorkshopId == 0 ? " · local" : $" · Workshop {mod.WorkshopId}")" disabled="@included" />
+                        <input type="checkbox" name="selectedMods" value="@IndexModel.SelectionKey(mod)" data-catalog-title="@mod.Name" data-catalog-detail="Version @IndexModel.DisplayVersion(mod) · Mod ID @mod.ModId@(mod.WorkshopId == 0 ? " · local" : $" · Workshop {mod.WorkshopId}")" disabled="@included" />
                         <span class="local-mod-mark">@mod.Name[..Math.Min(2, mod.Name.Length)].ToUpperInvariant()</span>
-                        <span class="local-mod-copy"><strong>@mod.Name</strong><small>Mod ID · @mod.ModId</small><small>@(mod.WorkshopId == 0 ? "Mod local" : $"Workshop {mod.WorkshopId}") · @mod.SelectedVersionFolder</small>@if (mod.RequiredModIds.Length > 0) { <em>@mod.RequiredModIds.Length dépendance(s) résolue(s) automatiquement</em> }</span>
+                        <span class="local-mod-copy"><strong>@mod.Name</strong><small class="local-version">Version @IndexModel.DisplayVersion(mod)</small><small>Mod ID · @mod.ModId</small><small>@(mod.WorkshopId == 0 ? "Mod local" : $"Workshop {mod.WorkshopId}") · profil PZ @(string.IsNullOrWhiteSpace(mod.SelectedVersionFolder) ? "racine" : mod.SelectedVersionFolder)</small>@if (mod.RequiredModIds.Length > 0) { <em>@mod.RequiredModIds.Length dépendance(s) résolue(s) automatiquement</em> }</span>
                         <span class="catalog-state">@(included ? "DÉJÀ AJOUTÉ" : "SÉLECTIONNER")</span>
                     </label>
                 }
@@ -95,7 +95,7 @@
 }
 else
 {
-    <form method="post" asp-page-handler="AddWorkshop" class="catalog-selection-form" data-catalog-selection data-catalog-storage-key="pzasm-catalog:@selectionScope:workshop" data-catalog-input-name="selectedWorkshopIds" data-loading-title="Téléchargement des mods Workshop…" data-loading-detail="SteamCMD télécharge chaque item, puis le manager analyse les mod.info et leurs dépendances.">
+    <form method="post" asp-page-handler="AddWorkshop" class="catalog-selection-form" data-catalog-selection data-workshop-progress data-catalog-storage-key="pzasm-catalog:@selectionScope:workshop" data-catalog-input-name="selectedWorkshopIds" data-loading-title="Téléchargement des mods Workshop…" data-loading-detail="SteamCMD télécharge chaque item, puis le manager analyse les mod.info et leurs dépendances.">
         <input type="hidden" asp-for="ProjectId" /><input type="hidden" asp-for="ServerName" /><input type="hidden" asp-for="Source" /><input type="hidden" asp-for="Q" /><input type="hidden" asp-for="Sort" /><input type="hidden" asp-for="Tag" /><input type="hidden" asp-for="PageNumber" />
         <div class="catalog-results-heading"><div><span class="eyebrow">WORKSHOP PROJECT ZOMBOID</span><h2>@Model.Catalog.Items.Count résultats · page @Model.Catalog.Page</h2></div><div class="action-row"><button class="button ghost" type="button" data-catalog-select-all>Tout sélectionner sur cette page</button><button class="button ghost" type="button" data-catalog-deselect-page>Désélectionner la page</button></div></div>
         @if (Model.Catalog.Items.Count == 0)
@@ -112,7 +112,7 @@ else
                         <label>
                             <input type="checkbox" name="selectedWorkshopIds" value="@item.WorkshopId" data-catalog-title="@item.Title" data-catalog-detail="Workshop @item.WorkshopId" disabled="@included" />
                             <span class="workshop-preview">@if (!string.IsNullOrWhiteSpace(item.PreviewUrl)) { <img src="@item.PreviewUrl" alt="" loading="lazy" referrerpolicy="no-referrer" /> } else { <span>W</span> }<span class="catalog-state">@(included ? "DÉJÀ AJOUTÉ" : "SÉLECTIONNER")</span></span>
-                            <span class="workshop-card-copy"><span class="workshop-id">ID @item.WorkshopId</span><strong>@item.Title</strong><span class="workshop-stats"><span>@item.Subscriptions.ToString("N0") abonnés</span><span>@IndexModel.FormatBytes(item.FileSize)</span><span>@(item.UpdatedAt?.LocalDateTime.ToString("dd/MM/yyyy") ?? "date inconnue")</span></span><small>@item.Description</small><span class="tag-row">@foreach (var itemTag in item.Tags.Take(6)) { <span>@itemTag</span> }</span></span>
+                            <span class="workshop-card-copy"><span class="workshop-id">ID @item.WorkshopId</span><strong>@item.Title</strong><span class="workshop-version">Révision Workshop · @(item.UpdatedAt?.LocalDateTime.ToString("dd/MM/yyyy HH:mm") ?? "date inconnue")</span><span class="workshop-stats"><span>@item.Subscriptions.ToString("N0") abonnés</span><span>@IndexModel.FormatBytes(item.FileSize)</span></span><small>@item.Description</small><span class="tag-row">@foreach (var itemTag in item.Tags.Take(6)) { <span>@itemTag</span> }</span></span>
                         </label>
                         <a href="@item.WorkshopUrl" target="_blank" rel="noreferrer" class="workshop-external-link">Voir la fiche Steam ↗</a>
                     </article>

@@ -28,6 +28,7 @@ public static class ModInfoParser
             Author = Get(values, "author"),
             Description = Get(values, "description"),
             Poster = Get(values, "poster"),
+            Version = First(values, "version", "modversion"),
             Required = SplitList(required),
             Properties = values
         };
@@ -35,6 +36,9 @@ public static class ModInfoParser
 
     private static string Get(IReadOnlyDictionary<string, string> values, string key) =>
         values.TryGetValue(key, out var value) ? value.Trim('"') : string.Empty;
+
+    private static string First(IReadOnlyDictionary<string, string> values, params string[] keys) =>
+        keys.Select(key => Get(values, key)).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
 
     private static string[] SplitList(string? value) => string.IsNullOrWhiteSpace(value)
         ? []

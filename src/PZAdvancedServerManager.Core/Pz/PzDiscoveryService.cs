@@ -88,6 +88,7 @@ public sealed partial class PzDiscoveryService(ApplicationPaths paths)
                     Author = info.Author,
                     Description = info.Description,
                     Poster = info.Poster,
+                    Version = info.Version,
                     EffectiveManifestPath = manifestPath,
                     SelectedVersionFolder = selectedFolder,
                     RequiredModIds = info.Required,

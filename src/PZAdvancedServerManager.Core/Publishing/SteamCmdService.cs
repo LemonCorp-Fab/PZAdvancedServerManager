@@ -21,8 +21,12 @@ public sealed class SteamCmdService(PackageValidator validator)
     }
 
     public async Task<SteamCmdResult> RefreshSourcesAsync(PackageProject project, CancellationToken cancellationToken = default)
+        => await RefreshSourcesAsync(project, project.Mods.Where(x => x.Enabled).ToArray(), cancellationToken);
+
+    public async Task<SteamCmdResult> RefreshSourcesAsync(PackageProject project, IReadOnlyCollection<PackageModReference> references, CancellationToken cancellationToken = default)
     {
-        var workshopIds = project.Mods.Where(x => x.Enabled && x.WorkshopId != 0).Select(x => x.WorkshopId).Distinct().ToArray();
+        var targets = references.DistinctBy(x => x.Id).ToArray();
+        var workshopIds = targets.Where(x => x.WorkshopId != 0).Select(x => x.WorkshopId).Distinct().ToArray();
         if (workshopIds.Length == 0) return new SteamCmdResult(0, "Aucune source Workshop à actualiser.", string.Empty);
         ValidateExecutable(project.Automation.SteamCmdPath);
 
@@ -37,7 +41,7 @@ public sealed class SteamCmdService(PackageValidator validator)
         }
         arguments.Add("+quit");
         var result = await RunAsync(project.Automation.SteamCmdPath, arguments, cancellationToken);
-        if (result.ExitCode == 0) RepointSourcesToSteamCmdCache(project);
+        if (result.ExitCode == 0) RepointSourcesToSteamCmdCache(project, targets);
         return result;
     }
 
@@ -96,11 +100,11 @@ public sealed class SteamCmdService(PackageValidator validator)
         return new SteamCmdResult(process.ExitCode, await stdoutTask, await stderrTask);
     }
 
-    private static void RepointSourcesToSteamCmdCache(PackageProject project)
+    private static void RepointSourcesToSteamCmdCache(PackageProject project, IReadOnlyCollection<PackageModReference> references)
     {
         var steamCmdRoot = Path.GetDirectoryName(project.Automation.SteamCmdPath)!;
         var contentRoot = Path.Combine(steamCmdRoot, "steamapps", "workshop", "content", PzasmConstants.ProjectZomboidSteamAppId);
-        foreach (var reference in project.Mods.Where(x => x.Enabled && x.WorkshopId != 0))
+        foreach (var reference in references.Where(x => x.WorkshopId != 0))
         {
             var modsRoot = Path.Combine(contentRoot, reference.WorkshopId.ToString(), "mods");
             if (!Directory.Exists(modsRoot)) continue;
@@ -110,9 +114,17 @@ public sealed class SteamCmdService(PackageValidator validator)
                 if (string.IsNullOrWhiteSpace(manifest)) continue;
                 var info = ModInfoParser.Parse(manifest);
                 if (!info.Id.Equals(reference.ModId, StringComparison.OrdinalIgnoreCase)) continue;
+                var previousAuthor = reference.Author;
                 reference.SourceModRoot = candidate;
+                reference.Name = string.IsNullOrWhiteSpace(info.Name) ? reference.Name : info.Name;
+                reference.Author = string.IsNullOrWhiteSpace(info.Author) ? reference.Author : info.Author;
                 reference.Version = info.Version;
                 reference.SelectedVersionFolder = selected;
+                reference.RequiredModIds = info.Required;
+                if (!string.IsNullOrWhiteSpace(reference.Author) &&
+                    (string.IsNullOrWhiteSpace(reference.Permission.RightsHolder) ||
+                     reference.Permission.Status == PermissionStatus.Unknown && reference.Permission.RightsHolder.Equals(previousAuthor, StringComparison.OrdinalIgnoreCase)))
+                    reference.Permission.RightsHolder = reference.Author;
                 break;
             }
         }

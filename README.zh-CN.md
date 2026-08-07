@@ -46,6 +46,10 @@ Mods=ModIdA;ModIdB;ModIdC;PZASM_Notice_SUFFIX
 - Windows/Linux 本地 UI 与无界面 CLI；
 - 带跨进程锁的 `automation run` 守护进程。
 
+### 项目命令与更新流程
+
+构建、更新模组和发布会作为项目的主要命令突出显示。敏感操作始终使用界面内的确认弹窗，不使用浏览器原生对话框。若源模组的 `mod.info` 提供作者信息，作者和权利持有人字段会自动预填，同时仍可编辑。每个模组都可排除在全局更新之外，也可单独更新；被排除模组的快照会保持固定，直到管理员明确执行单独更新。
+
 ## 启动
 
 从源码构建需要 [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0)。CI 生成的自包含文件无需预装 .NET 运行时。

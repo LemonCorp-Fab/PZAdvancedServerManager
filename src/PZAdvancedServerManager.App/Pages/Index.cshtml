@@ -81,7 +81,7 @@ else
                 </a>
                 <div class="project-card-actions">
                     <form method="post" asp-page-handler="Duplicate" data-loading-title="Duplication du pack…" data-loading-detail="Copie de la configuration et création de snapshots indépendants."><input type="hidden" name="id" value="@project.Id" /><button class="button ghost" type="submit">Dupliquer</button></form>
-                    <form method="post" asp-page-handler="Delete" data-loading-title="Suppression du projet…" data-loading-detail="Suppression des données locales du projet sans modifier le Workshop ni les mods originaux." onsubmit="return confirm('Supprimer ce projet, ses snapshots et ses builds locaux ? Le Workshop et les mods originaux ne seront pas supprimés.');"><input type="hidden" name="id" value="@project.Id" /><button class="button danger" type="submit">Supprimer</button></form>
+                    <form method="post" asp-page-handler="Delete" data-loading-title="Suppression du projet…" data-loading-detail="Suppression des données locales du projet sans modifier le Workshop ni les mods originaux." data-confirm-title="Supprimer ce projet ?" data-confirm-message="Le projet, ses snapshots et ses builds locaux seront supprimés. Le Workshop publié et les mods originaux ne seront pas modifiés." data-confirm-action="Supprimer le projet" data-confirm-tone="danger"><input type="hidden" name="id" value="@project.Id" /><button class="button danger" type="submit">Supprimer</button></form>
                 </div>
             </article>
         }

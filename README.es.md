@@ -46,6 +46,10 @@ Consulta el [estudio completo de arquitectura](docs/ARCHITECTURE.es.md).
 - UI local y CLI headless para Windows y Linux;
 - daemon `automation run` con bloqueos entre procesos.
 
+### Comandos del proyecto y actualizaciones
+
+Construir, Actualizar mods y Publicar se muestran como los comandos principales del proyecto. Las acciones sensibles siempre utilizan una ventana de confirmación integrada en la interfaz, nunca un diálogo nativo del navegador. El autor y el titular de los derechos se rellenan desde el `mod.info` de cada fuente cuando están disponibles y siguen siendo editables. Cada mod puede excluirse de la actualización global y actualizarse individualmente; su instantánea permanece fijada hasta que se solicite explícitamente su actualización individual.
+
 ## Inicio
 
 Para compilar se necesita el [SDK .NET 9](https://dotnet.microsoft.com/download/dotnet/9.0). Los artefactos autónomos de CI no necesitan el runtime.

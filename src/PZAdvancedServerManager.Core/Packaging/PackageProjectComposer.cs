@@ -26,6 +26,7 @@ public static class PackageProjectComposer
                 SourceUrl = current.WorkshopUrl,
                 RequiredModIds = current.RequiredModIds,
                 MapFolders = current.MapFolders,
+                Permission = new PermissionEvidence { RightsHolder = current.Author },
                 Order = project.Mods.Count
             };
             project.Mods.Add(reference);

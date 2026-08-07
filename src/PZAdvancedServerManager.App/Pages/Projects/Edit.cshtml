@@ -7,6 +7,7 @@
     var enabledMods = Model.Project.Mods.Count(x => x.Enabled);
     var documentedMods = Model.Project.Mods.Count(x => x.Enabled && x.Permission.Status != PermissionStatus.Unknown);
     var pinnedMods = Model.Project.Mods.Count(x => x.Enabled && Directory.Exists(x.PinnedSourceRoot));
+    var globallyUpdatedMods = Model.Project.Mods.Count(x => x.Enabled && x.IncludeInGlobalUpdates);
     var mapConflicts = Model.MapAnalysis.Entries.Sum(x => x.Conflicts.Count) / 2;
 }
 
@@ -27,10 +28,13 @@
             <span class="@(mapConflicts > 0 ? "kpi-warning" : "")"><strong>@mapConflicts</strong> conflits de cellules</span>
         </div>
     </div>
-    <div class="hero-actions">
-        <form method="post" asp-page-handler="Build" data-loading-title="Construction du pack…" data-loading-detail="Assemblage des snapshots figés, calcul des hashes et génération des fichiers Workshop."><button class="button secondary" type="submit">Construire</button></form>
-        <form method="post" asp-page-handler="RefreshSources" data-loading-title="Actualisation des sources…" data-loading-detail="SteamCMD télécharge les versions actuelles, puis PZASM remplace les snapshots de manière atomique." onsubmit="return confirm('Télécharger les versions actuelles des sources Workshop et remplacer les snapshots figés de ce pack ? Aucun publish ne sera effectué.');"><button class="button ghost" type="submit">Actualiser les sources</button></form>
-        <form method="post" asp-page-handler="Publish" data-loading-title="Publication Steam Workshop…" data-loading-detail="Validation, construction, coordination éventuelle du serveur et mise à jour du Workshop ID de ce pack." onsubmit="return confirm('Publier ou mettre à jour cet item Workshop maintenant ? Si le serveur coordonné est en ligne, PZASM exécutera save/quit puis le redémarrera.');"><button class="button primary" type="submit" disabled="@(!Model.Validation.CanPublish)">Publier</button></form>
+    <div class="primary-command-center">
+        <div class="primary-command-heading"><span class="eyebrow">COMMANDES PRINCIPALES</span><span>@globallyUpdatedMods/@enabledMods mods suivis par la mise à jour globale</span></div>
+        <div class="primary-command-grid">
+            <form method="post" asp-page-handler="Build" data-loading-title="Construction du pack…" data-loading-detail="Assemblage des snapshots figés, calcul des hashes et génération des fichiers Workshop."><button class="primary-command build-command" type="submit"><span class="primary-command-icon">B</span><span><strong>Construire</strong><small>Générer le pack depuis les versions figées</small></span></button></form>
+            <form method="post" asp-page-handler="RefreshSources" data-loading-title="Mise à jour des mods…" data-loading-detail="SteamCMD télécharge les versions actuelles des mods autorisés, puis remplace uniquement leurs snapshots." data-confirm-title="Mettre à jour les mods ?" data-confirm-message="Les snapshots des mods marqués « Mise à jour globale » seront remplacés. Les mods exclus resteront strictement inchangés et aucun publish ne sera effectué." data-confirm-action="Mettre à jour les mods"><button class="primary-command update-command" type="submit"><span class="primary-command-icon">U</span><span><strong>Mettre à jour les mods</strong><small>@globallyUpdatedMods sélectionné(s), @(enabledMods - globallyUpdatedMods) exclu(s)</small></span></button></form>
+            <form method="post" asp-page-handler="Publish" data-loading-title="Publication Steam Workshop…" data-loading-detail="Validation, construction, coordination éventuelle du serveur et mise à jour du Workshop ID de ce pack." data-confirm-title="Publier le pack ?" data-confirm-message="Le pack sera construit puis publié ou mis à jour sur Steam Workshop. Si un serveur coordonné est en ligne, il sera sauvegardé, arrêté proprement puis redémarré." data-confirm-action="Publier maintenant" data-confirm-tone="publish"><button class="primary-command publish-command" type="submit" disabled="@(!Model.Validation.CanPublish)"><span class="primary-command-icon">P</span><span><strong>Publier</strong><small>Mettre à jour l’unique Workshop ID</small></span></button></form>
+        </div>
     </div>
 </section>
 
@@ -253,7 +257,7 @@
                     <summary>
                         <span class="order-number">@(mod.Order + 1)</span>
                         <span class="mod-summary-copy"><strong>@mod.Name</strong><small>Mod ID @mod.ModId · @(mod.WorkshopId == 0 ? "source locale" : $"Workshop {mod.WorkshopId}")</small><span class="mod-version-line"><b>Version @mod.DisplayVersion</b><em>Profil PZ @(string.IsNullOrWhiteSpace(mod.SelectedVersionFolder) ? "racine" : mod.SelectedVersionFolder)</em>@if (!string.IsNullOrWhiteSpace(mod.PinnedContentHash)) { <em>Révision @mod.PinnedContentHash[..Math.Min(10, mod.PinnedContentHash.Length)]</em> }</span></span>
-                        <span class="mod-summary-status">@if (Directory.Exists(mod.PinnedSourceRoot)) { <span class="snapshot-badge">FIGÉ</span> }<span class="rights-badge @mod.Permission.Status.ToString().ToLowerInvariant()">@mod.Permission.Status</span><span class="mod-expand-hint"><span>Afficher les détails</span><i aria-hidden="true">⌄</i></span></span>
+                        <span class="mod-summary-status">@if (Directory.Exists(mod.PinnedSourceRoot)) { <span class="snapshot-badge">FIGÉ</span> }<span class="update-policy-badge @(mod.IncludeInGlobalUpdates ? "auto" : "manual")">@(mod.IncludeInGlobalUpdates ? "MÀJ GLOBALE" : "MÀJ MANUELLE")</span><span class="rights-badge @mod.Permission.Status.ToString().ToLowerInvariant()">@mod.Permission.Status</span><span class="mod-expand-hint"><span>Afficher les détails</span><i aria-hidden="true">⌄</i></span></span>
                     </summary>
                     <div class="mod-details">
                         <div class="mod-metadata"><div><span>Version du mod</span><strong>@mod.DisplayVersion</strong></div><div><span>Compatibilité PZ</span><strong>@(string.IsNullOrWhiteSpace(mod.SelectedVersionFolder) ? "racine / legacy" : mod.SelectedVersionFolder)</strong></div><div><span>Origine</span><strong>@mod.SourceModRoot</strong></div><div><span>Révision figée</span><strong>@(Directory.Exists(mod.PinnedSourceRoot) ? $"{mod.PinnedAt?.LocalDateTime:dd/MM/yyyy HH:mm} · {mod.PinnedContentHash[..Math.Min(12, mod.PinnedContentHash.Length)]}…" : "En attente")</strong></div>@if (mod.RequiredModIds.Length > 0) { <div><span>Dépendances</span><strong>@string.Join(", ", mod.RequiredModIds)</strong></div> }@if (mod.MapFolders.Length > 0) { <div><span>Cartes</span><strong>@string.Join(", ", mod.MapFolders)</strong></div> }</div>
@@ -262,17 +266,25 @@
                             <input type="hidden" name="modReferenceId" value="@mod.Id" />
                             <div class="form-grid two">
                                 <label><span>Statut de l’autorisation</span><select name="permissionStatus">@foreach (var status in Enum.GetValues<PermissionStatus>()) { if (status == mod.Permission.Status) { <option value="@status" selected>@status</option> } else { <option value="@status">@status</option> } }</select></label>
-                                <label><span>Auteur / détenteur</span><input name="rightsHolder" value="@mod.Permission.RightsHolder" placeholder="@mod.Author" /></label>
+                                <label><span>Auteur / détenteur</span><input name="rightsHolder" value="@mod.Permission.RightsHolder" placeholder="@(string.IsNullOrWhiteSpace(mod.Author) ? "Non déclaré dans mod.info" : mod.Author)" /><small>@(string.IsNullOrWhiteSpace(mod.Author) ? "Aucun auteur déclaré par le mod; vérifiez la fiche Workshop." : $"Prérempli depuis mod.info : {mod.Author}")</small></label>
                                 <label><span>Preuve publique / licence</span><input name="publicEvidenceUrl" value="@mod.Permission.PublicEvidenceUrl" placeholder="https://…" /></label>
                                 <label><span>Pièce privée locale</span><input name="privateAttachmentPath" value="@mod.Permission.PrivateAttachmentPath" placeholder="Capture ou email exporté — jamais publié" /></label>
                                 <label class="full"><span>Notes et conditions reçues</span><textarea name="permissionNotes" rows="2">@mod.Permission.Notes</textarea></label>
+                                <label class="switch-row mod-update-policy full">
+                                    @if (mod.IncludeInGlobalUpdates) { <input type="checkbox" name="includeInGlobalUpdates" value="true" checked /> } else { <input type="checkbox" name="includeInGlobalUpdates" value="true" /> }
+                                    <input type="hidden" name="includeInGlobalUpdates" value="false" />
+                                    <span><strong>Inclure dans « Mettre à jour les mods »</strong><small>Désactivez cette option pour conserver indéfiniment la révision figée. La mise à jour individuelle reste disponible.</small></span>
+                                </label>
                             </div>
-                            <div class="mod-footer-actions"><button class="button secondary" type="submit">Enregistrer les droits</button></div>
+                            <div class="mod-footer-actions"><button class="button secondary" type="submit">Enregistrer les droits et la mise à jour</button></div>
                         </form>
                         <div class="mod-actions">
+                            <form method="post" asp-page-handler="RefreshMod" class="mod-refresh-form" data-loading-title="Mise à jour de @mod.Name…" data-loading-detail="Téléchargement de la source actuelle et remplacement du snapshot de ce mod uniquement." data-confirm-title="Mettre à jour ce mod ?" data-confirm-message="Seul le snapshot de « @mod.Name » sera remplacé par la version actuelle. Ce choix fonctionne même si le mod est exclu de la mise à jour globale." data-confirm-action="Mettre à jour ce mod"><input type="hidden" name="modReferenceId" value="@mod.Id" /><button class="button primary" type="submit">Mettre à jour ce mod</button></form>
+                            <span class="mod-order-actions">
                             <form method="post" asp-page-handler="Move" data-loading-title="Mise à jour de l’ordre…"><input type="hidden" name="modReferenceId" value="@mod.Id" /><input type="hidden" name="direction" value="-1" /><button class="icon-button" title="Monter" type="submit">↑</button></form>
                             <form method="post" asp-page-handler="Move" data-loading-title="Mise à jour de l’ordre…"><input type="hidden" name="modReferenceId" value="@mod.Id" /><input type="hidden" name="direction" value="1" /><button class="icon-button" title="Descendre" type="submit">↓</button></form>
-                            <form method="post" asp-page-handler="RemoveMod" data-loading-title="Retrait du mod…" data-loading-detail="Mise à jour du projet et suppression de son snapshot privé uniquement." onsubmit="return confirm('Retirer ce mod du projet ? Les fichiers source resteront intacts.');"><input type="hidden" name="modReferenceId" value="@mod.Id" /><button class="button danger" type="submit">Retirer</button></form>
+                            <form method="post" asp-page-handler="RemoveMod" data-loading-title="Retrait du mod…" data-loading-detail="Mise à jour du projet et suppression de son snapshot privé uniquement." data-confirm-title="Retirer ce mod ?" data-confirm-message="Le mod et son snapshot privé seront retirés du pack. Les fichiers source et l’item Workshop original resteront intacts." data-confirm-action="Retirer du pack" data-confirm-tone="danger"><input type="hidden" name="modReferenceId" value="@mod.Id" /><button class="button danger" type="submit">Retirer</button></form>
+                            </span>
                         </div>
                     </div>
                 </details>

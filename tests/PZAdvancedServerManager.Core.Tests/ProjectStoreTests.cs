@@ -39,7 +39,7 @@ public sealed class ProjectStoreTests : IDisposable
           "id": "{{id}}",
           "schemaVersion": 1,
           "name": "Legacy",
-          "mods": [{ "id": "{{Guid.NewGuid()}}", "modId": "legacy", "sourceModRoot": "{{source.Replace("\\", "\\\\")}}" }]
+          "mods": [{ "id": "{{Guid.NewGuid()}}", "modId": "legacy", "author": "Legacy Author", "sourceModRoot": "{{source.Replace("\\", "\\\\")}}" }]
         }
         """);
 
@@ -47,6 +47,8 @@ public sealed class ProjectStoreTests : IDisposable
 
         Assert.Equal(PZAdvancedServerManager.Core.Domain.PzasmConstants.CurrentProjectSchemaVersion, project.SchemaVersion);
         Assert.Equal("LegacyFolder", project.Mods[0].SourceFolderName);
+        Assert.Equal("Legacy Author", project.Mods[0].Permission.RightsHolder);
+        Assert.True(project.Mods[0].IncludeInGlobalUpdates);
     }
 
     public void Dispose()

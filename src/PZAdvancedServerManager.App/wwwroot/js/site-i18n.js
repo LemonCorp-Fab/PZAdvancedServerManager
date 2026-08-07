@@ -102,8 +102,44 @@
         ['CompatibleLicense', 'Compatible license', 'Licencia compatible', 'Kompatible Lizenz', 'Licença compatível', '兼容许可证'],
         ['Denied', 'Denied', 'Denegado', 'Abgelehnt', 'Negado', '已拒绝'],
         ['Construire', 'Build', 'Construir', 'Erstellen', 'Construir', '构建'],
-        ['Actualiser les sources', 'Refresh sources', 'Actualizar fuentes', 'Quellen aktualisieren', 'Atualizar fontes', '更新来源'],
+        ['Mettre à jour les mods', 'Update mods', 'Actualizar mods', 'Mods aktualisieren', 'Atualizar mods', '更新模组'],
         ['Publier', 'Publish', 'Publicar', 'Veröffentlichen', 'Publicar', '发布'],
+        ['COMMANDES PRINCIPALES', 'PRIMARY COMMANDS', 'COMANDOS PRINCIPALES', 'HAUPTBEFEHLE', 'COMANDOS PRINCIPAIS', '主要命令'],
+        ['Générer le pack depuis les versions figées', 'Generate the pack from pinned versions', 'Generar el paquete desde versiones fijadas', 'Paket aus fixierten Versionen erzeugen', 'Gerar o pacote com as versões fixadas', '从固定版本生成模组包'],
+        ['Mettre à jour l’unique Workshop ID', 'Update the single Workshop ID', 'Actualizar el único Workshop ID', 'Die einzige Workshop-ID aktualisieren', 'Atualizar o único Workshop ID', '更新唯一的 Workshop ID'],
+        ['MÀJ GLOBALE', 'GLOBAL UPDATE', 'ACT. GLOBAL', 'GLOBAL AKTUALISIERT', 'ATUAL. GLOBAL', '全局更新'],
+        ['MÀJ MANUELLE', 'MANUAL UPDATE', 'ACT. MANUAL', 'MANUELL', 'ATUAL. MANUAL', '手动更新'],
+        ['Inclure dans « Mettre à jour les mods »', 'Include in “Update mods”', 'Incluir en «Actualizar mods»', 'In „Mods aktualisieren“ einbeziehen', 'Incluir em “Atualizar mods”', '包含在“更新模组”中'],
+        ['Désactivez cette option pour conserver indéfiniment la révision figée. La mise à jour individuelle reste disponible.', 'Disable this to keep the pinned revision indefinitely. Individual update remains available.', 'Desactiva esta opción para conservar indefinidamente la revisión fijada. La actualización individual seguirá disponible.', 'Deaktivieren, um die fixierte Revision dauerhaft zu behalten. Die einzelne Aktualisierung bleibt verfügbar.', 'Desative para manter a revisão fixada indefinidamente. A atualização individual continuará disponível.', '关闭后将永久保留固定修订，仍可单独更新。'],
+        ['Enregistrer les droits et la mise à jour', 'Save rights and update policy', 'Guardar derechos y actualización', 'Rechte und Aktualisierung speichern', 'Salvar direitos e atualização', '保存权限与更新策略'],
+        ['Mettre à jour ce mod', 'Update this mod', 'Actualizar este mod', 'Diesen Mod aktualisieren', 'Atualizar este mod', '更新此模组'],
+        ['Non déclaré dans mod.info', 'Not declared in mod.info', 'No declarado en mod.info', 'Nicht in mod.info angegeben', 'Não declarado no mod.info', 'mod.info 中未声明'],
+        ['Aucun auteur déclaré par le mod; vérifiez la fiche Workshop.', 'No author is declared by the mod; check its Workshop page.', 'El mod no declara autor; consulta su página de Workshop.', 'Der Mod nennt keinen Autor; Workshop-Seite prüfen.', 'O mod não declara autor; verifique a página do Workshop.', '模组未声明作者；请检查创意工坊页面。'],
+        ['CONFIRMATION REQUISE', 'CONFIRMATION REQUIRED', 'CONFIRMACIÓN REQUERIDA', 'BESTÄTIGUNG ERFORDERLICH', 'CONFIRMAÇÃO NECESSÁRIA', '需要确认'],
+        ['Confirmer l’opération', 'Confirm operation', 'Confirmar operación', 'Vorgang bestätigen', 'Confirmar operação', '确认操作'],
+        ['Vérifiez les conséquences avant de continuer.', 'Review the consequences before continuing.', 'Revisa las consecuencias antes de continuar.', 'Vor dem Fortfahren die Folgen prüfen.', 'Revise as consequências antes de continuar.', '继续前请检查操作影响。'],
+        ['Annuler', 'Cancel', 'Cancelar', 'Abbrechen', 'Cancelar', '取消'],
+        ['Confirmer', 'Confirm', 'Confirmar', 'Bestätigen', 'Confirmar', '确认'],
+        ['Mettre à jour les mods ?', 'Update mods?', '¿Actualizar mods?', 'Mods aktualisieren?', 'Atualizar mods?', '更新模组？'],
+        ['Publier le pack ?', 'Publish the pack?', '¿Publicar el paquete?', 'Paket veröffentlichen?', 'Publicar o pacote?', '发布模组包？'],
+        ['Publier maintenant', 'Publish now', 'Publicar ahora', 'Jetzt veröffentlichen', 'Publicar agora', '立即发布'],
+        ['Mettre à jour ce mod ?', 'Update this mod?', '¿Actualizar este mod?', 'Diesen Mod aktualisieren?', 'Atualizar este mod?', '更新此模组？'],
+        ['Retirer ce mod ?', 'Remove this mod?', '¿Quitar este mod?', 'Diesen Mod entfernen?', 'Remover este mod?', '移除此模组？'],
+        ['Retirer du pack', 'Remove from pack', 'Quitar del paquete', 'Aus Paket entfernen', 'Remover do pacote', '从模组包移除'],
+        ['Supprimer ce projet ?', 'Delete this project?', '¿Eliminar este proyecto?', 'Dieses Projekt löschen?', 'Excluir este projeto?', '删除此项目？'],
+        ['Supprimer le projet', 'Delete project', 'Eliminar proyecto', 'Projekt löschen', 'Excluir projeto', '删除项目'],
+        ['Sauvegarder et arrêter le serveur ?', 'Save and stop the server?', '¿Guardar y detener el servidor?', 'Server speichern und stoppen?', 'Salvar e parar o servidor?', '保存并停止服务器？'],
+        ['Sauvegarder et arrêter', 'Save and stop', 'Guardar y detener', 'Speichern und stoppen', 'Salvar e parar', '保存并停止'],
+        ['Appliquer ce pack au serveur ?', 'Apply this pack to the server?', '¿Aplicar este paquete al servidor?', 'Dieses Paket auf den Server anwenden?', 'Aplicar este pacote ao servidor?', '将此模组包应用到服务器？'],
+        ['Appliquer le pack', 'Apply pack', 'Aplicar paquete', 'Paket anwenden', 'Aplicar pacote', '应用模组包'],
+        ['Enregistrer l’INI brut ?', 'Save raw INI?', '¿Guardar el INI sin procesar?', 'INI-Rohdaten speichern?', 'Salvar INI bruto?', '保存原始 INI？'],
+        ['Enregistrer l’INI', 'Save INI', 'Guardar INI', 'INI speichern', 'Salvar INI', '保存 INI'],
+        ['Les snapshots des mods marqués « Mise à jour globale » seront remplacés. Les mods exclus resteront strictement inchangés et aucun publish ne sera effectué.', 'Snapshots for mods marked “Global update” will be replaced. Excluded mods remain strictly unchanged and nothing will be published.', 'Se reemplazarán las instantáneas de los mods marcados «Actualización global». Los mods excluidos no cambiarán y no se publicará nada.', 'Snapshots der als „Global aktualisieren“ markierten Mods werden ersetzt. Ausgeschlossene Mods bleiben unverändert; es wird nichts veröffentlicht.', 'Os snapshots dos mods marcados como “Atualização global” serão substituídos. Mods excluídos permanecerão inalterados e nada será publicado.', '标记为“全局更新”的模组快照将被替换。排除的模组保持不变，且不会发布。'],
+        ['Le pack sera construit puis publié ou mis à jour sur Steam Workshop. Si un serveur coordonné est en ligne, il sera sauvegardé, arrêté proprement puis redémarré.', 'The pack will be built and then published or updated on Steam Workshop. If a coordinated server is online, it will be saved, stopped cleanly, and restarted.', 'El paquete se compilará y después se publicará o actualizará en Steam Workshop. Si hay un servidor coordinado en línea, se guardará, detendrá correctamente y reiniciará.', 'Das Paket wird erstellt und anschließend im Steam Workshop veröffentlicht oder aktualisiert. Ein laufender koordinierter Server wird gespeichert, sauber gestoppt und neu gestartet.', 'O pacote será compilado e publicado ou atualizado no Steam Workshop. Se um servidor coordenado estiver online, será salvo, encerrado corretamente e reiniciado.', '模组包将构建并发布或更新到 Steam 创意工坊。若协调服务器在线，将先保存、正常停止并重新启动。'],
+        ['Le projet, ses snapshots et ses builds locaux seront supprimés. Le Workshop publié et les mods originaux ne seront pas modifiés.', 'The project, its snapshots, and local builds will be deleted. The published Workshop item and original mods will not be changed.', 'Se eliminarán el proyecto, sus instantáneas y compilaciones locales. El elemento publicado y los mods originales no se modificarán.', 'Projekt, Snapshots und lokale Builds werden gelöscht. Das veröffentlichte Workshop-Item und Original-Mods bleiben unverändert.', 'O projeto, snapshots e builds locais serão excluídos. O item publicado e os mods originais não serão alterados.', '项目、快照和本地构建将被删除。已发布的创意工坊条目和原始模组不会更改。'],
+        ['Le gestionnaire enverra save puis quit par RCON et attendra l’arrêt complet. Aucun arrêt forcé ne sera utilisé.', 'The manager will send save then quit through RCON and wait for a complete shutdown. No forced stop will be used.', 'El gestor enviará save y luego quit mediante RCON y esperará el cierre completo. No se forzará la detención.', 'Der Manager sendet per RCON save und danach quit und wartet auf das vollständige Herunterfahren. Kein erzwungener Stopp.', 'O gerenciador enviará save e depois quit via RCON e aguardará o encerramento completo. Nenhuma parada forçada será usada.', '管理器将通过 RCON 依次发送 save 和 quit，并等待完全停止，不会强制终止。'],
+        ['Les listes WorkshopItems, Mods et Map seront remplacées après création d’une sauvegarde horodatée. Les autres réglages du serveur resteront inchangés.', 'WorkshopItems, Mods, and Map lists will be replaced after a timestamped backup is created. Other server settings remain unchanged.', 'Las listas WorkshopItems, Mods y Map se reemplazarán después de crear una copia con fecha. Los demás ajustes no cambiarán.', 'WorkshopItems-, Mods- und Map-Listen werden nach einer datierten Sicherung ersetzt. Andere Servereinstellungen bleiben unverändert.', 'As listas WorkshopItems, Mods e Map serão substituídas após um backup datado. As outras configurações permanecerão inalteradas.', '创建带时间戳的备份后，将替换 WorkshopItems、Mods 和 Map 列表，其他服务器设置保持不变。'],
+        ['Une sauvegarde horodatée sera créée avant l’écriture atomique du fichier serveur.', 'A timestamped backup will be created before the server file is written atomically.', 'Se creará una copia con fecha antes de escribir atómicamente el archivo del servidor.', 'Vor dem atomaren Schreiben der Serverdatei wird eine datierte Sicherung erstellt.', 'Um backup datado será criado antes da gravação atômica do arquivo do servidor.', '原子写入服务器文件前将创建带时间戳的备份。'],
         ['Vue d’ensemble', 'Overview', 'Resumen', 'Übersicht', 'Visão geral', '概览'],
         ['Planification', 'Scheduling', 'Planificación', 'Zeitplanung', 'Agendamento', '计划任务'],
         ['Expert', 'Expert', 'Experto', 'Experte', 'Especialista', '专家'],
@@ -216,6 +252,9 @@
             ,[/^(\d+) dépendance\(s\) résolue\(s\) automatiquement$/, ['$1 dependency/dependencies resolved automatically', '$1 dependencia(s) resuelta(s) automáticamente', '$1 Abhängigkeit(en) automatisch aufgelöst', '$1 dependência(s) resolvida(s) automaticamente', '已自动解析 $1 个依赖']]
             ,[/^Workshop (\d+) · profil PZ (.+)$/, ['Workshop $1 · PZ profile $2', 'Workshop $1 · perfil PZ $2', 'Workshop $1 · PZ-Profil $2', 'Workshop $1 · perfil PZ $2', '创意工坊 $1 · PZ 配置 $2']]
             ,[/^Workshop: à créer$/, ['Workshop: to create', 'Workshop: por crear', 'Workshop: zu erstellen', 'Workshop: a criar', '创意工坊：待创建']]
+            ,[/^(\d+)\/(\d+) mods suivis par la mise à jour globale$/, ['$1/$2 mods included in global updates', '$1/$2 mods incluidos en la actualización global', '$1/$2 Mods in globalen Aktualisierungen', '$1/$2 mods incluídos na atualização global', '$1/$2 个模组包含在全局更新中']]
+            ,[/^(\d+) sélectionné\(s\), (\d+) exclu\(s\)$/, ['$1 selected, $2 excluded', '$1 seleccionados, $2 excluidos', '$1 ausgewählt, $2 ausgeschlossen', '$1 selecionados, $2 excluídos', '已选择 $1，已排除 $2']]
+            ,[/^Prérempli depuis mod\.info : (.+)$/, ['Prefilled from mod.info: $1', 'Rellenado desde mod.info: $1', 'Aus mod.info vorausgefüllt: $1', 'Preenchido pelo mod.info: $1', '已从 mod.info 预填：$1']]
         ];
         const languageIndex = Math.max(0, languages.indexOf(activeLanguage) - 1);
         for (const [pattern, values] of patterns) {
@@ -247,7 +286,7 @@
     };
 
     const translateAttributes = element => {
-        const names = ['placeholder', 'title', 'aria-label', 'data-loading-title', 'data-loading-detail'];
+        const names = ['placeholder', 'title', 'aria-label', 'data-loading-title', 'data-loading-detail', 'data-confirm-title', 'data-confirm-message', 'data-confirm-action'];
         let originals = attributeOriginals.get(element);
         if (!originals) { originals = new Map(); attributeOriginals.set(element, originals); }
         names.forEach(name => {

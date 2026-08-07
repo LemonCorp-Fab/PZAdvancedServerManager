@@ -61,7 +61,7 @@ public class EditModel(
         if (selected is null)
         {
             TempData["Error"] = "La source choisie n'existe plus. Actualisez la détection.";
-            return RedirectToPage(new { id });
+            return RedirectToPage(new { id, tab = "mods" });
         }
         try
         {
@@ -72,10 +72,10 @@ public class EditModel(
                     : $"« {selected.Name} » et {added - 1} dépendance(s) ont été ajoutés et figés. Renseignez leurs autorisations.";
         }
         catch (Exception exception) { TempData["Error"] = exception.Message; }
-        return RedirectToPage(new { id });
+        return RedirectToPage(new { id, tab = "mods" });
     }
 
-    public IActionResult OnPostUpdateMod(Guid id, Guid modReferenceId, PermissionStatus permissionStatus, string? rightsHolder, string? publicEvidenceUrl, string? privateAttachmentPath, string? permissionNotes)
+    public IActionResult OnPostUpdateMod(Guid id, Guid modReferenceId, PermissionStatus permissionStatus, bool includeInGlobalUpdates, string? rightsHolder, string? publicEvidenceUrl, string? privateAttachmentPath, string? permissionNotes)
     {
         var project = store.Get(id);
         if (project is null) return NotFound();
@@ -86,9 +86,10 @@ public class EditModel(
         mod.Permission.PublicEvidenceUrl = publicEvidenceUrl?.Trim() ?? string.Empty;
         mod.Permission.PrivateAttachmentPath = privateAttachmentPath?.Trim() ?? string.Empty;
         mod.Permission.Notes = permissionNotes?.Trim() ?? string.Empty;
+        mod.IncludeInGlobalUpdates = includeInGlobalUpdates;
         store.Save(project);
         TempData["Message"] = $"Droits et crédits enregistrés pour « {mod.Name} ».";
-        return RedirectToPage(new { id });
+        return RedirectToPage(new { id, tab = "mods" });
     }
 
     public IActionResult OnPostRemoveMod(Guid id, Guid modReferenceId)
@@ -97,7 +98,7 @@ public class EditModel(
         if (project is null) return NotFound();
         projects.Remove(project, modReferenceId);
         TempData["Message"] = "Mod et snapshot PZASM retirés du projet. La source d'origine n'a pas été modifiée.";
-        return RedirectToPage(new { id });
+        return RedirectToPage(new { id, tab = "mods" });
     }
 
     public IActionResult OnPostMove(Guid id, Guid modReferenceId, int direction)
@@ -105,7 +106,7 @@ public class EditModel(
         var project = store.Get(id);
         if (project is null) return NotFound();
         projects.Move(project, modReferenceId, direction);
-        return RedirectToPage(new { id });
+        return RedirectToPage(new { id, tab = "mods" });
     }
 
     public IActionResult OnPostBuild(Guid id)
@@ -153,12 +154,29 @@ public class EditModel(
         if (project is null) return NotFound();
         try
         {
+            var targetCount = project.Mods.Count(x => x.Enabled && x.IncludeInGlobalUpdates);
             var result = await lifecycle.RefreshSourcesAsync(project, cancellationToken);
             if (!result.Success) TempData["Error"] = "Actualisation SteamCMD échouée : " + Limit(result.CombinedOutput, 1200);
-            else TempData["Message"] = "Sources explicitement actualisées et nouveaux snapshots figés. Aucun publish n'a été effectué.";
+            else TempData["Message"] = $"{targetCount} mod(s) mis à jour et nouveaux snapshots figés. Les mods exclus sont restés inchangés. Aucun publish n'a été effectué.";
         }
         catch (Exception exception) { TempData["Error"] = exception.Message; }
-        return RedirectToPage(new { id });
+        return RedirectToPage(new { id, tab = "mods" });
+    }
+
+    public async Task<IActionResult> OnPostRefreshModAsync(Guid id, Guid modReferenceId, CancellationToken cancellationToken)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+        var mod = project.Mods.FirstOrDefault(x => x.Id == modReferenceId);
+        if (mod is null) return NotFound();
+        try
+        {
+            var result = await lifecycle.RefreshModAsync(project, modReferenceId, cancellationToken);
+            if (!result.Success) TempData["Error"] = $"Mise à jour de « {mod.Name} » échouée : " + Limit(result.CombinedOutput, 1200);
+            else TempData["Message"] = $"« {mod.Name} » a été mis à jour individuellement et son nouveau snapshot est figé.";
+        }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
+        return RedirectToPage(new { id, tab = "mods" });
     }
 
     public async Task<IActionResult> OnPostImportWorkshopAsync(Guid id, ulong workshopId, CancellationToken cancellationToken)
@@ -171,7 +189,7 @@ public class EditModel(
             TempData["Message"] = $"Item Workshop {workshopId} téléchargé : {result.AddedMods} nouveau(x) Mod ID ajouté(s) et figé(s).";
         }
         catch (Exception exception) { TempData["Error"] = exception.Message; }
-        return RedirectToPage(new { id });
+        return RedirectToPage(new { id, tab = "mods" });
     }
 
     public async Task<IActionResult> OnPostInstallSteamCmdAsync(Guid id, CancellationToken cancellationToken)

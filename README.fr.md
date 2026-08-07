@@ -47,6 +47,10 @@ Consultez l’[étude d’architecture complète](docs/ARCHITECTURE.fr.md).
 - UI locale et CLI headless sous Windows et Linux ;
 - daemon `automation run` avec verrous entre processus.
 
+### Commandes du projet et mises à jour
+
+Construire, Mettre à jour les mods et Publier sont présentées comme les commandes principales du projet. Les actions sensibles utilisent toujours une fenêtre de confirmation intégrée à l’interface, jamais un dialogue natif du navigateur. L’auteur et le détenteur des droits sont préremplis depuis le `mod.info` de chaque source lorsqu’ils sont disponibles, tout en restant modifiables. Chaque mod peut être exclu de la mise à jour globale et actualisé individuellement ; son snapshot reste figé tant que sa mise à jour individuelle n’est pas explicitement demandée.
+
 ## Démarrage
 
 Depuis les sources, installez le [SDK .NET 9](https://dotnet.microsoft.com/download/dotnet/9.0). Les artefacts autonomes de la CI n’exigent pas le runtime .NET.

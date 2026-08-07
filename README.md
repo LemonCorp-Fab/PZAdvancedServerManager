@@ -52,6 +52,10 @@ See the complete [architecture and feasibility study](docs/ARCHITECTURE.md).
 - Windows/Linux CLI for desktop-free and SSH-managed hosts;
 - `automation run` CLI daemon with inter-process locks when the UI and CLI are active at the same time.
 
+### Project command and update workflow
+
+Build, Update mods, and Publish are presented as the project's primary commands. Destructive or consequential actions always use an in-app confirmation window instead of browser-native dialogs. Authors and rights holders are prefilled from each source `mod.info` when available and remain editable. Every mod can be excluded from the global Update mods command and refreshed individually; excluded snapshots stay pinned until their individual update is explicitly requested.
+
 ## Getting started
 
 Building from source requires Windows or Linux and the [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0). Self-contained CI artifacts do not require the .NET runtime. SteamCMD can be installed from the dashboard, a project’s Distribution tab, or the CLI. Public source items are downloaded anonymously by default; publishing still requires the owner account.

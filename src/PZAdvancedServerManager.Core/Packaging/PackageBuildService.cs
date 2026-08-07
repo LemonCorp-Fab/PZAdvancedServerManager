@@ -248,6 +248,7 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
                 x.SourceUrl,
                 x.PinnedAt,
                 x.PinnedContentHash,
+                x.IncludeInGlobalUpdates,
                 permissionStatus = x.Permission.Status.ToString()
             }),
             files
@@ -277,6 +278,7 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
                 x.SelectedVersionFolder,
                 x.PinnedAt,
                 x.PinnedContentHash,
+                x.IncludeInGlobalUpdates,
                 x.SourceUrl,
                 x.RequiredModIds,
                 x.MapFolders,

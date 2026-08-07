@@ -46,6 +46,10 @@ Siehe die vollständige [Architektur- und Machbarkeitsstudie](docs/ARCHITECTURE.
 - lokale UI und Headless-CLI für Windows und Linux;
 - `automation run`-Daemon mit prozessübergreifenden Sperren.
 
+### Projektbefehle und Aktualisierungen
+
+Erstellen, Mods aktualisieren und Veröffentlichen werden als primäre Projektbefehle hervorgehoben. Sensible Aktionen verwenden immer ein Bestätigungsfenster innerhalb der Oberfläche und niemals native Browserdialoge. Autor und Rechteinhaber werden, sofern vorhanden, aus der `mod.info` jeder Quelle vorausgefüllt und bleiben bearbeitbar. Jeder Mod kann von der globalen Aktualisierung ausgeschlossen und einzeln aktualisiert werden; sein Snapshot bleibt fixiert, bis eine einzelne Aktualisierung ausdrücklich angefordert wird.
+
 ## Start
 
 Zum Kompilieren ist das [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0) erforderlich. Eigenständige CI-Artefakte benötigen keine installierte .NET-Laufzeit.

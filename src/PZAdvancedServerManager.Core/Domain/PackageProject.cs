@@ -94,6 +94,7 @@ public sealed class PackageModReference
     public string SourceUrl { get; set; } = string.Empty;
     public int Order { get; set; }
     public bool Enabled { get; set; } = true;
+    public bool IncludeInGlobalUpdates { get; set; } = true;
     public string[] RequiredModIds { get; set; } = [];
     public string[] MapFolders { get; set; } = [];
     public PermissionEvidence Permission { get; set; } = new();

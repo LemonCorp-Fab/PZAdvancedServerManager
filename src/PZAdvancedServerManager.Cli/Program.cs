@@ -157,9 +157,21 @@ internal sealed class PzasmCli
                     WriteJson(analysis);
                     return 0;
                 }
+            case "update-policy":
+                {
+                    var mod = current.Mods.FirstOrDefault(x => x.ModId.Equals(args.Require("mod-id"), StringComparison.OrdinalIgnoreCase))
+                        ?? throw new InvalidOperationException("Mod absent du projet.");
+                    mod.IncludeInGlobalUpdates = bool.Parse(args.Require("enabled"));
+                    services.Store.Save(current);
+                    Console.WriteLine($"Mise à jour globale pour {mod.ModId}: {(mod.IncludeInGlobalUpdates ? "activée" : "désactivée")}.");
+                    return 0;
+                }
             case "refresh":
                 {
-                    var refresh = await services.Lifecycle.RefreshSourcesAsync(current);
+                    var refresh = args.Get("mod-id") is { } modId
+                        ? await services.Lifecycle.RefreshModAsync(current, current.Mods.FirstOrDefault(x => x.ModId.Equals(modId, StringComparison.OrdinalIgnoreCase))?.Id
+                            ?? throw new InvalidOperationException("Mod absent du projet."))
+                        : await services.Lifecycle.RefreshSourcesAsync(current);
                     current.Automation.LastResult = refresh.CombinedOutput;
                     services.Store.Save(current);
                     Console.WriteLine(refresh.CombinedOutput);
@@ -406,9 +418,10 @@ Chaque projet représente un pack global indépendant avec son propre Workshop I
   pzasm project import-workshop --id <guid> --workshop-id <id>
   pzasm project remove --id <guid> --mod-id <id>
   pzasm project rights --id <guid> --mod-id <id> --status <Unknown|AuthorOwned|ExplicitPermission|CompatibleLicense|Denied> [--evidence-url <url>] [--private-proof <path>] [--notes <texte>]
+  pzasm project update-policy --id <guid> --mod-id <id> --enabled <true|false>
   pzasm project configure --id <guid> [--description <texte>] [--workshop-id <id>] [--steamcmd <path>] [--steam-user <nom>] [--server <profil>] [--automation true] [--schedule 04:00,16:00] [--accept-legal]
   pzasm project maps --id <guid> [--apply-recommended --yes]
-  pzasm project refresh --id <guid>
+  pzasm project refresh --id <guid> [--mod-id <id>]
   pzasm project validate --id <guid>
   pzasm project build --id <guid>
   pzasm project publish --id <guid> --yes

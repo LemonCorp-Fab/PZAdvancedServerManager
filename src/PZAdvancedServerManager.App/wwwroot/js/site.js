@@ -266,6 +266,70 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
 });
 
 (() => {
+    const overlay = document.querySelector('[data-confirm-dialog]');
+    if (!overlay) return;
+    const card = overlay.querySelector('.confirmation-card');
+    const title = overlay.querySelector('[data-confirm-dialog-title]');
+    const message = overlay.querySelector('[data-confirm-dialog-message]');
+    const cancel = overlay.querySelector('[data-confirm-cancel]');
+    const accept = overlay.querySelector('[data-confirm-accept]');
+    let pending = null;
+    let previousFocus = null;
+
+    const close = () => {
+        overlay.hidden = true;
+        document.body.classList.remove('has-modal');
+        card?.classList.remove('is-danger', 'is-publish');
+        pending = null;
+        if (previousFocus instanceof HTMLElement) previousFocus.focus();
+        previousFocus = null;
+    };
+
+    document.addEventListener('submit', event => {
+        const form = event.target;
+        if (!(form instanceof HTMLFormElement) || !form.dataset.confirmTitle) return;
+        if (form.dataset.loadingCommitting === 'true') return;
+        if (form.dataset.confirmBypass === 'true') {
+            delete form.dataset.confirmBypass;
+            return;
+        }
+        if (event.defaultPrevented) return;
+        event.preventDefault();
+        previousFocus = document.activeElement;
+        pending = {
+            form,
+            submitter: event.submitter instanceof HTMLButtonElement ? event.submitter : null
+        };
+        title.textContent = form.dataset.confirmTitle;
+        message.textContent = form.dataset.confirmMessage || 'Vérifiez les conséquences avant de continuer.';
+        accept.textContent = form.dataset.confirmAction || 'Confirmer';
+        card?.classList.toggle('is-danger', form.dataset.confirmTone === 'danger');
+        card?.classList.toggle('is-publish', form.dataset.confirmTone === 'publish');
+        overlay.hidden = false;
+        document.body.classList.add('has-modal');
+        requestAnimationFrame(() => accept?.focus());
+    });
+
+    cancel?.addEventListener('click', close);
+    accept?.addEventListener('click', () => {
+        if (!pending) return;
+        const { form, submitter } = pending;
+        overlay.hidden = true;
+        document.body.classList.remove('has-modal');
+        pending = null;
+        form.dataset.confirmBypass = 'true';
+        form.requestSubmit(submitter || undefined);
+    });
+    overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && !overlay.hidden) {
+            event.preventDefault();
+            close();
+        }
+    });
+})();
+
+(() => {
     const overlay = document.querySelector('[data-loading-overlay]');
     if (!overlay) return;
 

@@ -96,6 +96,12 @@ public sealed class PackageProjectStore(ApplicationPaths paths)
                 if (string.IsNullOrWhiteSpace(mod.SourceFolderName) && !string.IsNullOrWhiteSpace(mod.SourceModRoot))
                     mod.SourceFolderName = Path.GetFileName(Path.TrimEndingDirectorySeparator(mod.SourceModRoot));
         }
+        foreach (var mod in project.Mods)
+        {
+            mod.Permission ??= new PermissionEvidence();
+            if (string.IsNullOrWhiteSpace(mod.Permission.RightsHolder) && !string.IsNullOrWhiteSpace(mod.Author))
+                mod.Permission.RightsHolder = mod.Author;
+        }
         project.SchemaVersion = PzasmConstants.CurrentProjectSchemaVersion;
     }
 }

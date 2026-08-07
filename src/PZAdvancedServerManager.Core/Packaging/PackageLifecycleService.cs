@@ -22,7 +22,16 @@ public sealed class PackageLifecycleService(
     public async Task<SteamCmdResult> RefreshSourcesAsync(PackageProject project, CancellationToken cancellationToken = default)
     {
         await using var operationLock = Acquire(project.Id);
-        return await RefreshSourcesCoreAsync(project, cancellationToken);
+        var targets = project.Mods.Where(x => x.Enabled && x.IncludeInGlobalUpdates).ToArray();
+        return await RefreshSourcesCoreAsync(project, targets, cancellationToken);
+    }
+
+    public async Task<SteamCmdResult> RefreshModAsync(PackageProject project, Guid modReferenceId, CancellationToken cancellationToken = default)
+    {
+        await using var operationLock = Acquire(project.Id);
+        var target = project.Mods.FirstOrDefault(x => x.Id == modReferenceId)
+            ?? throw new KeyNotFoundException("Mod introuvable dans ce projet.");
+        return await RefreshSourcesCoreAsync(project, [target], cancellationToken);
     }
 
     public async Task<PackageOperationResult> PublishAsync(
@@ -38,7 +47,8 @@ public sealed class PackageLifecycleService(
         var output = new List<string>();
         if (refreshSources)
         {
-            var refresh = await RefreshSourcesCoreAsync(project, cancellationToken);
+            var targets = project.Mods.Where(x => x.Enabled && x.IncludeInGlobalUpdates).ToArray();
+            var refresh = await RefreshSourcesCoreAsync(project, targets, cancellationToken);
             output.Add(refresh.CombinedOutput);
             if (!refresh.Success) throw new InvalidOperationException("Actualisation SteamCMD échouée : " + Tail(refresh.CombinedOutput));
         }
@@ -88,15 +98,36 @@ public sealed class PackageLifecycleService(
         return build;
     }
 
-    private async Task<SteamCmdResult> RefreshSourcesCoreAsync(PackageProject project, CancellationToken cancellationToken)
+    private async Task<SteamCmdResult> RefreshSourcesCoreAsync(PackageProject project, IReadOnlyCollection<PackageModReference> targets, CancellationToken cancellationToken)
     {
-        var refresh = await steamCmd.RefreshSourcesAsync(project, cancellationToken);
+        if (targets.Count == 0)
+            return new SteamCmdResult(0, "Aucun mod n’est configuré pour la mise à jour globale.", string.Empty);
+        var refresh = await steamCmd.RefreshSourcesAsync(project, targets, cancellationToken);
         if (refresh.Success)
         {
-            snapshots.UpdateAll(project);
+            foreach (var target in targets) RefreshMetadata(project, target);
+            snapshots.Update(project, targets);
             store.Save(project);
         }
         return refresh;
+    }
+
+    private static void RefreshMetadata(PackageProject project, PackageModReference reference)
+    {
+        if (!Directory.Exists(reference.SourceModRoot)) return;
+        var manifest = PzVersionSelector.SelectManifest(reference.SourceModRoot, project.TargetPzVersion, out var selected);
+        if (string.IsNullOrWhiteSpace(manifest)) return;
+        var info = ModInfoParser.Parse(manifest);
+        var previousAuthor = reference.Author;
+        reference.Name = string.IsNullOrWhiteSpace(info.Name) ? reference.Name : info.Name;
+        reference.Author = string.IsNullOrWhiteSpace(info.Author) ? reference.Author : info.Author;
+        reference.Version = info.Version;
+        reference.SelectedVersionFolder = selected;
+        reference.RequiredModIds = info.Required;
+        if (!string.IsNullOrWhiteSpace(reference.Author) &&
+            (string.IsNullOrWhiteSpace(reference.Permission.RightsHolder) ||
+             reference.Permission.Status == PermissionStatus.Unknown && reference.Permission.RightsHolder.Equals(previousAuthor, StringComparison.OrdinalIgnoreCase)))
+            reference.Permission.RightsHolder = reference.Author;
     }
 
     private FileStream Acquire(Guid projectId)

@@ -19,7 +19,12 @@ public sealed class PackageSourceSnapshotService(ApplicationPaths paths)
 
     public void UpdateAll(PackageProject project)
     {
-        foreach (var mod in project.Mods.Where(x => x.Enabled)) Pin(project, mod, replace: true);
+        Update(project, project.Mods.Where(x => x.Enabled));
+    }
+
+    public void Update(PackageProject project, IEnumerable<PackageModReference> mods)
+    {
+        foreach (var mod in mods.Where(x => x.Enabled).DistinctBy(x => x.Id)) Pin(project, mod, replace: true);
     }
 
     public void Pin(PackageProject project, PackageModReference mod, bool replace)

@@ -86,6 +86,27 @@ public sealed class PackageBuildTests : IDisposable
     }
 
     [Fact]
+    public void Snapshot_TargetedUpdateLeavesExcludedModPinned()
+    {
+        var firstSource = CreateMod("TargetedFirst", "targeted-first", "return 'first-v1'");
+        var secondSource = CreateMod("TargetedSecond", "targeted-second", "return 'second-v1'");
+        var project = ValidProject(PackageMode.Bundle,
+            Ref("targeted-first", "Targeted First", firstSource),
+            Ref("targeted-second", "Targeted Second", secondSource));
+        var snapshots = new PackageSourceSnapshotService(new ApplicationPaths(Path.Combine(_root, "targeted-data")));
+        snapshots.UpdateAll(project);
+        var secondHash = project.Mods[1].PinnedContentHash;
+
+        File.WriteAllText(Path.Combine(firstSource, "common", "media", "lua", "client", "test.lua"), "return 'first-v2'");
+        File.WriteAllText(Path.Combine(secondSource, "common", "media", "lua", "client", "test.lua"), "return 'second-v2'");
+        snapshots.Update(project, [project.Mods[0]]);
+
+        Assert.Equal("return 'first-v2'", File.ReadAllText(Path.Combine(project.Mods[0].PinnedSourceRoot, "common", "media", "lua", "client", "test.lua")));
+        Assert.Equal("return 'second-v1'", File.ReadAllText(Path.Combine(project.Mods[1].PinnedSourceRoot, "common", "media", "lua", "client", "test.lua")));
+        Assert.Equal(secondHash, project.Mods[1].PinnedContentHash);
+    }
+
+    [Fact]
     public void Snapshot_RejectsOutOfBandChanges()
     {
         var source = CreateMod("Protected", "protected-id", "return 'trusted'");

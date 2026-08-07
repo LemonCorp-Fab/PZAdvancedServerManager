@@ -75,7 +75,7 @@ public sealed class SteamCmdService(PackageValidator validator)
             throw new InvalidOperationException("Enregistrez d'abord le nom du compte Steam éditeur.");
         if (string.IsNullOrEmpty(credentials.Password))
             throw new InvalidOperationException("Le mot de passe Steam est requis pour créer ou renouveler la session portable.");
-        progress?.Report(new OperationProgress("authentication", "Ouverture de la session SteamCMD portable."));
+        progress?.Report(new OperationProgress("steamcmd", "Ouverture de la session SteamCMD portable."));
         return await RunAsync(project.Automation.SteamCmdPath,
             [], cancellationToken, credentials, progress, TimeSpan.FromMinutes(5), project.Automation.SteamUsername);
     }
@@ -106,6 +106,7 @@ public sealed class SteamCmdService(PackageValidator validator)
             WorkingDirectory = Path.GetDirectoryName(executable)!
         };
         foreach (var argument in arguments) start.ArgumentList.Add(argument);
+        if (!string.IsNullOrWhiteSpace(authenticationUsername)) ValidateAccountName(authenticationUsername);
 
         var consoleLogPath = Path.Combine(start.WorkingDirectory, "logs", "console_log.txt");
         var consoleLogOffset = File.Exists(consoleLogPath) ? new FileInfo(consoleLogPath).Length : 0;
@@ -120,6 +121,7 @@ public sealed class SteamCmdService(PackageValidator validator)
         var standardError = new StringBuilder();
         var promptWindow = string.Empty;
         var exposeRawOutput = string.IsNullOrWhiteSpace(authenticationUsername);
+        var initialCommandsSent = false;
         var passwordSent = false;
         var authenticationCompleted = false;
         var quitSent = false;
@@ -132,7 +134,7 @@ public sealed class SteamCmdService(PackageValidator validator)
             if (interaction != SteamCmdInteraction.None) return;
             interaction = requestedInteraction;
             interventionError = message;
-            progress?.Report(new OperationProgress("authentication", message));
+            progress?.Report(new OperationProgress(requestedInteraction == SteamCmdInteraction.SteamGuardCode ? "steamguard" : "session", message));
             if (!process.HasExited) process.Kill(entireProcessTree: true);
             await Task.CompletedTask;
         }
@@ -154,6 +156,20 @@ public sealed class SteamCmdService(PackageValidator validator)
                 if (exposeRawOutput && message.Length > 0 && !SteamCmdPromptClassifier.IsSecretPrompt(message))
                     progress?.Report(new OperationProgress("steamcmd", message.Length <= 500 ? message : message[^500..]));
 
+                if (!initialCommandsSent && !string.IsNullOrWhiteSpace(authenticationUsername) && SteamCmdPromptClassifier.IsReadyForCommand(promptWindow))
+                {
+                    initialCommandsSent = true;
+                    progress?.Report(new OperationProgress("credentials", "Console SteamCMD prête; préparation de la connexion du compte éditeur."));
+                    if (!string.IsNullOrWhiteSpace(credentials?.GuardCode))
+                    {
+                        await process.StandardInput.WriteLineAsync($"set_steam_guard_code {credentials.GuardCode.Trim()}".AsMemory(), token);
+                        progress?.Report(new OperationProgress("steamguard", "Code Steam Guard appliqué à SteamCMD pour cette tentative, sans l’ajouter à la ligne de commande."));
+                    }
+                    await process.StandardInput.WriteLineAsync($"login {authenticationUsername}".AsMemory(), token);
+                    await process.StandardInput.FlushAsync(token);
+                    progress?.Report(new OperationProgress("credentials", "Demande de connexion envoyée; attente de l’invite de mot de passe sécurisée."));
+                }
+
                 if (!passwordSent && SteamCmdPromptClassifier.RequestsPassword(promptWindow))
                 {
                     passwordSent = true;
@@ -167,7 +183,7 @@ public sealed class SteamCmdService(PackageValidator validator)
 
                     await process.StandardInput.WriteLineAsync(credentials.Password.AsMemory(), token);
                     await process.StandardInput.FlushAsync(token);
-                    progress?.Report(new OperationProgress("authentication", "Mot de passe transmis à SteamCMD par l’entrée sécurisée du processus."));
+                    progress?.Report(new OperationProgress("credentials", "Mot de passe transmis à SteamCMD par l’entrée sécurisée du processus."));
                 }
 
                 if (SteamCmdPromptClassifier.RequiresSteamGuard(promptWindow) && !authenticationCompleted)
@@ -229,22 +245,11 @@ public sealed class SteamCmdService(PackageValidator validator)
             }
         }
 
-        if (!string.IsNullOrWhiteSpace(authenticationUsername))
-        {
-            ValidateAccountName(authenticationUsername);
-            if (!string.IsNullOrWhiteSpace(credentials?.GuardCode))
-            {
-                await process.StandardInput.WriteLineAsync($"set_steam_guard_code {credentials.GuardCode.Trim()}".AsMemory(), token);
-                progress?.Report(new OperationProgress("steamguard", "Code Steam Guard appliqué à SteamCMD pour cette tentative, sans l’ajouter à la ligne de commande."));
-            }
-            await process.StandardInput.WriteLineAsync($"login {authenticationUsername}".AsMemory(), token);
-            await process.StandardInput.FlushAsync(token);
-            progress?.Report(new OperationProgress("authentication", "Demande de connexion envoyée à SteamCMD; attente de sa réponse sécurisée."));
-        }
-
         var stdoutTask = PumpAsync(process.StandardOutput, standardOutput);
         var stderrTask = PumpAsync(process.StandardError, standardError);
         var consoleLogTask = TailConsoleLogAsync(consoleLogPath, consoleLogOffset, chunk => ObserveAsync(chunk, standardOutput), process, pumpCancellation.Token);
+        if (!string.IsNullOrWhiteSpace(authenticationUsername))
+            progress?.Report(new OperationProgress("steamcmd", "SteamCMD démarré; attente de son invite de commande avant l’envoi du compte."));
         try
         {
             await process.WaitForExitAsync(token);
@@ -373,6 +378,8 @@ public enum SteamCmdInteraction
 
 public static class SteamCmdPromptClassifier
 {
+    public static bool IsReadyForCommand(string value) => value.Contains("steam>", StringComparison.OrdinalIgnoreCase);
+
     public static bool RequestsPassword(string value) => value.Contains("password:", StringComparison.OrdinalIgnoreCase);
 
     public static bool RequiresSteamGuard(string value) =>

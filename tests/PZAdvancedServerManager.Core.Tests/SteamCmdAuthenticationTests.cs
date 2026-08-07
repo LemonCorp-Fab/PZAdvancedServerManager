@@ -4,6 +4,14 @@ namespace PZAdvancedServerManager.Core.Tests;
 
 public sealed class SteamCmdAuthenticationTests
 {
+    [Theory]
+    [InlineData("\nSteam>")]
+    [InlineData("Steam Console Client\nSteam>")]
+    public void DetectsReadyCommandPrompt(string output)
+    {
+        Assert.True(SteamCmdPromptClassifier.IsReadyForCommand(output));
+    }
+
     [Fact]
     public void DetectsPasswordPromptWithoutLineBreak()
     {

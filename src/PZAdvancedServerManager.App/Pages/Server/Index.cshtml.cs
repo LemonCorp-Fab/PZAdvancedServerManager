@@ -16,8 +16,12 @@ public class IndexModel(
     public ServerConfigSummary Summary { get; private set; } = new([], [], []);
     public IReadOnlyList<PackageProject> Projects { get; private set; } = [];
     public bool SelectedServerOnline { get; private set; }
+    public bool SelectedServerCanStart => Selected is not null && (!Selected.IsRemote || !string.IsNullOrWhiteSpace(Selected.Remote!.StartCommand));
+    public string ConnectionError { get; private set; } = string.Empty;
     [BindProperty] public string RawContent { get; set; } = string.Empty;
     [BindProperty] public GuidedServerForm Guided { get; set; } = new();
+    [BindProperty] public RemoteServerForm Remote { get; set; } = new();
+    [BindProperty] public RemoteServerForm NewRemote { get; set; } = new();
 
     public async Task OnGetAsync(string? name, CancellationToken cancellationToken)
     {
@@ -25,10 +29,17 @@ public class IndexModel(
         Projects = projectStore.GetAll();
         Selected = Configs.FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) ?? Configs.FirstOrDefault();
         if (Selected is null) return;
-        RawContent = servers.ReadRaw(Selected.Name);
-        Summary = servers.ReadSummary(Selected.Name);
-        Guided = GuidedServerForm.From(ServerConfigDocument.Load(Selected.Path));
-        SelectedServerOnline = await servers.IsOnlineAsync(Selected.Name, cancellationToken);
+        Remote = RemoteServerForm.From(Selected.Remote);
+        try
+        {
+            var document = servers.ReadDocument(Selected.Name);
+            RawContent = document.Render();
+            Summary = new ServerConfigSummary(document.GetList("WorkshopItems"), document.GetList("Mods"), document.GetList("Map"));
+            Guided = GuidedServerForm.From(document);
+        }
+        catch (Exception exception) { ConnectionError = exception.Message; }
+        try { SelectedServerOnline = await servers.IsOnlineAsync(Selected.Name, cancellationToken); }
+        catch (Exception exception) { ConnectionError = string.IsNullOrWhiteSpace(ConnectionError) ? exception.Message : ConnectionError + " " + exception.Message; }
     }
 
     public IActionResult OnPostSave(string name)
@@ -68,12 +79,67 @@ public class IndexModel(
         }
     }
 
-    public IActionResult OnPostStart(string name)
+    public async Task<IActionResult> OnPostCreateRemoteAsync(bool createConfigIfMissing, CancellationToken cancellationToken)
     {
         try
         {
-            servers.Start(name);
-            TempData["Message"] = $"Démarrage de « {name} » demandé. Le statut RCON apparaîtra après l'initialisation.";
+            if (!TryValidateModel(NewRemote)) throw new ValidationException("Vérifiez le nom, l'hôte, les ports et les chemins du profil distant.");
+            var profile = await servers.CreateRemoteAsync(NewRemote.ToConnection(), createConfigIfMissing, cancellationToken);
+            TempData["Message"] = $"Profil distant « {profile.Name} » ajouté et connexion SSH vérifiée.";
+            return RedirectToPage(new { name = profile.Name });
+        }
+        catch (Exception exception)
+        {
+            TempData["Error"] = exception.Message;
+            return RedirectToPage();
+        }
+    }
+
+    public async Task<IActionResult> OnPostSaveRemoteAsync(string name, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!TryValidateModel(Remote)) throw new ValidationException("Vérifiez les paramètres SSH et RCON.");
+            var connection = Remote.ToConnection();
+            connection.Name = name;
+            await servers.UpdateRemoteAsync(connection, cancellationToken);
+            TempData["Message"] = $"Connexion distante « {name} » enregistrée et testée.";
+        }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
+        return RedirectToPage(new { name });
+    }
+
+    public async Task<IActionResult> OnPostTestRemoteAsync(string name, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!TryValidateModel(Remote)) throw new ValidationException("Vérifiez les paramètres SSH et RCON.");
+            var connection = Remote.ToConnection();
+            connection.Name = name;
+            await servers.TestRemoteAsync(connection, cancellationToken);
+            TempData["Message"] = $"Connexion SSH vers « {name} » opérationnelle.";
+        }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
+        return RedirectToPage(new { name });
+    }
+
+    public IActionResult OnPostDeleteRemote(string name)
+    {
+        try
+        {
+            if (!servers.RemoveRemote(name)) throw new KeyNotFoundException("Profil serveur distant introuvable.");
+            TempData["Message"] = $"Profil distant « {name} » supprimé. Aucun fichier ni processus distant n'a été modifié.";
+        }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
+        return RedirectToPage();
+    }
+
+    public async Task<IActionResult> OnPostStartAsync(string name, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await servers.StartAsync(name, cancellationToken);
+            TempData["Message"] = $"Démarrage du jeu « {name} » demandé. Le statut RCON apparaîtra après son initialisation.";
         }
         catch (Exception exception) { TempData["Error"] = exception.Message; }
         return RedirectToPage(new { name });
@@ -181,5 +247,47 @@ public class IndexModel(
         private static bool ParseBool(string value, bool fallback = false) => bool.TryParse(value, out var parsed) ? parsed : fallback;
         private static int ParseInt(string value, int fallback) => int.TryParse(value, out var parsed) ? parsed : fallback;
         private static string NormalizeList(string value) => string.Join(';', value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+    }
+
+    public sealed class RemoteServerForm
+    {
+        [Required, StringLength(64)] public string Name { get; set; } = string.Empty;
+        [Required, StringLength(255)] public string Host { get; set; } = string.Empty;
+        [Range(1, 65535)] public int SshPort { get; set; } = 22;
+        [Required, StringLength(128)] public string SshUser { get; set; } = string.Empty;
+        [StringLength(1024)] public string SshPrivateKeyPath { get; set; } = string.Empty;
+        [Required, StringLength(2048)] public string RemoteIniPath { get; set; } = string.Empty;
+        [StringLength(2048)] public string StartCommand { get; set; } = string.Empty;
+        [StringLength(255)] public string RconHost { get; set; } = string.Empty;
+        [Range(1, 65535)] public int RconPort { get; set; } = 27015;
+        [StringLength(512)] public string RconPassword { get; set; } = string.Empty;
+
+        public RemoteServerConnection ToConnection() => new()
+        {
+            Name = Name,
+            Host = Host,
+            SshPort = SshPort,
+            SshUser = SshUser,
+            SshPrivateKeyPath = SshPrivateKeyPath,
+            RemoteIniPath = RemoteIniPath,
+            StartCommand = StartCommand,
+            RconHost = RconHost,
+            RconPort = RconPort,
+            RconPassword = RconPassword
+        };
+
+        public static RemoteServerForm From(RemoteServerConnection? connection) => connection is null ? new() : new()
+        {
+            Name = connection.Name,
+            Host = connection.Host,
+            SshPort = connection.SshPort,
+            SshUser = connection.SshUser,
+            SshPrivateKeyPath = connection.SshPrivateKeyPath,
+            RemoteIniPath = connection.RemoteIniPath,
+            StartCommand = connection.StartCommand,
+            RconHost = connection.RconHost,
+            RconPort = connection.RconPort,
+            RconPassword = string.Empty
+        };
     }
 }

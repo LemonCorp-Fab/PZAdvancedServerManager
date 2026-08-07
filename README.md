@@ -49,7 +49,7 @@ See the complete [architecture and feasibility study](docs/ARCHITECTURE.md).
 - map-priority assistant using `map.info`, `lots=` dependencies, `.lotheader` cell conflicts, drag-and-drop ordering, and a raw `Map=` fallback;
 - guided `Zomboid/Server/*.ini` editor for identity, access, RCON, gameplay, backups, and content, plus the complete raw editor with encoding preservation;
 - safe pack application that only replaces `WorkshopItems`, `Mods`, and `Map`;
-- RCON status, `save`, `quit`, Windows/Linux startup, and an optional coordinated restart when a local profile is explicitly selected;
+- authenticated RCON status, `save`, `quit`, Windows/Linux startup, and optional coordinated restart for an explicitly selected local or remote profile;
 - Windows/Linux CLI for desktop-free and SSH-managed hosts;
 - `automation run` CLI daemon with inter-process locks when the UI and CLI are active at the same time.
 
@@ -162,11 +162,19 @@ GitHub Actions tests Windows and Linux and produces self-contained `win-x64` and
 
 The project targets .NET 9 and requires no database. JSON writes are atomic, and snapshots and builds are prepared in temporary directories before replacement.
 
+## Local and remote Project Zomboid control
+
+Server profiles can point to a local `Zomboid/Server/*.ini` file or to a remote VPS/dedicated host. Online detection performs a real RCON authentication, so an unrelated listener on the configured port is never treated as a running Project Zomboid server.
+
+The coordinated publication sequence is `RCON save` → `RCON quit` → wait until authenticated RCON is offline → publish the Workshop package → start only the Project Zomboid process. Local profiles use the dedicated-server start script. Remote profiles use SSH only for INI access and the administrator-defined game start command, such as `systemctl start pzserver`. Host-level `reboot`, `shutdown`, and `poweroff` commands are rejected. PZASM never reboots the VPS or dedicated machine.
+
+Remote SSH is non-interactive and uses an SSH agent or private key. The RCON password is stored in the manager's local profile data because it is required for unattended status and graceful stops; protect the PZASM data directory like the Project Zomboid server INI files.
+
 ## Known limitations
 
 - Public Project Zomboid Workshop sources support anonymous SteamCMD downloads; restricted or private items can still require an authenticated account.
 - SteamCMD downloads known Workshop IDs but does not expose a complete search command. The internal catalog enumerates public Steam Community browse results and resolves item metadata through Steam's public details API before SteamCMD downloads the selection.
-- Workshop publication relies on the Steam account session; PZASM never stores passwords or Steam Guard codes.
+- Workshop publication relies on the Steam account session; PZASM never stores Steam passwords or Steam Guard codes.
 - Linux SteamCMD may require the distribution's 32-bit runtime libraries; the installer reports bootstrap errors without hiding the extracted tool.
 - A new item can remain hidden until the Workshop legal agreement is accepted.
 - A source update can change dependencies, Mod IDs, maps, or licensing and may be blocked during validation.

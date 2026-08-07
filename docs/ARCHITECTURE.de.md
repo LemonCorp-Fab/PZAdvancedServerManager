@@ -51,7 +51,7 @@ Beim Hinzufügen einer Quelle erstellt PZASM einen privaten Snapshot und berechn
 
 Der [Steamworks-Workshop-Leitfaden](https://partner.steamgames.com/doc/features/workshop/implementation) beschreibt Erstellung und Aktualisierung mit `workshop_build_item`.
 
-Der Scheduler prüft Rechte und Abhängigkeiten, aktualisiert optional Quellen, baut in einem temporären Verzeichnis, führt RCON-`save` und `quit` aus, veröffentlicht und startet einen zuvor laufenden Server neu. Passwörter und Steam-Guard-Codes werden nicht gespeichert.
+Der Scheduler prüft Rechte und Abhängigkeiten, aktualisiert optional Quellen, baut in einem temporären Verzeichnis, führt RCON-`save` und `quit` aus, veröffentlicht und startet einen zuvor laufenden Server neu. Steam-Passwörter und Steam-Guard-Codes werden nicht gespeichert.
 
 ## Externe Anwendung
 
@@ -71,3 +71,9 @@ Steam kann ein neues Item verbergen, bis die [Workshop-Vereinbarung](https://ste
 - statisch nicht erkennbare logische Konflikte;
 - gelegentliche interaktive SteamCMD-Schritte;
 - erforderlicher Serverneustart nach der Veröffentlichung.
+
+## Lokale und entfernte Orchestrierung
+
+Ein Profil beschreibt entweder eine lokale INI-Datei oder eine Verbindung zu einem entfernten VPS/Dedicated Host. Der Status ist keine einfache TCP-Port-Prüfung: PZASM authentifiziert sich über RCON und meldet Project Zomboid nur dann als aktiv, wenn das Passwort akzeptiert wird. Ein sauberes Beenden sendet immer `save` und danach `quit` per RCON.
+
+SSH wird nur für Verbindungstests, die entfernte INI-Datei und den konfigurierten Startbefehl des Project-Zomboid-Prozesses oder -Dienstes verwendet. Der Zugriff erfolgt nicht interaktiv über privaten Schlüssel oder SSH-Agent. Host-Befehle wie `reboot`, `shutdown` und `poweroff` werden abgelehnt. Eine koordinierte Veröffentlichung stoppt und startet ausschließlich das Spiel; das Betriebssystem des Hosts läuft weiter. Das RCON-Geheimnis wird für unbeaufsichtigte Abläufe in den lokalen Manager-Profildaten gespeichert; dieses Verzeichnis muss geschützt werden.

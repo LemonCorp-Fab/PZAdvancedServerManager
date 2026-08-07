@@ -213,8 +213,19 @@ internal sealed class PzasmCli
         if (action == "list")
         {
             var configs = services.Servers.List();
-            if (args.Has("json")) WriteJson(configs);
-            else foreach (var profile in configs) Console.WriteLine($"{profile.Name,-30} {profile.Path}");
+            if (args.Has("json")) WriteJson(configs.Select(profile => new
+            {
+                profile.Name,
+                profile.Kind,
+                profile.Location,
+                SshHost = profile.Remote?.Host,
+                profile.Remote?.SshPort,
+                profile.Remote?.SshUser,
+                profile.Remote?.RemoteIniPath,
+                RconHost = profile.Remote?.RconHost,
+                profile.Remote?.RconPort
+            }));
+            else foreach (var profile in configs) Console.WriteLine($"{profile.Name,-30} {profile.Kind,-8} {profile.Location}");
             return 0;
         }
 
@@ -223,6 +234,40 @@ internal sealed class PzasmCli
         {
             var profile = services.Servers.Create(name);
             Console.WriteLine($"Profil créé : {profile.Path}");
+            return 0;
+        }
+        if (action is "create-remote" or "configure-remote")
+        {
+            var connection = new RemoteServerConnection
+            {
+                Name = name,
+                Host = args.Require("host"),
+                SshPort = args.GetInt("ssh-port") ?? 22,
+                SshUser = args.Require("ssh-user"),
+                SshPrivateKeyPath = args.Get("ssh-key") ?? string.Empty,
+                RemoteIniPath = args.Require("ini"),
+                StartCommand = args.Get("start-command") ?? string.Empty,
+                RconHost = args.Get("rcon-host") ?? string.Empty,
+                RconPort = args.GetInt("rcon-port") ?? 27015,
+                RconPassword = args.Get("rcon-password") ?? string.Empty
+            };
+            if (action == "create-remote")
+            {
+                var profile = await services.Servers.CreateRemoteAsync(connection, args.Has("create-config"));
+                Console.WriteLine($"Remote profile created and SSH connection verified: {profile.Location}");
+            }
+            else
+            {
+                await services.Servers.UpdateRemoteAsync(connection);
+                Console.WriteLine($"Remote profile updated and SSH connection verified: {name}");
+            }
+            return 0;
+        }
+        if (action == "delete-remote")
+        {
+            if (!args.Has("yes")) return Fail("Remote profile deletion was not performed. Add --yes to confirm.", 3);
+            if (!services.Servers.RemoveRemote(name)) return Fail("Remote server profile not found.", 4);
+            Console.WriteLine($"Remote profile removed without changing the remote host: {name}");
             return 0;
         }
         switch (action)
@@ -244,7 +289,7 @@ internal sealed class PzasmCli
                 Console.WriteLine(online ? "online" : "offline");
                 return online ? 0 : 4;
             case "start":
-                services.Servers.Start(name);
+                await services.Servers.StartAsync(name);
                 Console.WriteLine($"Démarrage demandé pour {name}.");
                 return 0;
             case "stop":
@@ -427,6 +472,9 @@ Chaque projet représente un pack global indépendant avec son propre Workshop I
   pzasm project publish --id <guid> --yes
   pzasm server list [--json]
   pzasm server create --name <profil>
+  pzasm server create-remote --name <profil> --host <host> --ssh-user <user> --ini <path> [--ssh-port 22] [--ssh-key <file>] [--start-command <command>] [--rcon-host <host>] [--rcon-port 27015] [--rcon-password <secret>] [--create-config]
+  pzasm server configure-remote --name <profil> --host <host> --ssh-user <user> --ini <path> [--ssh-port 22] [--ssh-key <file>] [--start-command <command>] [--rcon-host <host>] [--rcon-port 27015] [--rcon-password <secret>]
+  pzasm server delete-remote --name <profil> --yes
   pzasm server show --name <profil>
   pzasm server set --name <profil> --key <clé> [--value <valeur>] --yes
   pzasm server status --name <profil>
@@ -483,7 +531,9 @@ internal sealed class CliServices
         var snapshots = new PackageSourceSnapshotService(paths);
         Projects = new PackageProjectService(paths, Store, snapshots);
         var orchestration = new ServerOrchestrationService();
-        Servers = new ServerProfileService(paths, Environment, orchestration);
+        var remoteStore = new RemoteServerConnectionStore(paths);
+        var ssh = new SshRemoteServerService();
+        Servers = new ServerProfileService(paths, Environment, orchestration, remoteStore, ssh);
         var builder = new PackageBuildService(paths, Validator);
         var steamCmd = new SteamCmdService(Validator);
         MapPriority = new MapPriorityService();

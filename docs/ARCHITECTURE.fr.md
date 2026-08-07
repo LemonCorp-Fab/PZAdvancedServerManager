@@ -70,7 +70,7 @@ Lors de l’ajout d’une source, PZASM crée un snapshot privé et calcule son 
 
 Le [guide Steamworks Workshop](https://partner.steamgames.com/doc/features/workshop/implementation) documente la création avec `publishedfileid=0` puis la mise à jour du même item.
 
-Le planificateur valide les droits et dépendances, actualise éventuellement les sources, remplace les snapshots, construit dans un dossier temporaire, arrête proprement le serveur par RCON, publie, puis redémarre le serveur s’il était actif. Aucun mot de passe ni code Steam Guard n’est enregistré.
+Le planificateur valide les droits et dépendances, actualise éventuellement les sources, remplace les snapshots, construit dans un dossier temporaire, arrête proprement le serveur par RCON, publie, puis redémarre le serveur s’il était actif. Aucun mot de passe Steam ni code Steam Guard n’est enregistré.
 
 ## Application externe nécessaire
 
@@ -90,3 +90,9 @@ Steam peut conserver un nouvel item masqué tant que l’[accord Workshop](https
 - conflits logiques impossibles à détecter statiquement ;
 - intervention SteamCMD parfois nécessaire ;
 - redémarrage serveur obligatoire après publication.
+
+## Orchestration locale et distante
+
+Un profil représente soit un fichier INI local, soit une connexion vers un VPS ou serveur dédié distant. Le statut n’est pas un simple test du port TCP : PZASM s’authentifie réellement par RCON et ne considère Project Zomboid actif que si le mot de passe est accepté. L’arrêt propre utilise toujours `save`, puis `quit`, par RCON.
+
+SSH sert uniquement à tester la connexion, lire/écrire l’INI distant et exécuter la commande configurée qui démarre le processus ou service Project Zomboid. L’accès est non interactif, via clé privée ou agent SSH. Les commandes `reboot`, `shutdown` et `poweroff` de l’hôte sont refusées. Une publication coordonnée arrête et relance uniquement le jeu ; le système du VPS/dédié reste actif. Le secret RCON est conservé dans les données locales du manager pour l’automatisation : ce dossier doit être protégé.

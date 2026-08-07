@@ -302,6 +302,16 @@ label small { display: block; margin-top: 6px; color: var(--muted); font-weight:
 .server-sidebar nav a { display: block; padding: 12px; color: var(--text); border: 1px solid var(--line); border-radius: 9px; background: #0e1310; }
 .server-sidebar nav a.active { border-color: #587444; background: #172015; }
 .server-sidebar nav small { display: block; overflow: hidden; margin-top: 4px; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+.server-profile-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.connection-badge { padding: 3px 7px; border: 1px solid var(--line); border-radius: 99px; font-size: .65rem; font-style: normal; font-weight: 850; letter-spacing: .08em; }
+.connection-badge.local { color: #aecd95; border-color: #3f5836; }
+.connection-badge.remote { color: #9cc9e5; border-color: #36596b; }
+.remote-profile-creator { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 16px; }
+.remote-profile-creator > summary { cursor: pointer; color: var(--accent-strong); font-weight: 800; }
+.remote-profile-creator > form { margin-top: 16px; }
+.compact-fields { gap: 10px; }
+.connection-error { margin-bottom: 20px; }
+.remote-connection-panel { margin-top: 20px; }
 .summary-columns { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; }
 .summary-columns > div { padding: 15px; border: 1px solid var(--line); border-radius: 10px; background: #0e1310; }
 .summary-columns strong { color: var(--muted); }
@@ -529,6 +539,8 @@ body.has-modal { overflow: hidden; }
 [data-theme="light"] .priority-badge.warning, [data-theme="light"] .conflict-list span { color: #6d5013; border-color: #d9c486; background: #fff7e1; }
 [data-theme="light"] .priority-badge.base, [data-theme="light"] .priority-badge.manual { color: #4f5d53; border-color: #cbd5c8; background: #f3f6f2; }
 [data-theme="light"] .server-sidebar nav a.active { border-color: #8eaf75; background: #edf5e7; }
+[data-theme="light"] .connection-badge.local { color: #426b28; border-color: #a9c796; background: #eff7e9; }
+[data-theme="light"] .connection-badge.remote { color: #285f7d; border-color: #a6c9dc; background: #eef8fd; }
 [data-theme="light"] .server-status.online { color: #3d6b20; border-color: #b4d09f; background: #edf8e6; }
 [data-theme="light"] .server-status.offline { color: #76591b; border-color: #dbc88e; background: #fff8e5; }
 [data-theme="light"] .server-action { color: var(--text); border-color: #c5d6bc; background: #f0f7eb; }

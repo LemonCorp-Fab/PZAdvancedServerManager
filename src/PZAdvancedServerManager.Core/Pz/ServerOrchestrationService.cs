@@ -10,13 +10,39 @@ public sealed class ServerOrchestrationService
     public async Task<bool> IsOnlineAsync(string iniPath, CancellationToken cancellationToken = default)
     {
         var settings = ReadRconSettings(iniPath, requirePassword: false);
-        using var client = new TcpClient();
+        return await IsOnlineAsync("127.0.0.1", settings.Port, settings.Password, cancellationToken);
+    }
+
+    public async Task<bool> IsOnlineAsync(string host, int port, string password, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(password)) return false;
         try
         {
-            await client.ConnectAsync("127.0.0.1", settings.Port, cancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(2), cancellationToken);
+            await using var rcon = await PzRconClient.ConnectAsync(host, port, password, cancellationToken);
             return true;
         }
-        catch (Exception exception) when (exception is SocketException or TimeoutException or OperationCanceledException)
+        catch (Exception exception) when (exception is SocketException or TimeoutException or IOException or UnauthorizedAccessException or OperationCanceledException)
+        {
+            if (exception is OperationCanceledException && cancellationToken.IsCancellationRequested) throw;
+            return false;
+        }
+    }
+
+    public async Task<bool> IsPortReachableAsync(string iniPath, CancellationToken cancellationToken = default)
+    {
+        var settings = ReadRconSettings(iniPath, requirePassword: false);
+        return await IsPortReachableAsync("127.0.0.1", settings.Port, cancellationToken);
+    }
+
+    public async Task<bool> IsPortReachableAsync(string host, int port, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var client = new TcpClient();
+            await client.ConnectAsync(host, port, cancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+            return true;
+        }
+        catch (Exception exception) when (exception is SocketException or TimeoutException or IOException or OperationCanceledException)
         {
             if (exception is OperationCanceledException && cancellationToken.IsCancellationRequested) throw;
             return false;
@@ -26,7 +52,14 @@ public sealed class ServerOrchestrationService
     public async Task StopGracefullyAsync(string iniPath, CancellationToken cancellationToken = default)
     {
         var settings = ReadRconSettings(iniPath, requirePassword: true);
-        await using var rcon = await PzRconClient.ConnectAsync("127.0.0.1", settings.Port, settings.Password, cancellationToken);
+        await StopGracefullyAsync("127.0.0.1", settings.Port, settings.Password, cancellationToken);
+    }
+
+    public async Task StopGracefullyAsync(string host, int port, string password, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(password))
+            throw new InvalidOperationException("Un mot de passe RCON est requis pour sauvegarder et arrêter proprement Project Zomboid.");
+        await using var rcon = await PzRconClient.ConnectAsync(host, port, password, cancellationToken);
         await rcon.CommandAsync("save", cancellationToken);
         await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken);
         try { await rcon.CommandAsync("quit", cancellationToken); }
@@ -35,7 +68,7 @@ public sealed class ServerOrchestrationService
         var deadline = DateTimeOffset.UtcNow.AddMinutes(1);
         while (DateTimeOffset.UtcNow < deadline)
         {
-            if (!await IsOnlineAsync(iniPath, cancellationToken)) return;
+            if (!await IsOnlineAsync(host, port, password, cancellationToken)) return;
             await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
         }
         throw new TimeoutException("Le serveur n'a pas fermé son port RCON dans le délai prévu. Aucune terminaison forcée n'a été effectuée.");

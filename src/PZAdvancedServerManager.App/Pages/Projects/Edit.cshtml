@@ -185,7 +185,7 @@
                 </section>
                 <section class="setting-card">
                     <div class="setting-heading"><span class="step-number">02</span><div><h3>Serveur coordonné facultatif</h3><p>Laissez vide si le serveur est distant ou administré séparément.</p></div></div>
-                    <label><span>Profil serveur local — optionnel</span><input asp-for="Form.CoordinatedServerName" list="server-config-names" placeholder="Aucun serveur local" /></label>
+                    <label><span>Profil serveur coordonné — local ou distant, optionnel</span><input asp-for="Form.CoordinatedServerName" list="server-config-names" placeholder="Aucun processus Project Zomboid coordonné" /></label>
                     <datalist id="server-config-names">@foreach (var serverName in Model.ServerConfigNames) { <option value="@serverName"></option> }</datalist>
                     <div class="info-callout"><strong>Publication autonome</strong><p>Sans profil, le manager actualise, construit et publie normalement. Le redémarrage du serveur distant reste sous votre contrôle.</p></div>
                 </section>

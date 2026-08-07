@@ -44,4 +44,5 @@ public sealed class ApplicationPaths
     public string ModSourceRoot(Guid projectId, Guid modReferenceId) => Path.Combine(ProjectSourcesRoot(projectId), modReferenceId.ToString("N"));
     public string ProjectLockFile(Guid id) => Path.Combine(LocksRoot, $"{id:N}.lock");
     public string AutomationLockFile => Path.Combine(LocksRoot, "automation.lock");
+    public string RemoteServersFile => Path.Combine(ProfilesRoot, "remote-servers.json");
 }

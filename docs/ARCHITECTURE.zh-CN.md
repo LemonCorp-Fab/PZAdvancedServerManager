@@ -51,7 +51,7 @@ steamapps/workshop/content/108600/<WorkshopId>/
 
 [Steamworks Workshop 指南](https://partner.steamgames.com/doc/features/workshop/implementation)说明了如何通过 `workshop_build_item` 创建和更新条目。
 
-计划任务会验证权限与依赖，可选刷新来源，在临时目录构建，通过 RCON 执行 `save` 和 `quit`，发布条目，并在服务器原本运行时重新启动。密码和 Steam Guard 验证码不会保存。
+计划任务会验证权限与依赖，可选刷新来源，在临时目录构建，通过 RCON 执行 `save` 和 `quit`，发布条目，并在服务器原本运行时重新启动。Steam 密码和 Steam Guard 验证码不会保存。
 
 ## 为什么需要外部程序
 
@@ -71,3 +71,9 @@ steamapps/workshop/content/108600/<WorkshopId>/
 - 静态分析无法发现的逻辑冲突；
 - SteamCMD 偶尔需要人工操作；
 - 发布后必须重启服务器。
+
+## 本地与远程服务器编排
+
+配置可以指向本地 INI 文件，也可以连接远程 VPS/独立服务器。状态检查并非简单探测 TCP 端口：PZASM 会通过 RCON 真正完成身份验证，只有 Project Zomboid 接受所配置密码时才显示为在线。正常停止始终通过 RCON 依次发送 `save` 和 `quit`。
+
+SSH 仅用于测试远程连接、传输 INI，以及执行已配置的 Project Zomboid 进程或服务启动命令。连接通过私钥或 SSH Agent 以非交互方式完成。管理器会拒绝主机级别的 `reboot`、`shutdown` 和 `poweroff` 命令。协调发布只停止并重新启动游戏，VPS/独立服务器的操作系统不会重启。为支持无人值守操作，RCON 密钥保存在管理器本地配置数据中，因此必须妥善保护该目录。

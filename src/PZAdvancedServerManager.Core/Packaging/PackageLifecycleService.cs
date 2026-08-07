@@ -63,8 +63,12 @@ public sealed class PackageLifecycleService(
             if (!string.IsNullOrWhiteSpace(serverName))
             {
                 serverWasRunning = await servers.IsOnlineAsync(serverName, cancellationToken);
+                if (!serverWasRunning && await servers.IsRconPortReachableAsync(serverName, cancellationToken))
+                    throw new InvalidOperationException("Le port RCON répond, mais l'authentification Project Zomboid a échoué. Vérifiez l'hôte, le port et le mot de passe avant la publication coordonnée.");
                 if (serverWasRunning)
                 {
+                    if (!servers.CanStart(serverName))
+                        throw new InvalidOperationException("Le profil distant doit définir une commande de démarrage Project Zomboid avant une publication coordonnée.");
                     await servers.StopAsync(serverName, cancellationToken);
                     serverStopped = true;
                 }
@@ -81,7 +85,7 @@ public sealed class PackageLifecycleService(
         {
             if (serverStopped)
             {
-                servers.Start(serverName);
+                await servers.StartAsync(serverName, CancellationToken.None);
                 serverRestarted = true;
             }
         }

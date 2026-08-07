@@ -21,11 +21,16 @@ public sealed class ServerConfigDocument
     {
         if (!File.Exists(path)) return new ServerConfigDocument([], new UTF8Encoding(false), Environment.NewLine, false);
         var (text, encoding) = ReadText(path);
+        return Parse(text, encoding);
+    }
+
+    public static ServerConfigDocument Parse(string text, Encoding? encoding = null)
+    {
         var newLine = text.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
         var endsWithNewLine = text.EndsWith("\n", StringComparison.Ordinal);
         var lines = text.Replace("\r\n", "\n").Split('\n').ToList();
         if (endsWithNewLine && lines.Count > 0) lines.RemoveAt(lines.Count - 1);
-        return new ServerConfigDocument(lines.Select(ParseLine).ToList(), encoding, newLine, endsWithNewLine);
+        return new ServerConfigDocument(lines.Select(ParseLine).ToList(), encoding ?? new UTF8Encoding(false), newLine, endsWithNewLine);
     }
 
     public string Get(string key) => _lines.LastOrDefault(x => x.Key.Equals(key, StringComparison.OrdinalIgnoreCase))?.Value ?? string.Empty;

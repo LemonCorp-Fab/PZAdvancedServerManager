@@ -203,3 +203,9 @@ Steam may keep a new item hidden until its contributor accepts the [Workshop leg
 - Client and server scripts remain subject to `DoLuaChecksum`.
 - SteamCMD can require interactive account intervention.
 - The server must restart after publication to load the new pack; forced process termination remains intentionally unsupported.
+
+## Local and remote server orchestration
+
+Profiles are either local INI files or remote VPS/dedicated connections. Status is not a plain TCP-port probe: PZASM authenticates through RCON and reports online only when Project Zomboid accepts the configured password. Graceful stop always uses `save` then `quit` over RCON.
+
+SSH is limited to remote INI transfer, connection testing, and the configured command that starts the Project Zomboid process or its service. It uses a private key or SSH agent in non-interactive mode. Host `reboot`, `shutdown`, and `poweroff` commands are rejected. During a coordinated publication, the manager stops and later starts only the game; the host operating system remains running. The RCON secret is stored in local manager profile data for unattended operation, so that directory must be protected.

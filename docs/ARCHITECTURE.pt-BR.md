@@ -51,7 +51,7 @@ Ao adicionar uma origem, o PZASM cria um snapshot privado e calcula seu SHA-256.
 
 O [guia do Steamworks Workshop](https://partner.steamgames.com/doc/features/workshop/implementation) documenta criação e atualização com `workshop_build_item`.
 
-O agendador informa os registros de permissão e valida as dependências, atualiza opcionalmente as origens, constrói em uma pasta temporária, executa `save` e `quit` via RCON, publica e reinicia o servidor se ele estava ativo. Senhas e códigos Steam Guard não são armazenados.
+O agendador informa os registros de permissão e valida as dependências, atualiza opcionalmente as origens, constrói em uma pasta temporária, executa `save` e `quit` via RCON, publica e reinicia o servidor se ele estava ativo. Senhas da Steam e códigos Steam Guard não são armazenados.
 
 ## Aplicativo externo
 
@@ -71,3 +71,9 @@ O Steam pode ocultar um item novo até o aceite do [acordo do Workshop](https://
 - conflitos lógicos impossíveis de detectar estaticamente;
 - intervenção ocasional no SteamCMD;
 - reinício obrigatório do servidor após a publicação.
+
+## Orquestração local e remota
+
+Um perfil representa um INI local ou uma conexão com VPS/servidor dedicado remoto. O estado não usa apenas uma sondagem de porta TCP: o PZASM autentica via RCON e só considera o Project Zomboid ativo quando a senha é aceita. A parada segura sempre envia `save` e depois `quit` por RCON.
+
+O SSH serve apenas para testar a conexão, transferir o INI remoto e executar o comando configurado que inicia o processo ou serviço do Project Zomboid. O acesso não interativo usa chave privada ou agente SSH. Comandos do host como `reboot`, `shutdown` e `poweroff` são recusados. Uma publicação coordenada para e inicia somente o jogo; o sistema operacional do VPS/dedicado continua ativo. O segredo RCON é armazenado nos dados locais do gerenciador para a automação; esse diretório deve ser protegido.

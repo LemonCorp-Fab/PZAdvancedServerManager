@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace PZAdvancedServerManager.Core.Domain;
 
 public sealed class PzInstallation
@@ -49,5 +51,28 @@ public sealed class ServerProfile
     public string ServerExecutablePath { get; set; } = string.Empty;
     public string SteamCmdPath { get; set; } = string.Empty;
     public string RestartSchedule { get; set; } = string.Empty;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum ServerConnectionKind
+{
+    Local,
+    Remote
+}
+
+public sealed class RemoteServerConnection
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Name { get; set; } = string.Empty;
+    public string Host { get; set; } = string.Empty;
+    public int SshPort { get; set; } = 22;
+    public string SshUser { get; set; } = string.Empty;
+    public string SshPrivateKeyPath { get; set; } = string.Empty;
+    public string RemoteIniPath { get; set; } = string.Empty;
+    public string StartCommand { get; set; } = string.Empty;
+    public string RconHost { get; set; } = string.Empty;
+    public int RconPort { get; set; } = 27015;
+    public string RconPassword { get; set; } = string.Empty;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 }

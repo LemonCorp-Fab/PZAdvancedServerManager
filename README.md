@@ -122,6 +122,22 @@ The pack creator and publisher are solely responsible for permissions, credits, 
 
 ## Development and tests
 
+The repository includes a cross-platform `Justfile`. Install [just](https://github.com/casey/just), then run:
+
+```text
+just                 # list every recipe
+just check           # formatting check, Release build, and tests
+just build           # build the complete solution
+just test            # run all tests
+just run-ui           # start the UI and open a browser
+just run-cli help     # run a CLI command
+just automation      # start the headless scheduler
+just publish          # publish for the current host runtime
+just publish-all      # publish win-x64 and linux-x64
+```
+
+Use the `CONFIGURATION` and `PUBLISH_DIR` environment variables to override the default `Release` configuration and `publish` output directory. Additional arguments are forwarded by `build`, `test`, `run-ui`, `run-cli`, `scan`, and related recipes.
+
 ```powershell
 dotnet restore
 dotnet test PZAdvancedServerManager.sln

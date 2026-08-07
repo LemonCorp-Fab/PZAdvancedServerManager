@@ -86,6 +86,22 @@ PZASM 不授予任何所包含模组的权利。[Project Zomboid 官方模组政
 
 ## 开发
 
+仓库提供跨平台 `Justfile`。安装 [just](https://github.com/casey/just) 后可使用：
+
+```text
+just                 # 列出全部任务
+just check           # 检查格式、执行 Release 构建和测试
+just build           # 构建整个解决方案
+just test            # 运行全部测试
+just run-ui           # 启动 UI 并打开浏览器
+just run-cli help     # 执行 CLI 命令
+just automation      # 启动无界面计划任务
+just publish          # 为当前系统发布
+just publish-all      # 发布 win-x64 与 linux-x64
+```
+
+可通过 `CONFIGURATION` 和 `PUBLISH_DIR` 环境变量覆盖默认的 `Release` 配置与 `publish` 输出目录。相关任务也支持传递额外参数。
+
 ```powershell
 dotnet restore
 dotnet test PZAdvancedServerManager.sln

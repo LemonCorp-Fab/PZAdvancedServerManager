@@ -86,6 +86,22 @@ El creador y publicador del paquete es el único responsable de permisos, licenc
 
 ## Desarrollo
 
+El repositorio incluye un `Justfile` multiplataforma. Instala [just](https://github.com/casey/just) y ejecuta:
+
+```text
+just                 # mostrar todas las recetas
+just check           # comprobar formato, compilar Release y ejecutar pruebas
+just build           # compilar toda la solución
+just test            # ejecutar todas las pruebas
+just run-ui           # iniciar la UI y abrir el navegador
+just run-cli help     # ejecutar un comando CLI
+just automation      # iniciar el planificador headless
+just publish          # publicar para el sistema actual
+just publish-all      # publicar win-x64 y linux-x64
+```
+
+Las variables `CONFIGURATION` y `PUBLISH_DIR` cambian la configuración `Release` y el directorio `publish` predeterminados. Las recetas también aceptan argumentos adicionales.
+
 ```powershell
 dotnet restore
 dotnet test PZAdvancedServerManager.sln

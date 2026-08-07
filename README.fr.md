@@ -91,6 +91,22 @@ Le créateur et l’éditeur du pack restent seuls responsables des autorisation
 
 ## Développement
 
+Le dépôt fournit un `Justfile` multiplateforme. Installez [just](https://github.com/casey/just), puis utilisez :
+
+```text
+just                 # afficher toutes les recettes
+just check           # vérifier le formatage, compiler en Release et tester
+just build           # compiler toute la solution
+just test            # exécuter tous les tests
+just run-ui           # démarrer l’UI et ouvrir le navigateur
+just run-cli help     # exécuter une commande CLI
+just automation      # démarrer le planificateur headless
+just publish          # publier pour le système courant
+just publish-all      # publier win-x64 et linux-x64
+```
+
+Les variables d’environnement `CONFIGURATION` et `PUBLISH_DIR` permettent de modifier la configuration `Release` et le dossier `publish` par défaut. Les recettes acceptent aussi des arguments supplémentaires.
+
 ```powershell
 dotnet restore
 dotnet test PZAdvancedServerManager.sln

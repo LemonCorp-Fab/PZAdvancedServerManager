@@ -86,6 +86,22 @@ Ersteller und Herausgeber des Pakets tragen allein die Verantwortung für Genehm
 
 ## Entwicklung
 
+Das Repository enthält ein plattformübergreifendes `Justfile`. Nach der Installation von [just](https://github.com/casey/just) stehen unter anderem diese Befehle bereit:
+
+```text
+just                 # alle Rezepte anzeigen
+just check           # Formatierung, Release-Build und Tests prüfen
+just build           # die gesamte Solution bauen
+just test            # alle Tests ausführen
+just run-ui           # UI starten und Browser öffnen
+just run-cli help     # einen CLI-Befehl ausführen
+just automation      # Headless-Scheduler starten
+just publish          # für das aktuelle System veröffentlichen
+just publish-all      # win-x64 und linux-x64 veröffentlichen
+```
+
+Mit `CONFIGURATION` und `PUBLISH_DIR` lassen sich die Vorgaben `Release` und `publish` überschreiben. Die Rezepte akzeptieren außerdem zusätzliche Argumente.
+
 ```powershell
 dotnet restore
 dotnet test PZAdvancedServerManager.sln

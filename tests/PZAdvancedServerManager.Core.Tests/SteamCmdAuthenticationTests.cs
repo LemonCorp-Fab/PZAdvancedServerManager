@@ -4,12 +4,14 @@ namespace PZAdvancedServerManager.Core.Tests;
 
 public sealed class SteamCmdAuthenticationTests
 {
-    [Theory]
-    [InlineData("\nSteam>")]
-    [InlineData("Steam Console Client\nSteam>")]
-    public void DetectsReadyCommandPrompt(string output)
+    [Fact]
+    public void StartsAuthenticationWithLoginCommandAndNoSecretArguments()
     {
-        Assert.True(SteamCmdPromptClassifier.IsReadyForCommand(output));
+        var arguments = SteamCmdService.CreateAuthenticationArguments("publisher_account");
+
+        Assert.Equal(["+login", "publisher_account", "+quit"], arguments);
+        Assert.DoesNotContain(arguments, value => value.Contains("password", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(arguments, value => value.Contains("guard", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

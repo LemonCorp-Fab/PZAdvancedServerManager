@@ -43,10 +43,15 @@
                 <span class="eyebrow" data-loading-interaction-eyebrow>VALIDATION STEAM GUARD</span>
                 <strong data-loading-interaction-title>Autoriser cette machine</strong>
                 <p data-loading-interaction-message>Entrez le code actuel affiché par l’application Steam ou reçu par e-mail.</p>
+                <div class="steam-guard-mobile" data-loading-interaction-mobile hidden>
+                    <div class="steam-guard-mobile-status"><span aria-hidden="true"></span><div><strong>Approbation mobile en attente</strong><small>Ouvrez la notification Steam, vérifiez la demande puis approuvez-la. SteamCMD détectera automatiquement la confirmation.</small></div></div>
+                    <details class="steam-guard-qr-note"><summary>Pourquoi aucun QR n’est affiché ?</summary><p>Steam propose le QR dans son client et sur ses pages web, mais SteamCMD n’expose aucun QR pour cette session de publication. Un QR web séparé ne connecterait pas SteamCMD.</p></details>
+                </div>
                 <label data-loading-interaction-code-field><span>Code Steam Guard</span><input type="text" inputmode="text" autocomplete="one-time-code" maxlength="12" data-loading-interaction-code /></label>
                 <small data-loading-interaction-error hidden>Un code Steam Guard est requis.</small>
                 <div class="loading-interaction-actions">
                     <button class="button ghost" type="button" data-loading-interaction-cancel>Annuler</button>
+                    <button class="button secondary" type="button" data-loading-interaction-secondary hidden>Réessayer l’approbation mobile</button>
                     <button class="button primary" type="button" data-loading-interaction-submit>Valider et continuer</button>
                 </div>
             </section>

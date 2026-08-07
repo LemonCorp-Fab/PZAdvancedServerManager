@@ -86,7 +86,7 @@ PZASM never modifies Steam sources during a build. It builds from private pinned
 4. Record the author and permission or license evidence for every source.
 5. Review mod and map order.
 6. Build locally and inspect `pack.lock.json` and `server-config.txt`.
-7. Install SteamCMD in one click, configure the publisher account, use **Connect / renew session** once, and publish with private visibility. The password and Steam Guard code are sent to SteamCMD only for that request and are never persisted by the manager.
+7. Install SteamCMD in one click, configure the publisher account, use **Connect / renew session** once, and publish with private visibility. If Steam Guard is enabled, approve SteamCMD's mobile notification first or use a current code as a fallback. Passwords and codes are never persisted by the manager.
 8. Test on a staging server.
 9. Apply the pack from the Servers page; PZASM backs up the `.ini` first.
 
@@ -174,7 +174,7 @@ Remote SSH is non-interactive and uses an SSH agent or private key. The RCON pas
 
 - Public Project Zomboid Workshop sources support anonymous SteamCMD downloads; restricted or private items can still require an authenticated account.
 - SteamCMD downloads known Workshop IDs but does not expose a complete search command. The internal catalog enumerates public Steam Community browse results and resolves item metadata through Steam's public details API before SteamCMD downloads the selection.
-- Workshop publication relies on SteamCMD's portable account session. The UI and `pzasm steamcmd login` initialize or renew it through an interactive two-step flow: the password is sent through standard input, a Steam Guard challenge is surfaced in the manager, and the supplied code is applied with SteamCMD's `set_steam_guard_code` command before retrying. SteamCMD keeps its own refresh token in its portable directory. PZASM stores only the last successful verification time, never the Steam password or Steam Guard code. Scheduled and manual publishing then use only that cached session; if it expires, publishing terminates immediately with a reconnect-required error instead of waiting on a hidden prompt.
+- Workshop publication relies on SteamCMD's portable account session. The UI and `pzasm steamcmd login` send the password through standard input and then follow SteamCMD's actual challenge: accounts without Steam Guard continue immediately, while protected accounts wait for the Steam Mobile approval notification and poll it automatically. If the approval expires or the user chooses the fallback, the current code is applied with SteamCMD's documented `set_steam_guard_code` command through standard input before retrying. Steam supports QR sign-in in its desktop client and web pages, but SteamCMD exposes no documented QR payload or login command; showing an unrelated web QR would not authorize the publishing session. SteamCMD keeps its own refresh token in its portable directory. PZASM stores only the last successful verification time, never the password or code. Scheduled and manual publishing reuse that cached session and fail with a reconnect-required result if it expires.
 - Linux SteamCMD may require the distribution's 32-bit runtime libraries; the installer reports bootstrap errors without hiding the extracted tool.
 - A new item can remain hidden until the Workshop legal agreement is accepted.
 - A source update can change dependencies, Mod IDs, maps, or licensing and may be blocked during validation.

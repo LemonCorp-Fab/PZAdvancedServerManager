@@ -48,6 +48,45 @@ public sealed class SteamCmdAuthenticationTests
         Assert.False(SteamCmdPromptClassifier.RejectsSteamGuardCode(output));
     }
 
+    [Theory]
+    [InlineData("Waiting for confirmation")]
+    [InlineData("PollAuthSessionStatus succeeded, no refresh token yet")]
+    public void DetectsPendingMobileApproval(string output)
+    {
+        Assert.True(SteamCmdPromptClassifier.AwaitsMobileApproval(output));
+        Assert.False(SteamCmdPromptClassifier.MobileApprovalExpired(output));
+    }
+
+    [Theory]
+    [InlineData("Timed out waiting for confirmation")]
+    [InlineData("Account logon denied, need two-factor code")]
+    public void DetectsExpiredMobileApproval(string output)
+    {
+        Assert.True(SteamCmdPromptClassifier.MobileApprovalExpired(output));
+    }
+
+    [Fact]
+    public void KeepsSteamCmdAliveWhileTheMobileRequestIsPolling()
+    {
+        const string polling = "cannot call UpdateAuthSessionWithSteamGuardCode because we do not have a code available\nWaiting for confirmation\nPollAuthSessionStatus succeeded, no refresh token yet";
+        const string expired = polling + "\nAccount logon denied, need two-factor code\nTimed out waiting for confirmation";
+
+        Assert.True(SteamCmdPromptClassifier.AwaitsMobileApproval(polling));
+        Assert.False(SteamCmdPromptClassifier.RequiresSteamGuard(polling));
+        Assert.False(SteamCmdPromptClassifier.MobileApprovalExpired(polling));
+        Assert.True(SteamCmdPromptClassifier.RequiresSteamGuard(expired));
+        Assert.True(SteamCmdPromptClassifier.MobileApprovalExpired(expired));
+    }
+
+    [Fact]
+    public void DoesNotRequireGuardForAccountsWithoutAChallenge()
+    {
+        const string output = "Logging in user 'publisher' to Steam Public...OK\nWaiting for user info...OK";
+
+        Assert.False(SteamCmdPromptClassifier.AwaitsMobileApproval(output));
+        Assert.False(SteamCmdPromptClassifier.RequiresSteamGuard(output));
+    }
+
     [Fact]
     public void DetectsPortableSessionLoginSuccess()
     {

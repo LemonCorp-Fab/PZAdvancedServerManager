@@ -399,15 +399,16 @@ internal sealed class PzasmCli
                     if (Console.IsInputRedirected) throw new InvalidOperationException("Steam login requires an interactive terminal so secrets are never passed on the command line.");
                     var password = ReadSecret("Steam password: ");
                     var progress = new Progress<OperationProgress>(value => Console.WriteLine($"[{value.Phase}] {value.Message}"));
+                    Console.WriteLine("If Steam Guard is enabled, approve the Steam Mobile notification first. SteamCMD continues automatically; a current code is requested only as a fallback. SteamCMD does not expose a QR login for this publishing session.");
                     var guardCode = string.Empty;
                     SteamCmdResult login;
                     for (var attempt = 0; ; attempt++)
                     {
                         login = await services.SteamCmd.AuthenticateAsync(project, new SteamCredentials(password, guardCode), progress: progress);
-                        if (login.Interaction != SteamCmdInteraction.SteamGuardCode) break;
-                        if (attempt >= 2) return Fail("Steam Guard rejected three codes. Wait for a fresh code and run the login command again.", 2);
+                        if (login.Interaction is not (SteamCmdInteraction.SteamGuardCode or SteamCmdInteraction.SteamGuardMobileApprovalExpired)) break;
+                        if (attempt >= 4) return Fail("Steam Guard authentication was not completed after five attempts. Wait for a fresh request or code and run the login command again.", 2);
                         Console.WriteLine(login.StandardError.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault());
-                        guardCode = ReadSecret("Current Steam Guard code: ");
+                        guardCode = ReadSecret("Current Steam Guard code, or Enter to retry mobile approval: ");
                     }
                     if (!login.Success) return Fail("SteamCMD login failed: " + login.CombinedOutput, 2);
                     project.Automation.SteamSessionVerifiedAt = DateTimeOffset.UtcNow;

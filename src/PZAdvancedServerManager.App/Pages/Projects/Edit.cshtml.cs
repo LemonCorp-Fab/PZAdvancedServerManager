@@ -370,7 +370,12 @@ public class EditModel(
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
         catch (SteamCmdInteractionRequiredException exception)
         {
-            var kind = exception.Interaction == SteamCmdInteraction.SteamGuardCode ? "steam_guard_code" : "steam_session_required";
+            var kind = exception.Interaction switch
+            {
+                SteamCmdInteraction.SteamGuardCode => "steam_guard_code",
+                SteamCmdInteraction.SteamGuardMobileApprovalExpired => "steam_guard_mobile_expired",
+                _ => "steam_session_required"
+            };
             await WriteProgressAsync(new { type = "interaction", kind, message = exception.Message }, CancellationToken.None);
         }
         catch (Exception exception)

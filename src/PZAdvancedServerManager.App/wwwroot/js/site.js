@@ -333,6 +333,7 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
     const overlay = document.querySelector('[data-loading-overlay]');
     if (!overlay) return;
 
+    const overlayCard = overlay.querySelector('.loading-card');
     const overlayTitle = overlay.querySelector('[data-loading-title]');
     const overlayDetail = overlay.querySelector('[data-loading-detail]');
     const overlayStage = overlay.querySelector('[data-loading-stage]');
@@ -343,12 +344,15 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
     const overlayClose = overlay.querySelector('[data-loading-close]');
     const overlayCancel = overlay.querySelector('[data-loading-cancel]');
     const overlayInteraction = overlay.querySelector('[data-loading-interaction]');
+    const overlayInteractionEyebrow = overlay.querySelector('[data-loading-interaction-eyebrow]');
     const overlayInteractionTitle = overlay.querySelector('[data-loading-interaction-title]');
     const overlayInteractionMessage = overlay.querySelector('[data-loading-interaction-message]');
+    const overlayInteractionMobile = overlay.querySelector('[data-loading-interaction-mobile]');
     const overlayInteractionCodeField = overlay.querySelector('[data-loading-interaction-code-field]');
     const overlayInteractionCode = overlay.querySelector('[data-loading-interaction-code]');
     const overlayInteractionError = overlay.querySelector('[data-loading-interaction-error]');
     const overlayInteractionCancel = overlay.querySelector('[data-loading-interaction-cancel]');
+    const overlayInteractionSecondary = overlay.querySelector('[data-loading-interaction-secondary]');
     const overlayInteractionSubmit = overlay.querySelector('[data-loading-interaction-submit]');
     const buttonContent = new WeakMap();
     const navigationDelay = 160;
@@ -356,6 +360,7 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
     let activeController = null;
     let activeStepTimer = null;
     let pendingInteraction = null;
+    const suppressedAbortControllers = new WeakSet();
     const activeRows = new Map();
 
     const inferTitle = value => {
@@ -599,18 +604,92 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
         if (buffer.trim()) update(JSON.parse(buffer));
     };
 
+    const revealInteraction = () => window.requestAnimationFrame(() => overlayInteraction?.scrollIntoView({ block: 'nearest' }));
+
+    const showMobileApproval = (form, button, message) => {
+        pendingInteraction = { form, button, kind: 'steam_mobile_approval' };
+        overlay.classList.add('requires-interaction', 'awaiting-mobile-approval');
+        if (overlayTitle) overlayTitle.textContent = 'Approbation Steam Mobile';
+        if (overlayCurrent) overlayCurrent.textContent = 'Confirmation sur votre téléphone';
+        if (overlayDetail) overlayDetail.textContent = message;
+        if (overlayInteraction) overlayInteraction.hidden = false;
+        if (overlayInteractionEyebrow) overlayInteractionEyebrow.textContent = 'APPROBATION STEAM GUARD';
+        if (overlayInteractionTitle) overlayInteractionTitle.textContent = 'Confirmez la demande dans Steam Mobile';
+        if (overlayInteractionMessage) overlayInteractionMessage.textContent = message;
+        if (overlayInteractionMobile) overlayInteractionMobile.hidden = false;
+        if (overlayInteractionCodeField) overlayInteractionCodeField.hidden = true;
+        if (overlayInteractionError) overlayInteractionError.hidden = true;
+        if (overlayInteractionSecondary) overlayInteractionSecondary.hidden = true;
+        if (overlayInteractionSubmit) overlayInteractionSubmit.textContent = 'Utiliser un code à la place';
+        if (overlayCancel) overlayCancel.hidden = true;
+        if (overlayClose) overlayClose.hidden = true;
+        revealInteraction();
+    };
+
+    const showGuardCodeInteraction = (form, button, message, allowMobileRetry = false) => {
+        pendingInteraction = { form, button, kind: 'steam_guard_code' };
+        overlay.classList.add('requires-interaction');
+        overlay.classList.remove('awaiting-mobile-approval');
+        if (overlayTitle) overlayTitle.textContent = 'Code Steam Guard';
+        if (overlayCurrent) overlayCurrent.textContent = 'Méthode de secours';
+        if (overlayDetail) overlayDetail.textContent = message;
+        if (overlayInteraction) overlayInteraction.hidden = false;
+        if (overlayInteractionEyebrow) overlayInteractionEyebrow.textContent = 'CODE STEAM GUARD';
+        if (overlayInteractionTitle) overlayInteractionTitle.textContent = 'Utiliser le code actuel';
+        if (overlayInteractionMessage) overlayInteractionMessage.textContent = message;
+        if (overlayInteractionMobile) overlayInteractionMobile.hidden = true;
+        if (overlayInteractionCodeField) overlayInteractionCodeField.hidden = false;
+        if (overlayInteractionError) overlayInteractionError.hidden = true;
+        if (overlayInteractionSecondary) {
+            overlayInteractionSecondary.hidden = !allowMobileRetry;
+            overlayInteractionSecondary.textContent = 'Réessayer l’approbation mobile';
+        }
+        if (overlayInteractionSubmit) overlayInteractionSubmit.textContent = 'Valider et réessayer';
+        if (overlayCancel) overlayCancel.hidden = true;
+        if (overlayClose) overlayClose.hidden = true;
+        if (overlayInteractionCode) {
+            overlayInteractionCode.value = document.querySelector('[data-steam-guard-code]')?.value || '';
+            window.setTimeout(() => overlayInteractionCode.focus(), 50);
+        }
+        revealInteraction();
+    };
+
+    const showSessionInteraction = (form, button, message) => {
+        pendingInteraction = { form, button, kind: 'steam_session_required' };
+        overlay.classList.add('requires-interaction');
+        overlay.classList.remove('awaiting-mobile-approval');
+        if (overlayTitle) overlayTitle.textContent = 'Session Steam requise';
+        if (overlayCurrent) overlayCurrent.textContent = 'Reconnectez le compte éditeur';
+        if (overlayDetail) overlayDetail.textContent = message;
+        if (overlayInteraction) overlayInteraction.hidden = false;
+        if (overlayInteractionEyebrow) overlayInteractionEyebrow.textContent = 'SESSION STEAMCMD';
+        if (overlayInteractionTitle) overlayInteractionTitle.textContent = 'Session portable expirée ou absente';
+        if (overlayInteractionMessage) overlayInteractionMessage.textContent = message;
+        if (overlayInteractionMobile) overlayInteractionMobile.hidden = true;
+        if (overlayInteractionCodeField) overlayInteractionCodeField.hidden = true;
+        if (overlayInteractionSecondary) overlayInteractionSecondary.hidden = true;
+        if (overlayInteractionSubmit) overlayInteractionSubmit.textContent = 'Fermer et reconnecter';
+        if (overlayCancel) overlayCancel.hidden = true;
+        if (overlayClose) overlayClose.hidden = true;
+        revealInteraction();
+    };
+
     const startOperationProgress = async (form, button) => {
         const source = button?.dataset.loadingTitle || button?.dataset.loadingSteps ? button : form;
         showLoading({ title: source.dataset.loadingTitle || form.dataset.loadingTitle, detail: source.dataset.loadingDetail || form.dataset.loadingDetail, button, form, cancellable: true });
         prepareDetailedProgress(inferredSteps(source));
-        activeController = new AbortController();
+        const controller = new AbortController();
+        activeController = controller;
         const phaseIndexes = new Map();
         let nextPhaseIndex = 0;
         const update = record => {
             if (record.type === 'progress') {
                 if (!phaseIndexes.has(record.phase)) phaseIndexes.set(record.phase, Math.min(nextPhaseIndex++, Math.max(activeRows.size - 1, 0)));
                 markStep(phaseIndexes.get(record.phase), record.message);
+                if (record.phase === 'mobileapproval') showMobileApproval(form, button, record.message);
             } else if (record.type === 'done') {
+                overlay.classList.remove('requires-interaction', 'awaiting-mobile-approval');
+                if (overlayInteraction) overlayInteraction.hidden = true;
                 Array.from(activeRows.values()).forEach(entry => { entry.row.classList.remove('is-current'); entry.row.classList.add('is-complete'); entry.detail.textContent = 'Terminé'; });
                 if (overlayTitle) overlayTitle.textContent = 'Opération terminée';
                 if (overlayCurrent) overlayCurrent.textContent = record.message;
@@ -620,29 +699,12 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
                 window.setTimeout(() => window.location.assign(record.redirectUrl), 650);
             } else if (record.type === 'interaction') {
                 activeController = null;
-                pendingInteraction = { form, button, kind: record.kind };
-                overlay.classList.add('requires-interaction');
-                if (overlayTitle) overlayTitle.textContent = record.kind === 'steam_guard_code' ? 'Validation Steam Guard' : 'Session Steam requise';
-                if (overlayCurrent) overlayCurrent.textContent = record.kind === 'steam_guard_code' ? 'Autorisation de cette machine' : 'Reconnectez le compte éditeur';
-                if (overlayDetail) overlayDetail.textContent = record.message;
-                if (overlayInteraction) overlayInteraction.hidden = false;
-                if (overlayInteractionMessage) overlayInteractionMessage.textContent = record.message;
-                if (overlayCancel) overlayCancel.hidden = true;
-                if (overlayClose) overlayClose.hidden = true;
-                if (record.kind === 'steam_guard_code') {
-                    if (overlayInteractionTitle) overlayInteractionTitle.textContent = 'Autoriser cette machine';
-                    if (overlayInteractionCodeField) overlayInteractionCodeField.hidden = false;
-                    if (overlayInteractionSubmit) overlayInteractionSubmit.textContent = 'Valider et continuer';
-                    if (overlayInteractionCode) {
-                        overlayInteractionCode.value = document.querySelector('[data-steam-guard-code]')?.value || '';
-                        window.setTimeout(() => overlayInteractionCode.focus(), 50);
-                    }
-                } else {
-                    if (overlayInteractionTitle) overlayInteractionTitle.textContent = 'Session portable expirée ou absente';
-                    if (overlayInteractionCodeField) overlayInteractionCodeField.hidden = true;
-                    if (overlayInteractionSubmit) overlayInteractionSubmit.textContent = 'Fermer et reconnecter';
-                }
+                if (record.kind === 'steam_guard_code' || record.kind === 'steam_guard_mobile_expired')
+                    showGuardCodeInteraction(form, button, record.message, record.kind === 'steam_guard_mobile_expired');
+                else showSessionInteraction(form, button, record.message);
             } else if (record.type === 'error') {
+                overlay.classList.remove('requires-interaction', 'awaiting-mobile-approval');
+                if (overlayInteraction) overlayInteraction.hidden = true;
                 overlay.classList.add('has-error');
                 if (overlayTitle) overlayTitle.textContent = 'Opération interrompue';
                 if (overlayDetail) overlayDetail.textContent = record.message;
@@ -657,9 +719,10 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
             if (!handler) throw new Error('Opération serveur non reconnue.');
             endpoint.searchParams.set('handler', `${handler}Stream`);
             const formData = typeof FormData === 'function' ? new FormData(form, button || undefined) : new FormData(form);
-            const response = await fetch(endpoint, { method: 'POST', body: formData, credentials: 'same-origin', signal: activeController.signal });
+            const response = await fetch(endpoint, { method: 'POST', body: formData, credentials: 'same-origin', signal: controller.signal });
             await readProgressStream(response, update);
         } catch (error) {
+            if (error?.name === 'AbortError' && suppressedAbortControllers.has(controller)) return;
             update({ type: 'error', message: error?.name === 'AbortError' ? 'Annulation demandée. Le processus externe a été arrêté; les étapes atomiques déjà terminées peuvent rester appliquées.' : error instanceof Error ? error.message : String(error) });
         }
     };
@@ -711,23 +774,39 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
             button.style.minWidth = '';
             button.removeAttribute('aria-disabled');
         });
-        overlay.classList.remove('has-detailed-progress', 'has-error', 'requires-interaction');
+        overlay.classList.remove('has-detailed-progress', 'has-error', 'requires-interaction', 'awaiting-mobile-approval');
         if (overlayStage) overlayStage.hidden = true;
         if (overlayProgressList) { overlayProgressList.hidden = true; overlayProgressList.replaceChildren(); }
         if (overlayClose) overlayClose.hidden = true;
         if (overlayCancel) overlayCancel.hidden = true;
         if (overlayInteraction) overlayInteraction.hidden = true;
+        if (overlayInteractionEyebrow) overlayInteractionEyebrow.textContent = 'VALIDATION STEAM GUARD';
+        if (overlayInteractionMobile) overlayInteractionMobile.hidden = true;
         if (overlayInteractionCodeField) overlayInteractionCodeField.hidden = false;
         if (overlayInteractionCode) overlayInteractionCode.value = '';
         const transientGuardCode = document.querySelector('[data-steam-guard-code]');
         if (transientGuardCode instanceof HTMLInputElement) transientGuardCode.value = '';
         if (overlayInteractionError) overlayInteractionError.hidden = true;
+        if (overlayInteractionSecondary) overlayInteractionSecondary.hidden = true;
         if (overlayInteractionSubmit) overlayInteractionSubmit.textContent = 'Valider et continuer';
         if (overlayTrack) { overlayTrack.classList.remove('is-determinate'); overlayTrack.style.width = ''; }
+        if (overlayCard) overlayCard.scrollTop = 0;
     };
 
     overlayClose?.addEventListener('click', resetLoading);
-    overlayInteractionCancel?.addEventListener('click', resetLoading);
+    overlayInteractionCancel?.addEventListener('click', () => {
+        if (activeController) {
+            suppressedAbortControllers.add(activeController);
+            activeController.abort();
+        }
+        resetLoading();
+    });
+    overlayInteractionSecondary?.addEventListener('click', () => {
+        if (!pendingInteraction || pendingInteraction.kind !== 'steam_guard_code') return;
+        const retry = { form: pendingInteraction.form, button: pendingInteraction.button };
+        resetLoading();
+        window.setTimeout(() => void startOperationProgress(retry.form, retry.button), 80);
+    });
     overlayInteractionSubmit?.addEventListener('click', () => {
         if (!pendingInteraction) return;
         if (pendingInteraction.kind === 'steam_session_required') {
@@ -735,6 +814,17 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
             const passwordField = document.querySelector('[data-steam-password]');
             passwordField?.scrollIntoView({ behavior: 'smooth', block: 'center' });
             window.setTimeout(() => passwordField?.focus(), 350);
+            return;
+        }
+
+        if (pendingInteraction.kind === 'steam_mobile_approval') {
+            const { form, button } = pendingInteraction;
+            if (activeController) {
+                suppressedAbortControllers.add(activeController);
+                activeController.abort();
+                activeController = null;
+            }
+            showGuardCodeInteraction(form, button, 'Saisissez le code actuel affiché dans l’application Steam ou reçu par e-mail. Une nouvelle tentative sécurisée sera lancée.', true);
             return;
         }
 

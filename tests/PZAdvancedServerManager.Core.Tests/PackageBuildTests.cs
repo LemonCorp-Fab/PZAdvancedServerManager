@@ -1,6 +1,7 @@
 using PZAdvancedServerManager.Core.Domain;
 using PZAdvancedServerManager.Core.Infrastructure;
 using PZAdvancedServerManager.Core.Packaging;
+using PZAdvancedServerManager.Core.Publishing;
 
 namespace PZAdvancedServerManager.Core.Tests;
 
@@ -31,6 +32,22 @@ public sealed class PackageBuildTests : IDisposable
         Assert.Contains("WorkshopItems=999", config);
         Assert.Contains($"Mods=first-id;{project.NoticeModId}", config);
         Assert.DoesNotContain("WorkshopItems=123", config);
+    }
+
+    [Fact]
+    public void FirstPublication_UsesZeroThenReadsSteamAssignedWorkshopId()
+    {
+        var source = CreateMod("NewWorkshopItem", "new-workshop-item", "return true");
+        var project = ValidProject(PackageMode.Bundle, Ref("new-workshop-item", "New Workshop Item", source));
+        Assert.Equal(0UL, project.PublishedWorkshopId);
+
+        var service = new PackageBuildService(new ApplicationPaths(Path.Combine(_root, "new-workshop-data")), new PackageValidator());
+        var result = service.Build(project);
+        var vdf = File.ReadAllText(result.SteamCmdVdfPath);
+        Assert.Contains("\"publishedfileid\"   \"0\"", vdf);
+
+        File.WriteAllText(result.SteamCmdVdfPath, vdf.Replace("\"publishedfileid\"   \"0\"", "\"publishedfileid\"   \"9876543210\"", StringComparison.Ordinal));
+        Assert.Equal(9876543210UL, SteamCmdService.ReadPublishedFileId(result.SteamCmdVdfPath));
     }
 
     [Fact]

@@ -59,7 +59,9 @@ public sealed class SteamCmdService(PackageValidator validator)
         if (result.ExitCode == 0)
         {
             var id = ReadPublishedFileId(build.SteamCmdVdfPath);
-            if (id != 0) project.PublishedWorkshopId = id;
+            if (id == 0)
+                return new SteamCmdResult(-1, result.StandardOutput, string.Join(Environment.NewLine, result.StandardError, "SteamCMD n’a renvoyé aucun Workshop ID. La publication ne peut pas être confirmée."));
+            project.PublishedWorkshopId = id;
             project.LastPublishedAt = DateTimeOffset.UtcNow;
         }
         return result;

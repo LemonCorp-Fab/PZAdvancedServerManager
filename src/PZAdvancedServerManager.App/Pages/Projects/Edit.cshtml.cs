@@ -133,12 +133,20 @@ public class EditModel(
     {
         var project = store.Get(id);
         if (project is null) return NotFound();
+        var validation = validator.Validate(project);
+        if (!validation.CanPublish)
+        {
+            var blockers = validation.Issues.Where(x => x.IsError && x.Scope != ValidationScope.AutomationOnly).Take(5).Select(x => x.Message);
+            TempData["Error"] = "Publication non lancée : " + string.Join(" ", blockers);
+            return RedirectToPage(new { id, tab = "distribution" });
+        }
         try
         {
+            var createsWorkshopItem = project.PublishedWorkshopId == 0;
             var result = await lifecycle.PublishAsync(project, refreshSources: false, requireCoordinatedServer: false, cancellationToken);
             project.Automation.LastResult = Limit(result.Output, 4000);
             store.Save(project);
-            TempData["Message"] = $"Publication SteamCMD terminée. Workshop ID : {project.PublishedWorkshopId}." +
+            TempData["Message"] = (createsWorkshopItem ? "Nouvel item Workshop créé" : "Item Workshop mis à jour") + $". Workshop ID : {project.PublishedWorkshopId}." +
                 (result.ServerWasRunning ? " Le serveur coordonné a été sauvegardé, arrêté puis redémarré." : string.Empty);
         }
         catch (Exception exception)

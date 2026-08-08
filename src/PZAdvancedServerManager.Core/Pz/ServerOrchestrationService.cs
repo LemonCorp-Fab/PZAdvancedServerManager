@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net.Sockets;
 using System.Text;
@@ -7,6 +8,8 @@ namespace PZAdvancedServerManager.Core.Pz;
 
 public sealed class ServerOrchestrationService
 {
+    private readonly ConcurrentDictionary<string, Process> _managedServerProcesses = new(StringComparer.OrdinalIgnoreCase);
+
     public async Task<bool> IsOnlineAsync(string iniPath, CancellationToken cancellationToken = default)
     {
         var settings = ReadRconSettings(iniPath, requirePassword: false);
@@ -96,14 +99,21 @@ public sealed class ServerOrchestrationService
         catch (IOException) { /* The server may close the connection immediately after the quit command. */ }
     }
 
-    public void Start(string serverName, string dedicatedServerRoot)
+    public void Start(string serverName, string dedicatedServerRoot) =>
+        Start(serverName, dedicatedServerRoot, TimeSpan.FromSeconds(12));
+
+    public void Start(string serverName, string dedicatedServerRoot, TimeSpan startupProbeDuration)
     {
         if (string.IsNullOrWhiteSpace(serverName) || serverName.Any(c => !char.IsLetterOrDigit(c) && c is not '-' and not '_'))
             throw new ArgumentException("Nom de profil serveur invalide.", nameof(serverName));
+        if (startupProbeDuration < TimeSpan.FromMilliseconds(250) || startupProbeDuration > TimeSpan.FromMinutes(1))
+            throw new ArgumentOutOfRangeException(nameof(startupProbeDuration));
+        if (IsManagedProcessRunning(serverName))
+            throw new InvalidOperationException($"Le serveur « {serverName} » a déjà été lancé par le manager.");
         var script = Path.Combine(dedicatedServerRoot, OperatingSystem.IsWindows() ? "StartServer64.bat" : "start-server.sh");
         if (!File.Exists(script)) throw new FileNotFoundException("Script de démarrage du serveur dédié introuvable.", script);
 
-        var start = new ProcessStartInfo(OperatingSystem.IsWindows() ? "cmd.exe" : "/bin/bash")
+        var start = new ProcessStartInfo
         {
             UseShellExecute = false,
             CreateNoWindow = true,
@@ -111,17 +121,75 @@ public sealed class ServerOrchestrationService
         };
         if (OperatingSystem.IsWindows())
         {
-            start.ArgumentList.Add("/c");
-            start.ArgumentList.Add($"call \"{script}\" -servername \"{serverName}\" < NUL");
+            start.FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
+            start.Arguments = $"/D /S /C \"\"{script}\" -servername \"{serverName}\" < NUL\"";
         }
         else
         {
+            start.FileName = "/bin/bash";
             start.ArgumentList.Add(script);
             start.ArgumentList.Add("-servername");
             start.ArgumentList.Add(serverName);
         }
         var process = Process.Start(start) ?? throw new InvalidOperationException("Le processus serveur n'a pas pu démarrer.");
+        _managedServerProcesses[serverName] = process;
+        var startedAtUtc = DateTime.UtcNow;
+        if (process.WaitForExit(startupProbeDuration))
+        {
+            var exitCode = process.ExitCode;
+            _managedServerProcesses.TryRemove(new KeyValuePair<string, Process>(serverName, process));
+            process.Dispose();
+            throw new InvalidOperationException($"Le serveur dédié s'est arrêté pendant son initialisation (code {exitCode}). {ReadRecentStartupFailure(startedAtUtc)}".Trim());
+        }
+
+        process.EnableRaisingEvents = true;
+        process.Exited += (_, _) => ReleaseManagedProcess(serverName, process);
+        if (process.HasExited) ReleaseManagedProcess(serverName, process);
+    }
+
+    public bool IsManagedProcessRunning(string serverName)
+    {
+        if (!_managedServerProcesses.TryGetValue(serverName, out var process)) return false;
+        try
+        {
+            if (!process.HasExited) return true;
+        }
+        catch (InvalidOperationException) { }
+        ReleaseManagedProcess(serverName, process);
+        return false;
+    }
+
+    private void ReleaseManagedProcess(string serverName, Process process)
+    {
+        if (!_managedServerProcesses.TryRemove(new KeyValuePair<string, Process>(serverName, process))) return;
         process.Dispose();
+    }
+
+    private static string ReadRecentStartupFailure(DateTime startedAtUtc)
+    {
+        var logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Zomboid", "server-console.txt");
+        if (!File.Exists(logPath) || File.GetLastWriteTimeUtc(logPath) < startedAtUtc.AddSeconds(-2))
+            return "Vérifiez l'installation dédiée et son journal server-console.txt.";
+        try
+        {
+            var clues = File.ReadLines(logPath)
+                .TakeLast(160)
+                .Where(line => line.Contains("ERROR", StringComparison.OrdinalIgnoreCase)
+                    || line.Contains("Exception", StringComparison.OrdinalIgnoreCase)
+                    || line.Contains("onItemNotDownloaded", StringComparison.OrdinalIgnoreCase)
+                    || line.Contains("Server exited", StringComparison.OrdinalIgnoreCase))
+                .TakeLast(6)
+                .Select(line => line.Trim())
+                .Where(line => line.Length > 0)
+                .ToArray();
+            return clues.Length == 0
+                ? $"Consultez {logPath}."
+                : $"Journal : {string.Join(" | ", clues)}";
+        }
+        catch
+        {
+            return $"Consultez {logPath}.";
+        }
     }
 
     private static RconSettings ReadRconSettings(string iniPath, bool requirePassword)

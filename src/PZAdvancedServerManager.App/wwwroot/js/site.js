@@ -896,8 +896,15 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
             });
             return;
         }
-        event.preventDefault();
-        void startFetchProgress(form, button);
+        const source = button?.dataset.loadingTitle || button?.dataset.loadingSteps ? button : form;
+        showLoading({
+            title: source.dataset.loadingTitle || form.dataset.loadingTitle,
+            detail: source.dataset.loadingDetail || form.dataset.loadingDetail,
+            button,
+            form
+        });
+        prepareDetailedProgress(inferredSteps(source));
+        beginEstimatedSteps();
     });
 
     document.addEventListener('click', event => {

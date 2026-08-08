@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
@@ -14,6 +15,7 @@ namespace PZAdvancedServerManager.App.Pages.Projects;
 
 public class EditModel(
     PackageProjectStore store,
+    ApplicationPaths paths,
     PzEnvironmentService environment,
     PackageValidator validator,
     PackageProjectService projects,
@@ -128,6 +130,35 @@ public class EditModel(
         catch (Exception exception)
         {
             TempData["Error"] = exception.Message;
+        }
+        return RedirectToPage(new { id });
+    }
+
+    public IActionResult OnPostOpenBuildFolder(Guid id)
+    {
+        if (store.Get(id) is null) return NotFound();
+        var buildRoot = Path.GetFullPath(paths.BuildRoot(id));
+        if (!Directory.Exists(buildRoot))
+        {
+            TempData["Error"] = "Aucun dossier de package n'existe encore. Construisez d'abord le pack.";
+            return RedirectToPage(new { id });
+        }
+
+        try
+        {
+            var start = new ProcessStartInfo
+            {
+                FileName = OperatingSystem.IsWindows() ? "explorer.exe" : OperatingSystem.IsMacOS() ? "open" : "xdg-open",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            start.ArgumentList.Add(buildRoot);
+            Process.Start(start)?.Dispose();
+            TempData["Message"] = $"Dossier du package ouvert : {buildRoot}";
+        }
+        catch (Exception exception)
+        {
+            TempData["Error"] = $"Impossible d'ouvrir le gestionnaire de fichiers : {exception.Message} Dossier : {buildRoot}";
         }
         return RedirectToPage(new { id });
     }

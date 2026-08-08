@@ -161,7 +161,8 @@ public sealed class ServerProfileService(
     public async Task<bool> IsOnlineAsync(string name, CancellationToken cancellationToken = default)
     {
         var profile = Get(name);
-        if (!profile.IsRemote) return await orchestration.IsOnlineAsync(profile.Path, cancellationToken);
+        if (!profile.IsRemote)
+            return orchestration.IsManagedProcessRunning(profile.Name) || await orchestration.IsOnlineAsync(profile.Path, cancellationToken);
         var remote = profile.Remote!;
         return await orchestration.IsOnlineAsync(RconHost(remote), remote.RconPort, remote.RconPassword, cancellationToken);
     }

@@ -57,7 +57,7 @@ public class IndexModel(
     {
         try
         {
-            if (!TryValidateModel(Guided)) throw new ValidationException("Vérifiez les ports, le nombre de joueurs et les valeurs numériques.");
+            if (!TryValidateHandlerModel(Guided, nameof(Guided))) throw new ValidationException("Vérifiez les ports, le nombre de joueurs et les valeurs numériques.");
             var backup = servers.Update(name, Guided.ToValues());
             TempData["Message"] = $"Configuration guidée enregistrée. Sauvegarde : {backup}";
         }
@@ -83,7 +83,7 @@ public class IndexModel(
     {
         try
         {
-            if (!TryValidateModel(NewRemote)) throw new ValidationException("Vérifiez le nom et les paramètres RCON du profil distant.");
+            if (!TryValidateHandlerModel(NewRemote, nameof(NewRemote))) throw new ValidationException("Vérifiez le nom et les paramètres RCON du profil distant.");
             var profile = await servers.CreateRemoteAsync(NewRemote.ToConnection(), createConfigIfMissing, cancellationToken);
             TempData["Message"] = $"Profil distant RCON « {profile.Name} » ajouté." + (profile.Remote!.HasSshConnection ? " Connexion SSH facultative vérifiée." : string.Empty);
             return RedirectToPage(new { name = profile.Name });
@@ -99,7 +99,7 @@ public class IndexModel(
     {
         try
         {
-            if (!TryValidateModel(Remote)) throw new ValidationException("Vérifiez les paramètres SSH et RCON.");
+            if (!TryValidateHandlerModel(Remote, nameof(Remote))) throw new ValidationException("Vérifiez les paramètres SSH et RCON.");
             var connection = Remote.ToConnection();
             connection.Name = name;
             await servers.UpdateRemoteAsync(connection, cancellationToken);
@@ -113,7 +113,7 @@ public class IndexModel(
     {
         try
         {
-            if (!TryValidateModel(Remote)) throw new ValidationException("Vérifiez les paramètres SSH et RCON.");
+            if (!TryValidateHandlerModel(Remote, nameof(Remote))) throw new ValidationException("Vérifiez les paramètres SSH et RCON.");
             var connection = Remote.ToConnection();
             connection.Name = name;
             await servers.TestRemoteAsync(connection, cancellationToken);
@@ -211,17 +211,28 @@ public class IndexModel(
     public IReadOnlyList<string> WorkshopItems => Summary.WorkshopItems;
     public IReadOnlyList<string> Maps => Summary.Maps;
 
+    private bool TryValidateHandlerModel<TModel>(TModel model, string prefix) where TModel : notnull
+    {
+        var unrelatedKeys = ModelState.Keys
+            .Where(key => !key.Equals(prefix, StringComparison.OrdinalIgnoreCase)
+                && !key.StartsWith(prefix + ".", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        foreach (var key in unrelatedKeys) ModelState.Remove(key);
+        ModelState.ClearValidationState(prefix);
+        return TryValidateModel(model, prefix);
+    }
+
     public sealed class GuidedServerForm
     {
-        [StringLength(64)] public string PublicName { get; set; } = string.Empty;
-        [StringLength(256)] public string PublicDescription { get; set; } = string.Empty;
+        [StringLength(64)] public string? PublicName { get; set; }
+        [StringLength(256)] public string? PublicDescription { get; set; }
         public bool Public { get; set; }
         public bool Open { get; set; } = true;
-        public string Password { get; set; } = string.Empty;
+        public string? Password { get; set; }
         [Range(1, 1000)] public int MaxPlayers { get; set; } = 16;
         [Range(1, 65535)] public int DefaultPort { get; set; } = 16261;
         [Range(1, 65535)] public int RconPort { get; set; } = 27015;
-        public string RconPassword { get; set; } = string.Empty;
+        public string? RconPassword { get; set; }
         public bool PauseEmpty { get; set; } = true;
         public bool DoLuaChecksum { get; set; } = true;
         public bool Pvp { get; set; } = true;
@@ -230,9 +241,9 @@ public class IndexModel(
         public bool SleepNeeded { get; set; }
         [Range(0, 1440)] public int SaveWorldEveryMinutes { get; set; }
         [Range(0, 100)] public int BackupsCount { get; set; } = 5;
-        public string WorkshopItems { get; set; } = string.Empty;
-        public string Mods { get; set; } = string.Empty;
-        public string Map { get; set; } = "Muldraugh, KY";
+        public string? WorkshopItems { get; set; }
+        public string? Mods { get; set; }
+        public string? Map { get; set; } = "Muldraugh, KY";
 
         public static GuidedServerForm From(ServerConfigDocument document) => new()
         {
@@ -284,35 +295,35 @@ public class IndexModel(
 
         private static bool ParseBool(string value, bool fallback = false) => bool.TryParse(value, out var parsed) ? parsed : fallback;
         private static int ParseInt(string value, int fallback) => int.TryParse(value, out var parsed) ? parsed : fallback;
-        private static string NormalizeList(string value) => string.Join(';', value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        private static string NormalizeList(string? value) => string.Join(';', (value ?? string.Empty).Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
     }
 
     public sealed class RemoteServerForm
     {
         [Required, StringLength(64)] public string Name { get; set; } = string.Empty;
-        [StringLength(255)] public string Host { get; set; } = string.Empty;
+        [StringLength(255)] public string? Host { get; set; }
         [Range(1, 65535)] public int SshPort { get; set; } = 22;
-        [StringLength(128)] public string SshUser { get; set; } = string.Empty;
-        [StringLength(1024)] public string SshPrivateKeyPath { get; set; } = string.Empty;
-        [StringLength(2048)] public string RemoteIniPath { get; set; } = string.Empty;
-        [StringLength(2048)] public string StartCommand { get; set; } = string.Empty;
+        [StringLength(128)] public string? SshUser { get; set; }
+        [StringLength(1024)] public string? SshPrivateKeyPath { get; set; }
+        [StringLength(2048)] public string? RemoteIniPath { get; set; }
+        [StringLength(2048)] public string? StartCommand { get; set; }
         [Required, StringLength(255)] public string RconHost { get; set; } = string.Empty;
         [Range(1, 65535)] public int RconPort { get; set; } = 27015;
-        [StringLength(512)] public string RconPassword { get; set; } = string.Empty;
+        [StringLength(512)] public string? RconPassword { get; set; }
         public bool AutoRestartAfterRconQuit { get; set; } = true;
 
         public RemoteServerConnection ToConnection() => new()
         {
             Name = Name,
-            Host = Host,
+            Host = Host ?? string.Empty,
             SshPort = SshPort,
-            SshUser = SshUser,
-            SshPrivateKeyPath = SshPrivateKeyPath,
-            RemoteIniPath = RemoteIniPath,
-            StartCommand = StartCommand,
+            SshUser = SshUser ?? string.Empty,
+            SshPrivateKeyPath = SshPrivateKeyPath ?? string.Empty,
+            RemoteIniPath = RemoteIniPath ?? string.Empty,
+            StartCommand = StartCommand ?? string.Empty,
             RconHost = RconHost,
             RconPort = RconPort,
-            RconPassword = RconPassword,
+            RconPassword = RconPassword ?? string.Empty,
             AutoRestartAfterRconQuit = AutoRestartAfterRconQuit
         };
 

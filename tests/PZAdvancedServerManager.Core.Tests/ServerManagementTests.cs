@@ -101,6 +101,27 @@ public sealed class ServerManagementTests : IDisposable
         Assert.True(service.CanCoordinateRestart(created.Name));
     }
 
+    [Fact]
+    public void WindowsDedicatedServerScriptReceivesTheSelectedProfileName()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        var dedicatedRoot = Path.Combine(_root, "dedicated server");
+        Directory.CreateDirectory(dedicatedRoot);
+        var script = Path.Combine(dedicatedRoot, "StartServer64.bat");
+        var argumentsFile = Path.Combine(dedicatedRoot, "arguments.txt");
+        var completedFile = Path.Combine(dedicatedRoot, "completed.txt");
+        File.WriteAllText(script, "@echo off\r\n>\"%~dp0arguments.txt\" echo %*\r\nping 127.0.0.1 -n 3 > NUL\r\n>\"%~dp0completed.txt\" echo done\r\n");
+
+        var orchestration = new ServerOrchestrationService();
+        orchestration.Start("test-profile", dedicatedRoot, TimeSpan.FromMilliseconds(750));
+
+        Assert.True(orchestration.IsManagedProcessRunning("test-profile"));
+        Assert.True(SpinWait.SpinUntil(() => File.Exists(completedFile), TimeSpan.FromSeconds(5)));
+        Assert.Equal("-servername \"test-profile\"", File.ReadAllText(argumentsFile).Trim());
+        Assert.True(SpinWait.SpinUntil(() => !orchestration.IsManagedProcessRunning("test-profile"), TimeSpan.FromSeconds(2)));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root)) Directory.Delete(_root, true);

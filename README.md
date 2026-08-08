@@ -47,7 +47,7 @@ See the complete [architecture and feasibility study](docs/ARCHITECTURE.md).
 - modern responsive project workspace with clearer grouping, folded mod-rights cards, persistent French/English/Spanish/German/Portuguese/Chinese selection, and light/dark themes (light by default);
 - detailed Workshop import feedback with the current item, phase, item counter, completion percentage, analysis result, and recoverable error state;
 - map-priority assistant using `map.info`, `lots=` dependencies, `.lotheader` cell conflicts, drag-and-drop ordering, and a raw `Map=` fallback;
-- guided `Zomboid/Server/*.ini` editor for identity, access, RCON, gameplay, backups, and content, plus the complete raw editor with encoding preservation;
+- guided `Zomboid/Server/*.ini` editor for identity, access, RCON, gameplay, backups, and content, plus the complete raw editor with encoding preservation; local startup reads the SQLite `whitelist` and requests the initial `admin` password only when that account is actually missing;
 - safe pack application that only replaces `WorkshopItems`, `Mods`, and `Map`;
 - local world-data management with verified ZIP backups, player-database sidecars, restore, and fresh start; restore requires an automatic recovery backup, while fresh start offers a backup choice enabled by default;
 - server network overview with configured local/LAN addresses, game, RakNet, Steam and RCON ports, plus authenticated RCON status and a bounded in-memory command/response console; arbitrary administration commands, `save`, `quit`, Windows/Linux startup, and optional coordinated restart remain available for the explicitly selected local or remote profile;

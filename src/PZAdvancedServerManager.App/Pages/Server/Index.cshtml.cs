@@ -30,10 +30,11 @@ public class IndexModel(
     public bool PlayerPasswordConfigured { get; private set; }
     public bool RconPasswordConfigured { get; private set; }
     public ServerWorldDataStatus? WorldDataStatus { get; private set; }
+    public InitialAdminAccountStatus AdminAccountStatus { get; private set; } = new(InitialAdminAccountState.Unknown, "État non vérifié.");
     public IReadOnlyList<ServerWorldBackupInfo> WorldBackups { get; private set; } = [];
     public string WorldDataError { get; private set; } = string.Empty;
     public bool SelectedServerCanStart => Selected is not null && (!Selected.IsRemote || Selected.Remote!.HasSshConnection && !string.IsNullOrWhiteSpace(Selected.Remote.StartCommand));
-    public bool InitialAdminPasswordRecommended => Selected is { IsRemote: false } && WorldDataStatus?.HasWorld != true;
+    public bool InitialAdminPasswordRequired => Selected is { IsRemote: false } && AdminAccountStatus.IsRequired;
     public string ConnectionError { get; private set; } = string.Empty;
     public string SandboxError { get; private set; } = string.Empty;
     public IReadOnlyList<StructuredServerSetting> AllSettings { get; private set; } = [];
@@ -94,6 +95,7 @@ public class IndexModel(
             {
                 var location = servers.ResolveWorldDataLocation(Selected.Name);
                 WorldDataStatus = worldData.Inspect(location);
+                AdminAccountStatus = worldData.InspectInitialAdminAccount(location);
                 WorldBackups = worldData.List(Selected.Name);
             }
             catch (Exception exception) { WorldDataError = exception.Message; }
@@ -270,11 +272,19 @@ public class IndexModel(
             var profile = servers.Get(name);
             if (!profile.IsRemote)
             {
-                if (!string.Equals(initialAdminPassword, initialAdminPasswordConfirmation, StringComparison.Ordinal))
-                    throw new InvalidOperationException("Les deux saisies du mot de passe administrateur initial ne correspondent pas.");
-                var worldStatus = worldData.Inspect(servers.ResolveWorldDataLocation(name));
-                if (!worldStatus.HasWorld && string.IsNullOrEmpty(initialAdminPassword))
-                    throw new InvalidOperationException("Ce profil n'a pas encore de monde actif. Saisissez et confirmez le mot de passe du compte « admin » pour permettre son initialisation non interactive.");
+                var adminStatus = worldData.InspectInitialAdminAccount(servers.ResolveWorldDataLocation(name));
+                if (adminStatus.IsConfigured)
+                {
+                    initialAdminPassword = null;
+                    initialAdminPasswordConfirmation = null;
+                }
+                else
+                {
+                    if (!string.Equals(initialAdminPassword, initialAdminPasswordConfirmation, StringComparison.Ordinal))
+                        throw new InvalidOperationException("Les deux saisies du mot de passe administrateur initial ne correspondent pas.");
+                    if (adminStatus.IsRequired && string.IsNullOrEmpty(initialAdminPassword))
+                        throw new InvalidOperationException("Aucun compte « admin » n’existe dans la base joueurs. Saisissez et confirmez son mot de passe pour permettre la première initialisation non interactive.");
+                }
                 var steamStatus = steamCmdInstaller.GetStatus();
                 if (steamStatus.Installed)
                 {

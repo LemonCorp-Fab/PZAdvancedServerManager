@@ -10,4 +10,8 @@
     <EmbeddedResource Include="Assets\default-workshop-preview.png" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.18" />
+  </ItemGroup>
+
 </Project>

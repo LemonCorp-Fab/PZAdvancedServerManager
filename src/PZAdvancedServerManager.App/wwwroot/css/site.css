@@ -345,6 +345,12 @@ label small { display: block; margin-top: 6px; color: var(--muted); font-weight:
 .server-action-grid form { min-width: 0; }
 .server-action-grid form:has(.maintenance-action) { order: 3; }
 .server-start-form { display: grid; gap: 8px; align-content: start; }
+.admin-account-state { display: flex; min-height: 58px; padding: 10px 12px; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+.admin-account-state.configured { border-color: color-mix(in srgb, var(--green) 42%, var(--line)); background: color-mix(in srgb, var(--green) 9%, var(--surface)); }
+.admin-account-state-icon { display: grid; width: 29px; height: 29px; flex: 0 0 29px; place-items: center; color: #fff; border-radius: 9px; background: var(--green-dark); font-size: .8rem; font-weight: 900; }
+.admin-account-state strong, .admin-account-state small { display: block; }
+.admin-account-state strong { color: var(--text); font-size: .8rem; }
+.admin-account-state small { margin-top: 2px; color: var(--muted); font-size: .7rem; }
 .admin-bootstrap { overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
 .admin-bootstrap summary { padding: 11px 13px; cursor: pointer; list-style: none; }
 .admin-bootstrap summary::-webkit-details-marker { display: none; }
@@ -354,6 +360,8 @@ label small { display: block; margin-top: 6px; color: var(--muted); font-weight:
 .admin-bootstrap[open] summary { border-bottom: 1px solid var(--line); }
 .admin-bootstrap-fields { display: grid; gap: 9px; padding: 12px 13px 14px; }
 .admin-bootstrap-fields p { margin: 0; color: var(--muted); font-size: .72rem; line-height: 1.45; }
+.admin-bootstrap-fields p span { display: block; }
+.admin-bootstrap-fields p span + span { margin-top: 4px; }
 .admin-bootstrap-fields label { display: grid; gap: 5px; margin: 0; color: var(--text); font-size: .76rem; font-weight: 750; }
 .admin-bootstrap-fields input { min-height: 38px; }
 .maintenance-action { border-color: color-mix(in srgb, var(--accent) 42%, var(--line)); background: color-mix(in srgb, var(--accent-soft) 58%, var(--surface)); }

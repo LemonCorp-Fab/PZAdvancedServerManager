@@ -43,7 +43,7 @@ Consultez l’[étude d’architecture complète](docs/ARCHITECTURE.fr.md).
 - espace projet moderne et adaptatif avec regroupements plus lisibles, cartes de droits repliées par défaut, six langues persistantes et thèmes clair/sombre (clair par défaut) ;
 - progression détaillée des imports Workshop : item courant, phase, compteur, pourcentage, résultat de l’analyse et erreur refermable ;
 - assistant d’ordre des cartes fondé sur `map.info`, les dépendances `lots=`, les conflits de cellules `.lotheader`, le glisser-déposer et l’édition brute de `Map=` ;
-- éditeur serveur guidé pour l’identité, l’accès, RCON, la session, les sauvegardes et le contenu, complété par l’éditeur INI brut avec préservation de l’encodage ;
+- éditeur serveur guidé pour l’identité, l’accès, RCON, la session, les sauvegardes et le contenu, complété par l’éditeur INI brut avec préservation de l’encodage ; au démarrage local, la table SQLite `whitelist` est lue et le mot de passe initial de `admin` n’est demandé que si ce compte manque réellement ;
 - vue réseau avec adresses locales/LAN et ports jeu, RakNet, Steam et RCON configurés, puis statut RCON authentifié et console bornée en mémoire pour l’historique commandes/réponses ; arrêt propre `save`/`quit` et redémarrage coordonné restent disponibles, y compris avec un profil distant sans SSH ;
 - progression détaillée et annulable pour la publication, l’authentification SteamCMD et les mises à jour de mods, avec sortie SteamCMD en direct et délai maximal ;
 - UI locale et CLI headless sous Windows et Linux ;

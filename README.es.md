@@ -42,7 +42,7 @@ Consulta el [estudio completo de arquitectura](docs/ARCHITECTURE.es.md).
 - espacio de proyecto moderno y adaptable, con grupos más claros, tarjetas de permisos plegadas por defecto, seis idiomas persistentes y temas claro/oscuro (claro por defecto);
 - progreso detallado de importación del Workshop con elemento y fase actuales, contador, porcentaje, resultado del análisis y errores recuperables;
 - asistente de prioridad de mapas basado en `map.info`, dependencias `lots=`, conflictos de celdas `.lotheader`, arrastrar y soltar y edición manual de `Map=`;
-- editor guiado del servidor para identidad, acceso, RCON, sesión, copias y contenido, además del editor INI completo;
+- editor guiado del servidor para identidad, acceso, RCON, sesión, copias y contenido, además del editor INI completo; al iniciar localmente se lee la tabla SQLite `whitelist` y la contraseña inicial de `admin` solo se solicita si la cuenta realmente no existe;
 - vista de red con direcciones locales/LAN y puertos configurados de juego, RakNet, Steam y RCON, además de estado RCON autenticado y una consola limitada en memoria con historial de comandos y respuestas; la parada `save`/`quit` y el reinicio coordinado siguen disponibles, también con perfiles remotos sin SSH;
 - progreso detallado y cancelable para publicaciones, autenticación SteamCMD y actualización de mods, con salida en directo y tiempo máximo;
 - UI local y CLI headless para Windows y Linux;

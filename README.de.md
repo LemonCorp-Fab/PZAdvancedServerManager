@@ -42,7 +42,7 @@ Siehe die vollständige [Architektur- und Machbarkeitsstudie](docs/ARCHITECTURE.
 - moderner responsiver Projektarbeitsbereich mit klareren Gruppen, standardmäßig eingeklappten Rechtekarten, sechs dauerhaft gewählten Sprachen sowie Hell-/Dunkelmodus (standardmäßig hell);
 - detaillierter Workshop-Importfortschritt mit aktuellem Item, Phase, Zähler, Prozentwert, Analyseergebnis und behebbaren Fehlern;
 - Kartenprioritäts-Assistent auf Basis von `map.info`, `lots=`-Abhängigkeiten, `.lotheader`-Zellkonflikten, Drag-and-drop und roher `Map=`-Bearbeitung;
-- geführter Servereditor für Identität, Zugriff, RCON, Sitzung, Sicherungen und Inhalte plus vollständiger INI-Roheditor;
+- geführter Servereditor für Identität, Zugriff, RCON, Sitzung, Sicherungen und Inhalte plus vollständiger INI-Roheditor; beim lokalen Start wird die SQLite-Tabelle `whitelist` gelesen und das initiale `admin`-Passwort nur bei tatsächlich fehlendem Konto abgefragt;
 - Netzwerkübersicht mit lokalen/LAN-Adressen und konfigurierten Spiel-, RakNet-, Steam- und RCON-Ports sowie authentifiziertem RCON-Status und einer begrenzten In-Memory-Konsole für Befehle und Antworten; geordnetes `save`/`quit` und koordinierter Neustart bleiben auch bei entfernten Profilen ohne SSH verfügbar;
 - detaillierter, abbrechbarer Fortschritt für Veröffentlichung, SteamCMD-Anmeldung und Mod-Aktualisierung mit Live-Ausgabe und Zeitlimit;
 - lokale UI und Headless-CLI für Windows und Linux;

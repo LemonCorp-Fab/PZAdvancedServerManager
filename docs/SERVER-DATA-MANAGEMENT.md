@@ -34,12 +34,14 @@ pzasm server reset-world --name <profile> --yes [--no-backup] [--json]
 pzasm server delete-backup --name <profile> --backup <id> --yes
 ```
 
+`data-status` also reports the initial administrator-account state. PZASM opens the profile's player database read-only and checks the `whitelist` table for the `admin` account. The local UI requires an initial password only when that row is missing. If the database cannot be read safely, startup remains possible without a password; Project Zomboid's own prompt is then treated as the authoritative fallback.
+
 Use `--data-root <directory>` when the UI and CLI must share the same archive catalog. Destructive CLI operations require `--yes`.
 Passing `--no-backup` with `reset-world` explicitly accepts that the removed world cannot be recovered from PZASM unless another archive already exists.
 
 ## First start after a fresh start
 
-Removing the player database also removes Project Zomboid's built-in `admin` account. On the next launch, the game requests a new administrator password from its console. The local server start card therefore exposes two transient confirmation fields whenever no active world is detected.
+Removing the player database also removes Project Zomboid's built-in `admin` account. On the next launch, the game requests a new administrator password from its console. The local server start card therefore checks for the `admin` row in SQLite and exposes two transient confirmation fields only when that account is missing. World-folder presence is deliberately not used as a proxy.
 
 The manager waits for Project Zomboid's actual password prompt and then writes the value to the process standard input. The value is not persisted, included in the Java or shell command line, or written to manager logs. It is ignored when the existing database does not request administrator initialization.
 
@@ -61,20 +63,20 @@ RCON can save, stop, restart, and administer Project Zomboid, but it cannot tran
 
 ## Français
 
-La gestion des données couvre le dossier du monde, la base des joueurs et ses fichiers annexes. Le serveur doit être arrêté. Une restauration crée toujours une sauvegarde de sécurité vérifiée par SHA-256. Pour un nouveau départ, cette sauvegarde est proposée et activée par défaut, mais l’administrateur peut la désactiver explicitement. L'INI, les mods et les SandboxVars sont conservés. RCON ne transporte pas de fichiers : pour un serveur distant, utilisez les snapshots du fournisseur ou exécutez la CLI sur l'hôte qui possède les données.
+La gestion des données couvre le dossier du monde, la base des joueurs et ses fichiers annexes. Le serveur doit être arrêté. Une restauration crée toujours une sauvegarde de sécurité vérifiée par SHA-256. Pour un nouveau départ, cette sauvegarde est proposée et activée par défaut, mais l’administrateur peut la désactiver explicitement. L'INI, les mods et les SandboxVars sont conservés. Au démarrage local, PZASM lit `whitelist` dans SQLite et ne demande le mot de passe initial que si le compte `admin` manque réellement ; la présence du monde n’est pas utilisée comme approximation. RCON ne transporte pas de fichiers : pour un serveur distant, utilisez les snapshots du fournisseur ou exécutez la CLI sur l'hôte qui possède les données.
 
 ## Español
 
-La gestión de datos incluye el mundo, la base de datos de jugadores y sus archivos auxiliares. El servidor debe estar detenido. Una restauración siempre crea una copia de seguridad verificada con SHA-256. Para un mundo nuevo, la copia está activada por defecto, pero el administrador puede desactivarla expresamente. Se conservan el INI, los mods y SandboxVars. RCON no transfiere archivos; para servidores remotos, use instantáneas del proveedor o ejecute la CLI en el host de datos.
+La gestión de datos incluye el mundo, la base de datos de jugadores y sus archivos auxiliares. El servidor debe estar detenido. Una restauración siempre crea una copia de seguridad verificada con SHA-256. Para un mundo nuevo, la copia está activada por defecto, pero el administrador puede desactivarla expresamente. Se conservan el INI, los mods y SandboxVars. Al iniciar localmente, PZASM lee `whitelist` en SQLite y solo solicita la contraseña inicial si realmente falta la cuenta `admin`; no usa la presencia del mundo como aproximación. RCON no transfiere archivos; para servidores remotos, use instantáneas del proveedor o ejecute la CLI en el host de datos.
 
 ## Deutsch
 
-Die Datenverwaltung umfasst die Welt, die Spielerdatenbank und deren Begleitdateien. Der Server muss gestoppt sein. Eine Wiederherstellung erstellt immer eine SHA-256-geprüfte Sicherung. Bei einem Fresh Start ist die Sicherung standardmäßig aktiviert, kann aber ausdrücklich deaktiviert werden. INI, Mods und SandboxVars bleiben erhalten. RCON überträgt keine Dateien; verwenden Sie für entfernte Server Provider-Snapshots oder führen Sie die CLI auf dem Datenhost aus.
+Die Datenverwaltung umfasst die Welt, die Spielerdatenbank und deren Begleitdateien. Der Server muss gestoppt sein. Eine Wiederherstellung erstellt immer eine SHA-256-geprüfte Sicherung. Bei einem Fresh Start ist die Sicherung standardmäßig aktiviert, kann aber ausdrücklich deaktiviert werden. INI, Mods und SandboxVars bleiben erhalten. Beim lokalen Start liest PZASM `whitelist` aus SQLite und fragt das initiale Passwort nur ab, wenn das `admin`-Konto tatsächlich fehlt; die Weltpräsenz dient nicht als Näherung. RCON überträgt keine Dateien; verwenden Sie für entfernte Server Provider-Snapshots oder führen Sie die CLI auf dem Datenhost aus.
 
 ## Português (Brasil)
 
-O gerenciamento inclui o mundo, o banco de jogadores e seus arquivos auxiliares. O servidor deve estar parado. Uma restauração sempre cria um backup de segurança verificado por SHA-256. No fresh start, o backup vem ativado por padrão, mas pode ser desativado explicitamente. INI, mods e SandboxVars são preservados. RCON não transfere arquivos; em servidores remotos, use snapshots do provedor ou execute a CLI no host dos dados.
+O gerenciamento inclui o mundo, o banco de jogadores e seus arquivos auxiliares. O servidor deve estar parado. Uma restauração sempre cria um backup de segurança verificado por SHA-256. No fresh start, o backup vem ativado por padrão, mas pode ser desativado explicitamente. INI, mods e SandboxVars são preservados. Na inicialização local, o PZASM lê `whitelist` no SQLite e só solicita a senha inicial quando a conta `admin` realmente não existe; a presença do mundo não é usada como aproximação. RCON não transfere arquivos; em servidores remotos, use snapshots do provedor ou execute a CLI no host dos dados.
 
 ## 简体中文
 
-服务器数据管理涵盖世界目录、玩家数据库及其附属文件。执行操作前必须停止服务器。恢复操作始终会创建并用 SHA-256 校验安全备份。重新开档时备份选项默认启用，但管理员可以明确关闭；INI、模组列表和 SandboxVars 会保留。RCON 无法传输文件，因此远程服务器应使用服务商快照，或在能够访问数据目录的主机上运行 CLI。
+服务器数据管理涵盖世界目录、玩家数据库及其附属文件。执行操作前必须停止服务器。恢复操作始终会创建并用 SHA-256 校验安全备份。重新开档时备份选项默认启用，但管理员可以明确关闭；INI、模组列表和 SandboxVars 会保留。本地启动时，PZASM 会读取 SQLite 中的 `whitelist`，仅在确实缺少 `admin` 账户时要求初始密码，不再以世界目录是否存在作为替代判断。RCON 无法传输文件，因此远程服务器应使用服务商快照，或在能够访问数据目录的主机上运行 CLI。

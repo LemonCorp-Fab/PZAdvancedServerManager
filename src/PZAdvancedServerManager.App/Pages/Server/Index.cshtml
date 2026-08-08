@@ -75,14 +75,21 @@
                     <button class="server-action primary-action" type="submit" disabled="@(Model.SelectedServerOnline || !Model.SelectedServerCanStart)"><span class="server-action-icon">▶</span><span><strong>Démarrer le jeu</strong><small>@(Model.Selected.IsRemote ? (Model.SelectedServerCanStart ? "Commande SSH configurée" : "Commande SSH à configurer") : "Processus local dédié")</small></span></button>
                     @if (!Model.Selected.IsRemote)
                     {
-                        <details class="admin-bootstrap" open="@(Model.InitialAdminPasswordRecommended ? "open" : null)">
-                            <summary><span><strong>Compte admin · première initialisation</strong><small>@(Model.InitialAdminPasswordRecommended ? "Mot de passe requis pour créer le compte admin" : "Facultatif · uniquement si PZ demande de recréer le compte admin")</small></span></summary>
-                            <div class="admin-bootstrap-fields">
-                                <p>Le mot de passe est transmis directement à l’entrée standard de Project Zomboid uniquement lorsque le jeu affiche sa demande. Il n’est ni enregistré dans le manager, ni ajouté à la ligne de commande ou aux logs.</p>
-                                <label><span>Mot de passe administrateur initial</span><input type="password" name="initialAdminPassword" minlength="1" maxlength="128" required="@Model.InitialAdminPasswordRecommended" autocomplete="new-password" /></label>
-                                <label><span>Confirmer le mot de passe</span><input type="password" name="initialAdminPasswordConfirmation" minlength="1" maxlength="128" required="@Model.InitialAdminPasswordRecommended" autocomplete="new-password" /></label>
-                            </div>
-                        </details>
+                        @if (Model.AdminAccountStatus.IsConfigured)
+                        {
+                            <div class="admin-account-state configured"><span class="admin-account-state-icon">✓</span><span><strong>Compte admin déjà configuré</strong><small>Démarrage direct sans nouvelle saisie de mot de passe.</small></span></div>
+                        }
+                        else
+                        {
+                            <details class="admin-bootstrap" open="@(Model.InitialAdminPasswordRequired ? "open" : null)">
+                                <summary><span><strong>Compte admin · première initialisation</strong><small>@(Model.InitialAdminPasswordRequired ? "Mot de passe requis pour créer le compte admin" : "État indéterminé · saisie facultative")</small></span></summary>
+                                <div class="admin-bootstrap-fields">
+                                    <p><span>@Model.AdminAccountStatus.Detail</span><span>Le mot de passe est transmis directement à l’entrée standard uniquement si Project Zomboid affiche sa demande. Il n’est ni enregistré dans le manager, ni ajouté à la ligne de commande ou aux logs.</span></p>
+                                    <label><span>Mot de passe administrateur initial</span><input type="password" name="initialAdminPassword" minlength="1" maxlength="128" required="@Model.InitialAdminPasswordRequired" autocomplete="new-password" /></label>
+                                    <label><span>Confirmer le mot de passe</span><input type="password" name="initialAdminPasswordConfirmation" minlength="1" maxlength="128" required="@Model.InitialAdminPasswordRequired" autocomplete="new-password" /></label>
+                                </div>
+                            </details>
+                        }
                     }
                 </form>
                 <form method="post" asp-page-handler="Stop" asp-route-name="@Model.Selected.Name" data-loading-title="Arrêt propre du serveur…" data-loading-detail="Envoi de save puis quit par RCON et attente de la fermeture complète." data-confirm-title="Sauvegarder et arrêter le serveur ?" data-confirm-message="Le gestionnaire enverra save puis quit par RCON et attendra l’arrêt complet. Aucun arrêt forcé ne sera utilisé." data-confirm-action="Sauvegarder et arrêter" data-confirm-tone="danger"><button class="server-action danger-action" type="submit" disabled="@(!Model.SelectedRconAvailable)"><span class="server-action-icon">■</span><span><strong>Sauvegarder et arrêter</strong><small>save puis quit par RCON</small></span></button></form>

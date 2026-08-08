@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using PZAdvancedServerManager.Core.Domain;
 using PZAdvancedServerManager.Core.Infrastructure;
 
@@ -30,6 +31,42 @@ public sealed class ServerWorldDataStore(ApplicationPaths paths)
             lastModified == default ? null : lastModified,
             location.WorldPath,
             location.DatabasePath);
+    }
+
+    public InitialAdminAccountStatus InspectInitialAdminAccount(ServerWorldDataLocation location)
+    {
+        ValidateLocation(location);
+        if (!File.Exists(location.DatabasePath))
+            return new InitialAdminAccountStatus(InitialAdminAccountState.Required, "La base joueurs n’existe pas encore.");
+
+        try
+        {
+            var connectionString = new SqliteConnectionStringBuilder
+            {
+                DataSource = location.DatabasePath,
+                Mode = SqliteOpenMode.ReadOnly,
+                Cache = SqliteCacheMode.Private,
+                Pooling = false,
+                DefaultTimeout = 2
+            }.ToString();
+            using var connection = new SqliteConnection(connectionString);
+            connection.Open();
+            using var tableCommand = connection.CreateCommand();
+            tableCommand.CommandText = "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'whitelist')";
+            if (Convert.ToInt32(tableCommand.ExecuteScalar()) != 1)
+                return new InitialAdminAccountStatus(InitialAdminAccountState.Required, "La table des comptes n’a pas encore été initialisée.");
+
+            using var accountCommand = connection.CreateCommand();
+            accountCommand.CommandText = "SELECT EXISTS(SELECT 1 FROM whitelist WHERE LOWER(username) = LOWER($username) LIMIT 1)";
+            accountCommand.Parameters.AddWithValue("$username", "admin");
+            return Convert.ToInt32(accountCommand.ExecuteScalar()) == 1
+                ? new InitialAdminAccountStatus(InitialAdminAccountState.Configured, "Le compte « admin » existe dans la base joueurs.")
+                : new InitialAdminAccountStatus(InitialAdminAccountState.Required, "Aucun compte « admin » n’existe encore dans la base joueurs.");
+        }
+        catch (SqliteException exception)
+        {
+            return new InitialAdminAccountStatus(InitialAdminAccountState.Unknown, $"La base joueurs existe, mais son état admin n’a pas pu être lu (SQLite {exception.SqliteErrorCode}).");
+        }
     }
 
     public IReadOnlyList<ServerWorldBackupInfo> List(string profileName)
@@ -520,6 +557,19 @@ public sealed record ServerWorldDataStatus(
     string DatabasePath)
 {
     public bool HasData => HasWorld || HasDatabase;
+}
+
+public sealed record InitialAdminAccountStatus(InitialAdminAccountState State, string Detail)
+{
+    public bool IsRequired => State == InitialAdminAccountState.Required;
+    public bool IsConfigured => State == InitialAdminAccountState.Configured;
+}
+
+public enum InitialAdminAccountState
+{
+    Required,
+    Configured,
+    Unknown
 }
 
 public sealed record ServerWorldBackupInfo(

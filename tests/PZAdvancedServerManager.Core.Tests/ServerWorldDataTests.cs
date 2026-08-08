@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using PZAdvancedServerManager.Core.Infrastructure;
 using PZAdvancedServerManager.Core.Pz;
 
@@ -89,6 +90,45 @@ public sealed class ServerWorldDataTests : IDisposable
         await Assert.ThrowsAsync<InvalidDataException>(() => store.RestoreAsync(location, backup.Id, restoreConfiguration: false));
     }
 
+    [Fact]
+    public void MissingOrEmptyUserDatabaseRequiresInitialAdminSetup()
+    {
+        var (store, location) = CreateFixture();
+
+        Assert.Equal(InitialAdminAccountState.Required, store.InspectInitialAdminAccount(location).State);
+
+        CreateUserDatabase(location.DatabasePath, includeAdmin: false);
+
+        var status = store.InspectInitialAdminAccount(location);
+        Assert.Equal(InitialAdminAccountState.Required, status.State);
+        Assert.True(status.IsRequired);
+    }
+
+    [Fact]
+    public void ExistingAdminAccountSkipsInitialPasswordSetup()
+    {
+        var (store, location) = CreateFixture();
+        CreateUserDatabase(location.DatabasePath, includeAdmin: true);
+
+        var status = store.InspectInitialAdminAccount(location);
+
+        Assert.Equal(InitialAdminAccountState.Configured, status.State);
+        Assert.True(status.IsConfigured);
+    }
+
+    [Fact]
+    public void UnreadableUserDatabaseKeepsInitialAdminSetupOptional()
+    {
+        var (store, location) = CreateFixture();
+        Directory.CreateDirectory(Path.GetDirectoryName(location.DatabasePath)!);
+        File.WriteAllText(location.DatabasePath, "not-a-sqlite-database");
+
+        var status = store.InspectInitialAdminAccount(location);
+
+        Assert.Equal(InitialAdminAccountState.Unknown, status.State);
+        Assert.False(status.IsRequired);
+    }
+
     private (ServerWorldDataStore Store, ServerWorldDataLocation Location) CreateFixture()
     {
         var userRoot = Path.Combine(_root, "Zomboid");
@@ -114,6 +154,17 @@ public sealed class ServerWorldDataTests : IDisposable
         File.WriteAllText(location.DatabasePath, database);
         File.WriteAllText(location.DatabasePath + "-wal", database + "-wal");
         File.WriteAllText(location.ConfigurationFiles[0], configuration);
+    }
+
+    private static void CreateUserDatabase(string path, bool includeAdmin)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        using var connection = new SqliteConnection($"Data Source={path};Pooling=False");
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "CREATE TABLE whitelist (id INTEGER PRIMARY KEY, username TEXT NULL, password TEXT NULL, role INTEGER NOT NULL);" +
+            (includeAdmin ? "INSERT INTO whitelist (username, password, role) VALUES ('AdMiN', 'hash', 1);" : string.Empty);
+        command.ExecuteNonQuery();
     }
 
     public void Dispose()

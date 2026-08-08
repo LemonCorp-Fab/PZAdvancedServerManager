@@ -327,6 +327,7 @@ internal sealed class PzasmCli
                 {
                     var location = services.Servers.ResolveWorldDataLocation(name);
                     var status = services.WorldData.Inspect(location);
+                    var adminAccount = services.WorldData.InspectInitialAdminAccount(location);
                     var backups = services.WorldData.List(name);
                     var result = new
                     {
@@ -337,6 +338,8 @@ internal sealed class PzasmCli
                         status.LastModifiedAt,
                         status.WorldPath,
                         status.DatabasePath,
+                        adminAccountState = adminAccount.State.ToString(),
+                        adminAccount.Detail,
                         backupCount = backups.Count,
                         backupRoot = services.WorldData.GetBackupRoot(name)
                     };
@@ -346,6 +349,7 @@ internal sealed class PzasmCli
                         Console.WriteLine($"Profil: {name}");
                         Console.WriteLine($"Monde: {(status.HasWorld ? "présent" : "absent")} — {status.WorldPath}");
                         Console.WriteLine($"Base joueurs: {(status.HasDatabase ? "présente" : "absente")} — {status.DatabasePath}");
+                        Console.WriteLine($"Compte admin: {adminAccount.State} — {adminAccount.Detail}");
                         Console.WriteLine($"Sauvegardes PZASM: {backups.Count}");
                     }
                     return 0;

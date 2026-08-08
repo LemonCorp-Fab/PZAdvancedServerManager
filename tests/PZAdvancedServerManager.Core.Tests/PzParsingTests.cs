@@ -1,5 +1,6 @@
 using PZAdvancedServerManager.Core.Publishing;
 using PZAdvancedServerManager.Core.Pz;
+using PZAdvancedServerManager.Core.Packaging;
 
 namespace PZAdvancedServerManager.Core.Tests;
 
@@ -69,6 +70,36 @@ public sealed class PzParsingTests : IDisposable
         var persisted = ServerConfigDocument.Load(path);
         Assert.Equal(password, persisted.Get("RCONPassword"));
         Assert.Contains($"RCONPassword={password}", File.ReadAllText(path));
+    }
+
+    [Fact]
+    public void ModListImportReadsServerIniAndPreservesOrder()
+    {
+        var parsed = ModListImportParser.Parse("# server\nWorkshopItems=123;456;123\nMods=alpha;beta;ALPHA\n");
+
+        Assert.Equal(ModListSourceKind.ServerIni, parsed.SourceKind);
+        Assert.Equal([123UL, 456UL], parsed.WorkshopIds);
+        Assert.Equal(["alpha", "beta"], parsed.ModIds);
+        Assert.Empty(parsed.InvalidWorkshopIds);
+    }
+
+    [Fact]
+    public void ModListImportReadsPlainSemicolonListAsModIds()
+    {
+        var parsed = ModListImportParser.Parse("alpha; beta ;\n gamma;alpha");
+
+        Assert.Equal(ModListSourceKind.SemicolonList, parsed.SourceKind);
+        Assert.Equal(["alpha", "beta", "gamma"], parsed.ModIds);
+        Assert.Empty(parsed.WorkshopIds);
+    }
+
+    [Fact]
+    public void ModListImportReportsInvalidWorkshopEntries()
+    {
+        var parsed = ModListImportParser.Parse("WorkshopItems=123;not-an-id\nMods=alpha");
+
+        Assert.Equal([123UL], parsed.WorkshopIds);
+        Assert.Equal(["not-an-id"], parsed.InvalidWorkshopIds);
     }
 
     [Fact]

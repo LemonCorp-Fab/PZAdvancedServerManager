@@ -9,6 +9,40 @@ document.querySelectorAll('[data-mod-filter]').forEach(filter => {
     });
 });
 
+document.querySelectorAll('[data-mod-import-preview]').forEach(preview => {
+    const filter = preview.querySelector('[data-mod-import-filter]');
+    const rows = Array.from(preview.querySelectorAll('[data-mod-import-row]'));
+    const checkboxes = rows.flatMap(row => Array.from(row.querySelectorAll('input[type="checkbox"][name="selectedEntries"]')));
+    const count = preview.querySelector('[data-mod-import-selected]');
+    const submit = preview.querySelector('[data-mod-import-submit]');
+    const empty = preview.querySelector('[data-mod-import-empty]');
+    const normalize = value => value.toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const update = () => {
+        const selected = checkboxes.filter(checkbox => checkbox.checked).length;
+        const visible = rows.filter(row => !row.hidden).length;
+        if (count) count.textContent = String(selected);
+        if (submit instanceof HTMLButtonElement) submit.disabled = selected === 0;
+        if (empty) empty.hidden = visible > 0;
+    };
+    filter?.addEventListener('input', () => {
+        const query = normalize(filter.value.trim());
+        rows.forEach(row => { row.hidden = query.length > 0 && !normalize(row.dataset.modImportSearch || row.textContent).includes(query); });
+        update();
+    });
+    preview.querySelectorAll('[data-mod-import-select]').forEach(button => {
+        button.addEventListener('click', () => {
+            const shouldSelect = button.dataset.modImportSelect === 'all';
+            rows.forEach(row => {
+                const checkbox = row.querySelector('input[type="checkbox"][name="selectedEntries"]');
+                if (checkbox instanceof HTMLInputElement) checkbox.checked = shouldSelect;
+            });
+            update();
+        });
+    });
+    checkboxes.forEach(checkbox => checkbox.addEventListener('change', update));
+    update();
+});
+
 document.querySelectorAll('details.mod-card').forEach(card => {
     const label = card.querySelector('.mod-expand-hint > span');
     const update = () => { if (label) label.textContent = card.open ? 'Masquer les détails' : 'Afficher les détails'; };

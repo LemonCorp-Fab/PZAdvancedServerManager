@@ -35,9 +35,12 @@ public class EditModel(
     public SteamCmdStatus SteamCmdStatus { get; private set; } = new(false, string.Empty, string.Empty, null, 0);
     public bool PreviewAvailable { get; private set; }
     public string PreviewSourceLabel { get; private set; } = "Preview générée par le manager";
+    public ModListImportPreview? ModImportPreview { get; private set; }
 
     [BindProperty] public ProjectForm Form { get; set; } = new();
     [BindProperty] public IFormFile? PreviewUpload { get; set; }
+    [BindProperty] public IFormFile? ModListUpload { get; set; }
+    [BindProperty] public string ModListText { get; set; } = string.Empty;
 
     public IActionResult OnGet(Guid id, bool refresh = false)
     {
@@ -103,6 +106,51 @@ public class EditModel(
         }
         catch (Exception exception) { TempData["Error"] = exception.Message; }
         return RedirectToPage(new { id, tab = "mods" });
+    }
+
+    public async Task<IActionResult> OnPostPreviewModListAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+        Load(project, refresh: false);
+        Form = ProjectForm.From(project);
+        Form.MapOrder = string.Join(';', MapAnalysis.Entries.Select(x => x.FolderName));
+        try
+        {
+            var content = await ReadModListSourceAsync(ModListUpload, ModListText, cancellationToken);
+            var parsed = ModListImportParser.Parse(content);
+            ModImportPreview = BuildModImportPreview(project, parsed, InstalledMods, ModListUpload?.FileName);
+        }
+        catch (Exception exception)
+        {
+            TempData["Error"] = "Impossible d'analyser la liste de mods : " + exception.Message;
+        }
+        return Page();
+    }
+
+    public async Task<IActionResult> OnPostApplyModListAsync(Guid id, string[] selectedEntries, CancellationToken cancellationToken)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+        try
+        {
+            TempData["Message"] = await ApplyModListAsync(project, selectedEntries, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            TempData["Error"] = exception.Message;
+        }
+        return RedirectToPage(new { id, tab = "mods" });
+    }
+
+    public async Task<IActionResult> OnPostApplyModListStreamAsync(Guid id, string[] selectedEntries, CancellationToken cancellationToken)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+        return await StreamOperationAsync(
+            progress => ApplyModListAsync(project, selectedEntries, cancellationToken, progress),
+            Url.Page("/Projects/Edit", null, new { id, tab = "mods" })!,
+            cancellationToken);
     }
 
     public IActionResult OnPostUpdateMod(Guid id, Guid modReferenceId, PermissionStatus permissionStatus, bool includeInGlobalUpdates, string? rightsHolder, string? publicEvidenceUrl, string? privateAttachmentPath, string? permissionNotes)
@@ -404,6 +452,188 @@ public class EditModel(
 
     public static string SelectionKey(DiscoveredMod mod) => Convert.ToBase64String(Encoding.UTF8.GetBytes($"{mod.WorkshopId}|{mod.ModId}|{mod.ModRoot}"));
 
+    public static string ModImportEntryValue(string modId) => "mod:" + Convert.ToBase64String(Encoding.UTF8.GetBytes(modId));
+
+    private static async Task<string> ReadModListSourceAsync(IFormFile? upload, string? pastedList, CancellationToken cancellationToken)
+    {
+        if (upload is not { Length: > 0 })
+        {
+            if (string.IsNullOrWhiteSpace(pastedList)) throw new InvalidDataException("Choisissez un fichier .ini ou collez une liste séparée par des points-virgules.");
+            if (Encoding.UTF8.GetByteCount(pastedList) > 1024 * 1024) throw new InvalidDataException("La liste collée dépasse 1 Mio.");
+            return pastedList;
+        }
+
+        if (upload.Length > 1024 * 1024) throw new InvalidDataException("Le fichier dépasse 1 Mio.");
+        var extension = Path.GetExtension(upload.FileName).ToLowerInvariant();
+        if (extension is not ".ini" and not ".txt" and not ".cfg")
+            throw new InvalidDataException("Formats acceptés : .ini, .txt et .cfg.");
+
+        await using var memory = new MemoryStream((int)upload.Length);
+        await upload.CopyToAsync(memory, cancellationToken);
+        var bytes = memory.ToArray();
+        if (bytes.Length >= 3 && bytes[0] == 0xef && bytes[1] == 0xbb && bytes[2] == 0xbf)
+            return Encoding.UTF8.GetString(bytes[3..]);
+        try
+        {
+            return new UTF8Encoding(false, true).GetString(bytes);
+        }
+        catch (DecoderFallbackException)
+        {
+            return Encoding.Latin1.GetString(bytes);
+        }
+    }
+
+    private static ModListImportPreview BuildModImportPreview(PackageProject project, ParsedModList parsed, IReadOnlyList<DiscoveredMod> installed, string? fileName)
+    {
+        var candidates = new List<ModListImportCandidate>();
+        var listedWorkshopIds = parsed.WorkshopIds.ToHashSet();
+        var installedWorkshopIds = installed.Where(mod => mod.WorkshopId > 0).Select(mod => mod.WorkshopId).ToHashSet();
+        var hasPendingWorkshopDownload = parsed.WorkshopIds.Any(workshopId => !installedWorkshopIds.Contains(workshopId));
+        var existingModIds = project.Mods.Select(mod => mod.ModId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var addedModIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void AddModCandidate(string modId)
+        {
+            if (!addedModIds.Add(modId)) return;
+            var source = installed
+                .Where(mod => mod.ModId.Equals(modId, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(mod => listedWorkshopIds.Contains(mod.WorkshopId))
+                .ThenByDescending(mod => mod.SourceUpdatedAt)
+                .FirstOrDefault();
+            var alreadyAdded = existingModIds.Contains(modId);
+            var pendingDownload = source is null && hasPendingWorkshopDownload;
+            var selectable = !alreadyAdded && (source is not null || pendingDownload);
+            var title = source?.Name ?? modId;
+            var author = source is null || string.IsNullOrWhiteSpace(source.Author) ? "Auteur non déclaré" : source.Author;
+            var detail = source is null
+                ? pendingDownload ? "La source sera recherchée dans les items Workshop sélectionnés." : "Aucune source locale ou Workshop détectée pour ce Mod ID."
+                : $"{author} · {(source.WorkshopId == 0 ? "source locale" : $"Workshop {source.WorkshopId}")} · version {(string.IsNullOrWhiteSpace(source.Version) ? "non déclarée" : source.Version)}";
+            var status = alreadyAdded ? "DÉJÀ DANS LE PACK" : source is not null ? "SOURCE DÉTECTÉE" : pendingDownload ? "APRÈS TÉLÉCHARGEMENT" : "SOURCE INTROUVABLE";
+            var tone = alreadyAdded ? "existing" : source is not null ? "resolved" : pendingDownload ? "pending" : "missing";
+            var value = source is null ? ModImportEntryValue(modId) : "source:" + SelectionKey(source);
+            candidates.Add(new ModListImportCandidate(value, "Mod ID", modId, title, detail, status, tone, selectable, selectable));
+        }
+
+        foreach (var modId in parsed.ModIds) AddModCandidate(modId);
+        foreach (var workshopId in parsed.WorkshopIds)
+        {
+            var workshopMods = installed.Where(mod => mod.WorkshopId == workshopId).OrderBy(mod => mod.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+            if (parsed.ModIds.Count == 0)
+                foreach (var mod in workshopMods) AddModCandidate(mod.ModId);
+
+            if (workshopMods.Count == 0)
+            {
+                var detail = parsed.ModIds.Count == 0
+                    ? "SteamCMD téléchargera l'item puis proposera tous ses Mod IDs compatibles."
+                    : "SteamCMD téléchargera l'item pour résoudre les Mod IDs sélectionnés ci-dessus.";
+                candidates.Add(new ModListImportCandidate($"workshop:{workshopId}", "Workshop ID", workshopId.ToString(), $"Workshop item {workshopId}", detail, "TÉLÉCHARGEMENT REQUIS", "download", true, true));
+            }
+            else
+            {
+                candidates.Add(new ModListImportCandidate(string.Empty, "Workshop ID", workshopId.ToString(), $"Workshop item {workshopId}", $"{workshopMods.Count} Mod ID(s) compatible(s) déjà détecté(s) sur le disque.", "DISPONIBLE", "resolved", false, false));
+            }
+        }
+
+        foreach (var invalid in parsed.InvalidWorkshopIds)
+            candidates.Add(new ModListImportCandidate(string.Empty, "Workshop ID", invalid, $"Workshop ID invalide : {invalid}", "Cette valeur ne peut pas être téléchargée et a été exclue.", "VALEUR INVALIDE", "missing", false, false));
+
+        var sourceLabel = parsed.SourceKind == ModListSourceKind.ServerIni
+            ? string.IsNullOrWhiteSpace(fileName) ? "configuration INI collée" : fileName
+            : "liste de Mod IDs collée";
+        return new ModListImportPreview(sourceLabel, parsed.ModIds.Count, parsed.WorkshopIds.Count, candidates);
+    }
+
+    private async Task<string> ApplyModListAsync(PackageProject project, string[] selectedEntries, CancellationToken cancellationToken, IProgress<OperationProgress>? progress = null)
+    {
+        if (selectedEntries.Length == 0) throw new InvalidOperationException("Sélectionnez au moins une entrée à importer.");
+        if (selectedEntries.Length > 1000) throw new InvalidOperationException("La sélection dépasse la limite de 1 000 entrées.");
+
+        progress?.Report(new OperationProgress("validate", $"Validation de {selectedEntries.Length} entrée(s) sélectionnée(s)."));
+        var requestedMods = new List<(bool IsSource, string Value)>();
+        var workshopIds = new List<ulong>();
+        foreach (var entry in selectedEntries.Distinct(StringComparer.Ordinal))
+        {
+            if (entry.StartsWith("mod:", StringComparison.Ordinal))
+            {
+                try
+                {
+                    var modId = Encoding.UTF8.GetString(Convert.FromBase64String(entry[4..])).Trim();
+                    if (modId.Length > 0 && !requestedMods.Any(item => !item.IsSource && item.Value.Equals(modId, StringComparison.OrdinalIgnoreCase)))
+                        requestedMods.Add((false, modId));
+                }
+                catch (FormatException) { throw new InvalidOperationException("Une entrée Mod ID sélectionnée est invalide."); }
+            }
+            else if (entry.StartsWith("source:", StringComparison.Ordinal) && entry.Length > 7)
+            {
+                var sourceKey = entry[7..];
+                if (!requestedMods.Any(item => item.IsSource && item.Value.Equals(sourceKey, StringComparison.Ordinal)))
+                    requestedMods.Add((true, sourceKey));
+            }
+            else if (entry.StartsWith("workshop:", StringComparison.Ordinal)
+                && ulong.TryParse(entry[9..], out var workshopId) && workshopId > 0
+                && !workshopIds.Contains(workshopId))
+            {
+                workshopIds.Add(workshopId);
+            }
+        }
+        if (requestedMods.Count == 0 && workshopIds.Count == 0) throw new InvalidOperationException("La sélection ne contient aucune entrée importable.");
+
+        var downloaded = new List<DiscoveredMod>();
+        if (workshopIds.Count == 0)
+            progress?.Report(new OperationProgress("download", "Toutes les sources sélectionnées sont déjà disponibles sur le disque."));
+        for (var index = 0; index < workshopIds.Count; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var workshopId = workshopIds[index];
+            progress?.Report(new OperationProgress("download", $"Téléchargement Workshop {workshopId} ({index + 1}/{workshopIds.Count}).", index + 1, workshopIds.Count));
+            var result = await workshopImport.DownloadAsync(project, workshopId, cancellationToken);
+            downloaded.AddRange(result.Mods);
+        }
+
+        progress?.Report(new OperationProgress("resolve", "Résolution des Mod IDs et de leurs dépendances."));
+        var allKnown = environment.GetMods(project.TargetPzVersion, refresh: workshopIds.Count > 0)
+            .Concat(downloaded)
+            .GroupBy(mod => $"{mod.WorkshopId}:{mod.ModId}:{mod.ModRoot}", StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToList();
+        var selectedMods = new List<DiscoveredMod>();
+        foreach (var requested in requestedMods)
+        {
+            if (requested.IsSource)
+            {
+                var match = allKnown.FirstOrDefault(mod => SelectionKey(mod).Equals(requested.Value, StringComparison.Ordinal));
+                if (match is null) throw new InvalidOperationException("Une source sélectionnée n'est plus disponible. Relancez l'analyse de la liste.");
+                selectedMods.Add(match);
+                continue;
+            }
+
+            var resolved = allKnown
+                .Where(mod => mod.ModId.Equals(requested.Value, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(mod => workshopIds.Contains(mod.WorkshopId))
+                .ThenByDescending(mod => mod.SourceUpdatedAt)
+                .FirstOrDefault();
+            if (resolved is null) throw new InvalidOperationException($"Le Mod ID « {requested.Value} » reste introuvable après analyse des sources sélectionnées.");
+            selectedMods.Add(resolved);
+        }
+        if (requestedMods.Count == 0)
+            selectedMods.AddRange(allKnown.Where(mod => workshopIds.Contains(mod.WorkshopId)));
+        selectedMods = selectedMods.GroupBy(mod => mod.ModId, StringComparer.OrdinalIgnoreCase).Select(group => group.First()).ToList();
+        if (selectedMods.Count == 0) throw new InvalidOperationException("Aucun Mod ID compatible n'a été trouvé dans les sources sélectionnées.");
+
+        var added = 0;
+        for (var index = 0; index < selectedMods.Count; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var mod = selectedMods[index];
+            progress?.Report(new OperationProgress("snapshot", $"Ajout et snapshot de « {mod.Name} » ({index + 1}/{selectedMods.Count}).", index + 1, selectedMods.Count));
+            added += projects.AddWithDependencies(project, mod, allKnown);
+        }
+        progress?.Report(new OperationProgress("save", "Pack enregistré avec l'ordre de la liste importée."));
+        return added == 0
+            ? "La sélection était déjà entièrement présente dans le pack. Aucun snapshot n'a été remplacé."
+            : $"{added} Mod ID(s) ajouté(s) avec leurs dépendances disponibles et leurs versions figées.";
+    }
+
     private void Load(PackageProject project, bool refresh)
     {
         Project = project;
@@ -537,6 +767,23 @@ public class EditModel(
     {
         public void Report(T value) => callback(value);
     }
+
+    public sealed record ModListImportPreview(
+        string SourceLabel,
+        int ModIdCount,
+        int WorkshopIdCount,
+        IReadOnlyList<ModListImportCandidate> Candidates);
+
+    public sealed record ModListImportCandidate(
+        string Value,
+        string Kind,
+        string Identifier,
+        string Title,
+        string Detail,
+        string Status,
+        string Tone,
+        bool Selectable,
+        bool SelectedByDefault);
 
     public sealed class ProjectForm
     {

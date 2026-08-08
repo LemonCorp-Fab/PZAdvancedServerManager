@@ -263,6 +263,59 @@
             <div class="action-row"><a class="button primary" asp-page="/Workshop/Index" asp-route-projectId="@Model.Project.Id" asp-route-source="workshop">Explorer le Workshop</a><a class="button secondary" asp-page="/Workshop/Index" asp-route-projectId="@Model.Project.Id" asp-route-source="local">Choisir les mods installés</a></div>
         </section>
 
+        <details class="mod-list-importer" open="@(Model.ModImportPreview is not null)">
+            <summary>
+                <span class="mod-list-import-icon">INI</span>
+                <span><span class="eyebrow">IMPORT ASSISTÉ</span><strong>Charger les mods depuis une configuration</strong><small>Fichier serveur Project Zomboid ou liste de Mod IDs séparés par des points-virgules.</small></span>
+                <span class="button secondary mod-list-import-toggle">Importer une liste</span>
+            </summary>
+            <div class="mod-list-import-body">
+                <form method="post" asp-page-handler="PreviewModList" asp-route-tab="mods" enctype="multipart/form-data" class="mod-list-source-form" data-loading-title="Analyse de la liste de mods…" data-loading-detail="Lecture de WorkshopItems et Mods, détection des sources disponibles et préparation de la sélection.">
+                    <div class="mod-list-source-grid">
+                        <label class="mod-list-file-picker"><span>Fichier de configuration</span><input asp-for="ModListUpload" type="file" accept=".ini,.txt,.cfg,text/plain" /><small>Charge un fichier serveur contenant <code>WorkshopItems=</code> et <code>Mods=</code>. 1 Mio maximum.</small></label>
+                        <span class="mod-list-or">OU</span>
+                        <label><span>Liste de Mod IDs</span><textarea asp-for="ModListText" rows="4" placeholder="ModIdOne;ModIdTwo;ModIdThree"></textarea><small>Vous pouvez aussi coller directement les lignes <code>WorkshopItems=…</code> et <code>Mods=…</code>.</small></label>
+                    </div>
+                    <div class="mod-list-source-actions"><span>Cette étape ne modifie pas encore le pack.</span><button class="button primary" type="submit">Analyser et choisir</button></div>
+                </form>
+
+                @if (Model.ModImportPreview is { } importPreview)
+                {
+                    <section class="mod-import-preview" data-mod-import-preview>
+                        <div class="mod-import-preview-heading">
+                            <div><span class="eyebrow">APERÇU DE L’IMPORT</span><h3>@importPreview.SourceLabel</h3><p>@importPreview.ModIdCount Mod ID(s) · @importPreview.WorkshopIdCount Workshop ID(s) · aucune modification appliquée</p></div>
+                            <span class="mod-import-selection-count"><strong data-mod-import-selected>0</strong><small>sélectionnés</small></span>
+                        </div>
+                        <form id="mod-list-apply-form" method="post" asp-page-handler="ApplyModList" asp-route-tab="mods" data-operation-progress data-loading-title="Ajout de la sélection au pack…" data-loading-detail="Téléchargement des items manquants, résolution des Mod IDs et création des snapshots figés." data-loading-steps="Validation de la sélection|Téléchargement Workshop|Résolution des Mod IDs|Création des snapshots|Enregistrement du pack">
+                            <div class="mod-import-toolbar">
+                                <label><span class="sr-only">Filtrer les entrées analysées</span><input type="search" data-mod-import-filter placeholder="Filtrer par nom, auteur, Mod ID ou Workshop ID…" autocomplete="off" /></label>
+                                <div class="action-row"><button class="button ghost compact" type="button" data-mod-import-select="all">Tout sélectionner</button><button class="button ghost compact" type="button" data-mod-import-select="none">Tout désélectionner</button></div>
+                            </div>
+                            <div class="mod-import-candidates" data-mod-import-candidates>
+                            @foreach (var candidate in importPreview.Candidates)
+                            {
+                                <label class="mod-import-candidate @candidate.Tone" data-mod-import-row data-mod-import-search="@($"{candidate.Kind} {candidate.Identifier} {candidate.Title} {candidate.Detail} {candidate.Status}".ToLowerInvariant())">
+                                    @if (candidate.Selectable)
+                                    {
+                                        <input type="checkbox" name="selectedEntries" value="@candidate.Value" checked="@candidate.SelectedByDefault" />
+                                    }
+                                    else
+                                    {
+                                        <span class="mod-import-state-icon" aria-hidden="true">@(candidate.Tone == "resolved" || candidate.Tone == "existing" ? "✓" : "!")</span>
+                                    }
+                                    <span class="mod-import-candidate-copy"><span><em>@candidate.Kind</em><code>@candidate.Identifier</code></span><strong>@candidate.Title</strong><small>@candidate.Detail</small></span>
+                                    <span class="mod-import-status">@candidate.Status</span>
+                                </label>
+                            }
+                            </div>
+                            <div class="mod-import-empty" data-mod-import-empty hidden><strong>Aucune entrée ne correspond au filtre.</strong><span>Effacez la recherche pour retrouver toute la liste analysée.</span></div>
+                            <div class="mod-import-applybar"><span><strong>Versions figées après confirmation</strong><small>Les dépendances disponibles seront ajoutées comme lors d’un ajout manuel.</small></span><button class="button primary" type="submit" data-mod-import-submit>Ajouter la sélection au pack</button></div>
+                        </form>
+                    </section>
+                }
+            </div>
+        </details>
+
         <div class="mod-add-grid">
             <form method="post" asp-page-handler="ImportWorkshop" class="setting-card add-source-card" data-loading-title="Import de l’item Workshop…" data-loading-detail="Téléchargement SteamCMD, analyse des mod.info et création des snapshots figés.">
                 <span class="eyebrow">PAR WORKSHOP ID</span><h3>Télécharger et figer</h3><p>Importe tous les Mod IDs compatibles contenus dans un item.</p>

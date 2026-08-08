@@ -27,25 +27,26 @@ public static class ControlModGenerator
     private static string CreateClient(PackageProject project)
     {
         var mods = string.Join(",\n", project.Mods.Where(x => x.Enabled).OrderBy(x => x.Order).ThenBy(x => x.Name).Select(x =>
-            $"    {{ id = {LuaString(x.ModId)}, name = {LuaString(x.Name)}, version = {LuaString(x.DisplayVersion)}, workshop = {LuaString(x.WorkshopId == 0 ? "local" : x.WorkshopId.ToString())}, author = {LuaString(string.IsNullOrWhiteSpace(x.Author) ? "—" : x.Author)} }}"));
+            $"    {{ id = {LuaString(x.ModId)}, name = {LuaString(x.Name)}, version = {LuaString(x.DisplayVersion)}, workshop = {LuaString(x.WorkshopId.ToString())}, localSource = {(x.WorkshopId == 0 ? "true" : "false")}, author = {LuaString(x.Author)} }}"));
         return $$"""
 require "ISUI/ISPanel"
-require "ISUI/ISRichTextPanel"
+require "ISUI/ISScrollingListBox"
 require "ISUI/ISButton"
 require "ISUI/ISLabel"
 
 local PZASM_PACK_NAME = {{LuaString(project.Name)}}
 local PZASM_WORKSHOP_ID = {{LuaString(project.PublishedWorkshopId == 0 ? "pending" : project.PublishedWorkshopId.ToString())}}
+local PZASM_POSITION_KEY = {{LuaString(project.ControlModId + "_HudPosition")}}
 local PZASM_MODS = {
 {{mods}}
 }
 local PZASM_TEXT = {
-    fr = { ready="Prêt", refresh="Actualiser", server="État serveur", broadcast="Diffuser l'état du pack", close="Fermer", active="ACTIF", missing="ABSENT", expected="Attendue", loaded="Chargée", mods="mods inclus actifs", localScan="analyse locale terminée", requesting="Interrogation du serveur…", sending="Diffusion administrateur…", denied="Autorisation administrateur requise", admin="OUTILS ADMIN", restart="Toute modification des mods nécessite un redémarrage coordonné. Aucun rechargement à chaud n'est effectué." },
-    en = { ready="Ready", refresh="Refresh", server="Server status", broadcast="Broadcast pack status", close="Close", active="ACTIVE", missing="MISSING", expected="Expected", loaded="Loaded", mods="included mods active", localScan="local scan complete", requesting="Requesting server status…", sending="Sending administrator broadcast…", denied="Administrator permission required", admin="ADMIN TOOLS", restart="Mod changes require a coordinated restart. No files are hot-reloaded." },
-    es = { ready="Listo", refresh="Actualizar", server="Estado servidor", broadcast="Difundir estado del pack", close="Cerrar", active="ACTIVO", missing="AUSENTE", expected="Esperada", loaded="Cargada", mods="mods incluidos activos", localScan="análisis local terminado", requesting="Consultando servidor…", sending="Enviando difusión…", denied="Se requiere permiso de administrador", admin="HERRAMIENTAS ADMIN", restart="Los cambios de mods requieren un reinicio coordinado. No se recargan archivos en caliente." },
-    de = { ready="Bereit", refresh="Aktualisieren", server="Serverstatus", broadcast="Packstatus senden", close="Schließen", active="AKTIV", missing="FEHLT", expected="Erwartet", loaded="Geladen", mods="enthaltene Mods aktiv", localScan="lokale Prüfung abgeschlossen", requesting="Serverstatus wird abgefragt…", sending="Admin-Mitteilung wird gesendet…", denied="Administratorrechte erforderlich", admin="ADMIN-WERKZEUGE", restart="Mod-Änderungen erfordern einen koordinierten Neustart. Dateien werden nicht im laufenden Betrieb neu geladen." },
-    pt = { ready="Pronto", refresh="Atualizar", server="Estado servidor", broadcast="Divulgar estado do pack", close="Fechar", active="ATIVO", missing="AUSENTE", expected="Esperada", loaded="Carregada", mods="mods incluídos ativos", localScan="verificação local concluída", requesting="Consultando servidor…", sending="Enviando anúncio…", denied="Permissão de administrador necessária", admin="FERRAMENTAS ADMIN", restart="Alterações de mods exigem reinício coordenado. Nenhum arquivo é recarregado a quente." },
-    zh = { ready="就绪", refresh="刷新", server="服务器状态", broadcast="广播整合包状态", close="关闭", active="已启用", missing="缺失", expected="预期", loaded="已加载", mods="个内含模组已启用", localScan="本地检查完成", requesting="正在查询服务器…", sending="正在发送管理员广播…", denied="需要管理员权限", admin="管理员工具", restart="模组变更需要协调重启，不会热重载文件。" }
+    fr = { ready="Prêt", refresh="Actualiser", server="État serveur", broadcast="Diffuser l'état du pack", close="Fermer", active="ACTIF", missing="ABSENT", mods="mods actifs", localScan="analyse locale terminée", requesting="Interrogation du serveur...", sending="Diffusion administrateur...", denied="Autorisation administrateur requise", admin="OUTILS ADMIN", restart="Toute modification des mods nécessite un redémarrage coordonné. Aucun rechargement à chaud n'est effectué.", workshop="Workshop ID", author="Auteur", version="Version du pack", modId="Mod ID", source="Source", localSource="Fichier local", unknown="Non renseigné", hudHint="Cliquer pour ouvrir - glisser pour déplacer", serverOnline="Serveur en ligne", players="joueur(s)", expectedMods="mods attendus" },
+    en = { ready="Ready", refresh="Refresh", server="Server status", broadcast="Broadcast pack status", close="Close", active="ACTIVE", missing="MISSING", mods="mods active", localScan="local scan complete", requesting="Requesting server status...", sending="Sending administrator broadcast...", denied="Administrator permission required", admin="ADMIN TOOLS", restart="Mod changes require a coordinated restart. No files are hot-reloaded.", workshop="Workshop ID", author="Author", version="Pack version", modId="Mod ID", source="Source", localSource="Local files", unknown="Not provided", hudHint="Click to open - drag to move", serverOnline="Server online", players="player(s)", expectedMods="expected mods" },
+    es = { ready="Listo", refresh="Actualizar", server="Estado servidor", broadcast="Difundir estado del pack", close="Cerrar", active="ACTIVO", missing="AUSENTE", mods="mods activos", localScan="análisis local terminado", requesting="Consultando servidor...", sending="Enviando difusión...", denied="Se requiere permiso de administrador", admin="HERRAMIENTAS ADMIN", restart="Los cambios de mods requieren un reinicio coordinado. No se recargan archivos en caliente.", workshop="Workshop ID", author="Autor", version="Versión del pack", modId="Mod ID", source="Origen", localSource="Archivos locales", unknown="No indicado", hudHint="Clic para abrir - arrastrar para mover", serverOnline="Servidor en línea", players="jugador(es)", expectedMods="mods esperados" },
+    de = { ready="Bereit", refresh="Aktualisieren", server="Serverstatus", broadcast="Packstatus senden", close="Schließen", active="AKTIV", missing="FEHLT", mods="Mods aktiv", localScan="lokale Prüfung abgeschlossen", requesting="Serverstatus wird abgefragt...", sending="Admin-Mitteilung wird gesendet...", denied="Administratorrechte erforderlich", admin="ADMIN-WERKZEUGE", restart="Mod-Änderungen erfordern einen koordinierten Neustart. Dateien werden nicht im laufenden Betrieb neu geladen.", workshop="Workshop ID", author="Autor", version="Pack-Version", modId="Mod ID", source="Quelle", localSource="Lokale Dateien", unknown="Nicht angegeben", hudHint="Klicken zum Öffnen - ziehen zum Verschieben", serverOnline="Server online", players="Spieler", expectedMods="erwartete Mods" },
+    pt = { ready="Pronto", refresh="Atualizar", server="Estado servidor", broadcast="Divulgar estado do pack", close="Fechar", active="ATIVO", missing="AUSENTE", mods="mods ativos", localScan="verificação local concluída", requesting="Consultando servidor...", sending="Enviando anúncio...", denied="Permissão de administrador necessária", admin="FERRAMENTAS ADMIN", restart="Alterações de mods exigem reinício coordenado. Nenhum arquivo é recarregado a quente.", workshop="Workshop ID", author="Autor", version="Versão do pack", modId="Mod ID", source="Origem", localSource="Arquivos locais", unknown="Não informado", hudHint="Clique para abrir - arraste para mover", serverOnline="Servidor online", players="jogador(es)", expectedMods="mods esperados" },
+    zh = { ready="就绪", refresh="刷新", server="服务器状态", broadcast="广播整合包状态", close="关闭", active="已启用", missing="缺失", mods="个模组已启用", localScan="本地检查完成", requesting="正在查询服务器...", sending="正在发送管理员广播...", denied="需要管理员权限", admin="管理员工具", restart="模组变更需要协调重启，不会热重载文件。", workshop="Workshop ID", author="作者", version="整合包版本", modId="Mod ID", source="来源", localSource="本地文件", unknown="未提供", hudHint="点击打开 - 拖动移动", serverOnline="服务器在线", players="玩家", expectedMods="预期模组" }
 }
 local PZASM_WINDOW = nil
 local PZASM_HUD_BUTTON = nil
@@ -68,26 +69,83 @@ end
 
 local function pzasmText() return PZASM_TEXT[pzasmLanguage()] or PZASM_TEXT.en end
 
-local function pzasmEscape(value)
-    value = tostring(value or "")
-    return string.gsub(string.gsub(value, "<", "&lt;"), ">", "&gt;")
-end
-
 local function pzasmIsAdmin()
     local ok, value = pcall(function() return string.lower(tostring(getAccessLevel() or "")) end)
     return ok and (value == "admin" or value == "moderator" or value == "overseer" or value == "gm")
 end
 
-local function pzasmRuntimeVersion(modId)
-    local result = "—"
-    pcall(function()
-        local info = getModInfoByID(modId)
-        if info and info.getVersion then result = tostring(info:getVersion()) end
+local function pzasmDrawField(ui, label, value, x, y)
+    local labelText = tostring(label) .. ":"
+    ui:drawText(labelText, x, y, 0.55, 0.67, 0.57, 1, UIFont.Small)
+    local offset = getTextManager():MeasureStringX(UIFont.Small, labelText) + 8
+    ui:drawText(tostring(value), x + offset, y, 0.91, 0.94, 0.90, 1, UIFont.Small)
+end
+
+local function pzasmReadHudPosition()
+    local defaultX = 18
+    local defaultY = getCore():getScreenHeight() - 54
+    local ok, savedX, savedY = pcall(function()
+        local player = getPlayer()
+        local data = player and player:getModData()
+        local saved = data and data[PZASM_POSITION_KEY]
+        return saved and tonumber(saved.x), saved and tonumber(saved.y)
     end)
-    return result
+    if ok and savedX and savedY then return savedX, savedY end
+    return defaultX, defaultY
+end
+
+local function pzasmSaveHudPosition(button)
+    pcall(function()
+        local player = getPlayer()
+        if not player then return end
+        local data = player:getModData()
+        data[PZASM_POSITION_KEY] = { x = math.floor(button.x), y = math.floor(button.y) }
+    end)
 end
 
 PZASMControlWindow = ISPanel:derive("PZASMControlWindow")
+
+function PZASMControlWindow.drawModItem(list, y, item, alt)
+    local height = item.height or 112
+    if (y + list:getYScroll() + height < 0) or (y + list:getYScroll() >= list.height) then
+        return y + height
+    end
+
+    local entry = item.item
+    local mod = entry.mod
+    local text = pzasmText()
+    local enabled = entry.enabled
+    local statusText = enabled and text.active or text.missing
+    local statusColor = enabled and { r=0.55, g=0.82, b=0.31 } or { r=0.91, g=0.34, b=0.28 }
+    local cardX = 4
+    local cardY = y + 4
+    local cardWidth = list:getWidth() - 18
+    local cardHeight = height - 8
+
+    list:drawRect(cardX, cardY, cardWidth, cardHeight, 0.82, 0.055, 0.075, 0.060)
+    if list.mouseoverselected == item.index and list:isMouseOver() and not list:isMouseOverScrollBar() then
+        list:drawRect(cardX, cardY, cardWidth, cardHeight, 0.10, 0.58, 0.76, 0.42)
+    end
+    list:drawRect(cardX, cardY, 4, cardHeight, 1, statusColor.r, statusColor.g, statusColor.b)
+    list:drawRectBorder(cardX, cardY, cardWidth, cardHeight, 0.72, 0.25, 0.35, 0.27)
+
+    list:drawText("#" .. tostring(entry.order), cardX + 17, cardY + 14, 0.48, 0.64, 0.43, 1, UIFont.Small)
+    list:drawText(tostring(mod.name), cardX + 52, cardY + 11, 0.95, 0.97, 0.94, 1, UIFont.Medium)
+    local statusWidth = getTextManager():MeasureStringX(UIFont.Small, statusText) + 18
+    local statusX = cardX + cardWidth - statusWidth - 12
+    list:drawRect(statusX, cardY + 10, statusWidth, 22, 0.96, 0.035, 0.052, 0.040)
+    list:drawRect(statusX, cardY + 10, statusWidth, 22, 0.22, statusColor.r, statusColor.g, statusColor.b)
+    list:drawRectBorder(statusX, cardY + 10, statusWidth, 22, 0.70, statusColor.r, statusColor.g, statusColor.b)
+    list:drawText(statusText, statusX + 9, cardY + 13, statusColor.r, statusColor.g, statusColor.b, 1, UIFont.Small)
+    local author = tostring(mod.author or "")
+    if author == "" then author = text.unknown end
+    pzasmDrawField(list, text.author, author, cardX + 18, cardY + 39)
+    pzasmDrawField(list, text.version, tostring(mod.version or text.unknown), cardX + 18, cardY + 59)
+    pzasmDrawField(list, text.modId, tostring(mod.id), cardX + 18, cardY + 79)
+    local source = mod.localSource and text.localSource or (text.workshop .. " " .. tostring(mod.workshop))
+    pzasmDrawField(list, text.source, source, math.floor(cardX + cardWidth * 0.52), cardY + 79)
+    return y + height
+end
 
 function PZASMControlWindow:new(x, y, width, height)
     local panel = ISPanel.new(self, x, y, width, height)
@@ -101,12 +159,20 @@ end
 function PZASMControlWindow:initialise()
     ISPanel.initialise(self)
     local text = pzasmText()
-    self.rich = ISRichTextPanel:new(22, 58, self.width - 44, self.height - 132)
-    self.rich:initialise()
-    self.rich:addScrollBars()
-    self.rich.background = false
-    self.rich.clip = true
-    self:addChild(self.rich)
+    self.summary = ISLabel:new(22, 61, 20, "", 0.66, 0.76, 0.67, 1, UIFont.Small, true)
+    self.summary:initialise()
+    self:addChild(self.summary)
+
+    self.modList = ISScrollingListBox:new(18, 86, self.width - 36, self.height - 200)
+    self.modList:initialise()
+    self.modList:instantiate()
+    self.modList.backgroundColor = { r=0.025, g=0.038, b=0.029, a=0.72 }
+    self.modList.borderColor = { r=0.23, g=0.34, b=0.24, a=0.85 }
+    self.modList.drawBorder = true
+    self.modList.itemheight = 112
+    self.modList.doDrawItem = PZASMControlWindow.drawModItem
+    self.modList.selected = -1
+    self:addChild(self.modList)
 
     self.status = ISLabel:new(22, self.height - 59, 20, text.ready, 0.70, 0.82, 0.68, 1, UIFont.Small, true)
     self.status:initialise()
@@ -145,21 +211,18 @@ function PZASMControlWindow:refresh()
     local text = pzasmText()
     local active = getActivatedMods()
     local activeCount = 0
-    local lines = {}
+    local previousScroll = self.modList:getYScroll()
+    self.modList:clear()
+    self.modList:setScrollHeight(0)
     for index, mod in ipairs(PZASM_MODS) do
         local enabled = active and active:contains(mod.id)
         if enabled then activeCount = activeCount + 1 end
-        local color = enabled and "<RGB:0.55,0.86,0.36>" .. text.active or "<RGB:0.95,0.39,0.31>" .. text.missing
-        lines[#lines + 1] = color .. "<RGB:1,1,1>  <B>" .. pzasmEscape(mod.name) .. "</B><LINE>" ..
-            "<RGB:0.65,0.72,0.65>" .. text.expected .. " " .. pzasmEscape(mod.version) .. " · " .. text.loaded .. " " .. pzasmEscape(pzasmRuntimeVersion(mod.id)) ..
-            " · Mod ID " .. pzasmEscape(mod.id) .. " · Workshop " .. pzasmEscape(mod.workshop) .. "<RGB:1,1,1><LINE>"
+        local row = self.modList:addItem(mod.name, { mod = mod, enabled = enabled, order = index })
+        row.height = 112
     end
-    local adminText = pzasmIsAdmin() and "<LINE><RGB:0.85,0.68,0.25><B>" .. text.admin .. "</B><LINE>" .. text.restart .. "<RGB:1,1,1>" or ""
-    self.rich.text = "<H1>" .. pzasmEscape(PZASM_PACK_NAME) .. "</H1><LINE>" ..
-        "<RGB:0.65,0.72,0.65>Workshop " .. pzasmEscape(PZASM_WORKSHOP_ID) .. " · " .. tostring(activeCount) .. "/" .. tostring(#PZASM_MODS) .. " " .. text.mods .. " · F8<RGB:1,1,1><LINE><LINE>" ..
-        table.concat(lines, "<LINE>") .. adminText
-    self.rich:paginate()
-    self.status:setName(tostring(activeCount) .. "/" .. tostring(#PZASM_MODS) .. " · " .. text.localScan)
+    self.modList:setYScroll(previousScroll)
+    self.summary:setName(text.workshop .. " " .. PZASM_WORKSHOP_ID .. "   |   " .. tostring(activeCount) .. "/" .. tostring(#PZASM_MODS) .. " " .. text.mods .. "   |   F8")
+    self.status:setName(tostring(activeCount) .. "/" .. tostring(#PZASM_MODS) .. " - " .. text.localScan)
 end
 
 function PZASMControlWindow:onRefresh() self:refresh() end
@@ -190,12 +253,79 @@ end
 
 _G.PZASM_OpenControl = pzasmOpenControl
 
+local PZASMHudButton = ISButton:derive("PZASMHudButton")
+
+function PZASMHudButton:new(x, y, width, height, title, onclick)
+    local button = ISButton.new(self, x, y, width, height, title, nil, onclick)
+    button.dragging = false
+    button.dragged = false
+    button.dragDistance = 0
+    return button
+end
+
+function PZASMHudButton:onMouseDown(x, y)
+    ISButton.onMouseDown(self, x, y)
+    self.dragging = true
+    self.dragged = false
+    self.dragDistance = 0
+    self:setCapture(true)
+    self:bringToTop()
+end
+
+function PZASMHudButton:moveBy(dx, dy)
+    if not self.dragging then return end
+    self.dragDistance = self.dragDistance + math.abs(dx) + math.abs(dy)
+    if self.dragDistance > 4 then self.dragged = true end
+    if self.dragged then
+        self:setX(self.x + dx)
+        self:setY(self.y + dy)
+        self:bringToTop()
+    end
+end
+
+function PZASMHudButton:onMouseMove(dx, dy)
+    ISButton.onMouseMove(self, dx, dy)
+    self:moveBy(dx, dy)
+end
+
+function PZASMHudButton:onMouseMoveOutside(dx, dy)
+    ISButton.onMouseMoveOutside(self, dx, dy)
+    self:moveBy(dx, dy)
+end
+
+function PZASMHudButton:onMouseUp(x, y)
+    local wasDragged = self.dragged
+    self.dragging = false
+    self:setCapture(false)
+    if wasDragged then
+        self.pressed = false
+        pzasmSaveHudPosition(self)
+        return
+    end
+    ISButton.onMouseUp(self, x, y)
+end
+
+function PZASMHudButton:onMouseUpOutside(x, y)
+    local wasDragged = self.dragged
+    self.dragging = false
+    self:setCapture(false)
+    ISButton.onMouseUpOutside(self, x, y)
+    if wasDragged then pzasmSaveHudPosition(self) end
+end
+
 local function pzasmCreateHudButton()
     if PZASM_HUD_BUTTON then return end
-    PZASM_HUD_BUTTON = ISButton:new(getCore():getScreenWidth() - 74, 54, 54, 34, "PZ", nil, pzasmOpenControl)
+    local x, y = pzasmReadHudPosition()
+    PZASM_HUD_BUTTON = PZASMHudButton:new(x, y, 54, 34, "PZ", pzasmOpenControl)
     PZASM_HUD_BUTTON:initialise()
-    PZASM_HUD_BUTTON:setAnchorLeft(false)
-    PZASM_HUD_BUTTON:setAnchorRight(true)
+    PZASM_HUD_BUTTON.backgroundColor = { r=0.035, g=0.052, b=0.040, a=0.94 }
+    PZASM_HUD_BUTTON.backgroundColorMouseOver = { r=0.20, g=0.34, b=0.16, a=0.98 }
+    PZASM_HUD_BUTTON.borderColor = { r=0.48, g=0.72, b=0.25, a=1 }
+    PZASM_HUD_BUTTON:setTooltip(pzasmText().hudHint)
+    PZASM_HUD_BUTTON:setAnchorLeft(true)
+    PZASM_HUD_BUTTON:setAnchorRight(false)
+    PZASM_HUD_BUTTON:setAnchorTop(false)
+    PZASM_HUD_BUTTON:setAnchorBottom(true)
     PZASM_HUD_BUTTON:addToUIManager()
 end
 
@@ -206,7 +336,8 @@ end
 local function pzasmServerCommand(module, command, args)
     if module ~= "PZASM_Control" then return end
     if command == "status" and PZASM_WINDOW then
-        PZASM_WINDOW.status:setName("Server online · " .. tostring(args.players or 0) .. " player(s) · " .. tostring(args.expected or #PZASM_MODS) .. " expected mods")
+        local text = pzasmText()
+        PZASM_WINDOW.status:setName(text.serverOnline .. " - " .. tostring(args.players or 0) .. " " .. text.players .. " - " .. tostring(args.expected or #PZASM_MODS) .. " " .. text.expectedMods)
     elseif command == "announcement" then
         if HaloTextHelper and getPlayer() then HaloTextHelper.addText(getPlayer(), tostring(args.message or "Pack status updated"), HaloTextHelper.getColorGreen()) end
     elseif command == "denied" and PZASM_WINDOW then

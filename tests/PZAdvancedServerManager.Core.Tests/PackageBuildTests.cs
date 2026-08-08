@@ -14,7 +14,7 @@ public sealed class PackageBuildTests : IDisposable
     {
         var source = CreateMod("FirstFolder", "first-id", "return 'first'");
         var project = ValidProject(PackageMode.Bundle,
-            new PackageModReference { ModId = "first-id", Name = "First Mod", Version = "1.2.3", SourceModRoot = source, SelectedVersionFolder = "common", WorkshopId = 123, SourceUrl = "https://example.test/123", Permission = new() { Status = PermissionStatus.AuthorOwned } });
+            new PackageModReference { ModId = "first-id", Name = "First Mod", Author = "Example Author", Version = "1.2.3", SourceModRoot = source, SelectedVersionFolder = "common", WorkshopId = 123, SourceUrl = "https://example.test/123", Permission = new() { Status = PermissionStatus.AuthorOwned } });
         project.PublishedWorkshopId = 999;
         project.InjectConnectionNotice = true;
         project.InjectInGameControl = true;
@@ -30,7 +30,14 @@ public sealed class PackageBuildTests : IDisposable
         Assert.True(File.Exists(controlServerPath));
         var controlClient = File.ReadAllText(controlClientPath);
         Assert.Contains("getActivatedMods()", controlClient);
-        Assert.Contains("getModInfoByID", controlClient);
+        Assert.Contains("ISScrollingListBox", controlClient);
+        Assert.Contains("author = \"Example Author\"", controlClient);
+        Assert.Contains("version = \"1.2.3\"", controlClient);
+        Assert.Contains("localSource = false", controlClient);
+        Assert.Contains("PZASMHudButton", controlClient);
+        Assert.Contains("getScreenHeight() - 54", controlClient);
+        Assert.Contains("pzasmSaveHudPosition", controlClient);
+        Assert.DoesNotContain("getModInfoByID", controlClient);
         Assert.Contains("Keyboard.KEY_F8", controlClient);
         Assert.Contains("pzasmIsAdmin", controlClient);
         Assert.Contains("Events.OnClientCommand", File.ReadAllText(controlServerPath));

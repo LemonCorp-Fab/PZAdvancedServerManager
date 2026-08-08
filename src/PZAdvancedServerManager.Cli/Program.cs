@@ -415,10 +415,8 @@ internal sealed class PzasmCli
 
     private static async Task RequireServerOfflineAsync(CliServices services, string name)
     {
-        var authenticated = await services.Servers.IsOnlineAsync(name);
-        var rconPortReachable = authenticated || await services.Servers.IsRconPortReachableAsync(name);
-        if (authenticated || rconPortReachable)
-            throw new InvalidOperationException("Le serveur doit être arrêté avant toute opération sur le monde et la base de joueurs. Son port RCON est encore joignable.");
+        if (await services.Servers.IsRconServiceAsync(name))
+            throw new InvalidOperationException("Le serveur doit être arrêté avant toute opération sur le monde et la base de joueurs. Un service RCON Project Zomboid répond encore pour ce profil.");
     }
 
     private static async Task<int> AutomationAsync(string[] raw, CliArguments args, CliServices services)

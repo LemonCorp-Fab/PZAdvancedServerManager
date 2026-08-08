@@ -449,10 +449,8 @@ public class IndexModel(
     private async Task<ServerWorldDataLocation> GetStoppedWorldDataLocationAsync(string name, CancellationToken cancellationToken)
     {
         var location = servers.ResolveWorldDataLocation(name);
-        var authenticated = await servers.IsOnlineAsync(name, cancellationToken);
-        var rconPortReachable = authenticated || await servers.IsRconPortReachableAsync(name, cancellationToken);
-        if (authenticated || rconPortReachable)
-            throw new InvalidOperationException("Arrêtez proprement Project Zomboid avant de sauvegarder, restaurer ou réinitialiser les données du monde. Le port RCON est encore joignable, même si son mot de passe n'est pas configuré ou n'a pas pu être authentifié.");
+        if (await servers.IsRconServiceAsync(name, cancellationToken))
+            throw new InvalidOperationException("Arrêtez proprement Project Zomboid avant de sauvegarder, restaurer ou réinitialiser les données du monde. Un service RCON Project Zomboid répond encore pour ce profil.");
         return location;
     }
 

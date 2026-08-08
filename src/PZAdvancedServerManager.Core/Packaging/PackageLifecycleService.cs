@@ -67,8 +67,8 @@ public sealed class PackageLifecycleService(
             if (!string.IsNullOrWhiteSpace(serverName))
             {
                 serverWasRunning = await servers.IsOnlineAsync(serverName, cancellationToken);
-                if (!serverWasRunning && await servers.IsRconPortReachableAsync(serverName, cancellationToken))
-                    throw new InvalidOperationException("Le port RCON répond, mais l'authentification Project Zomboid a échoué. Vérifiez l'hôte, le port et le mot de passe avant la publication coordonnée.");
+                if (!serverWasRunning && await servers.IsRconServiceAsync(serverName, cancellationToken))
+                    throw new InvalidOperationException("Un service RCON Project Zomboid répond, mais son authentification a échoué. Vérifiez l'hôte, le port et le mot de passe avant la publication coordonnée.");
                 if (serverWasRunning)
                 {
                     if (!servers.CanCoordinateRestart(serverName))

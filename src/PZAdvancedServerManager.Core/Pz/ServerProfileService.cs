@@ -189,6 +189,15 @@ public sealed class ServerProfileService(
         return await orchestration.IsPortReachableAsync(RconHost(remote), remote.RconPort, cancellationToken);
     }
 
+    public async Task<bool> IsRconServiceAsync(string name, CancellationToken cancellationToken = default)
+    {
+        var profile = Get(name);
+        if (!profile.IsRemote)
+            return orchestration.IsManagedProcessRunning(profile.Name) || await orchestration.IsRconServiceAsync(profile.Path, cancellationToken);
+        var remote = profile.Remote!;
+        return await orchestration.IsRconServiceAsync(RconHost(remote), remote.RconPort, remote.RconPassword, cancellationToken);
+    }
+
     public void Start(string name) => StartAsync(name).GetAwaiter().GetResult();
     public bool CanStart(string name)
     {

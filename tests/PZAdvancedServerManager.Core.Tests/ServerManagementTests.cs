@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Net;
 using System.Net.Sockets;
 using PZAdvancedServerManager.Core.Domain;
@@ -50,6 +51,52 @@ public sealed class ServerManagementTests : IDisposable
 
         Assert.True(reachable);
         await accept;
+    }
+
+    [Fact]
+    public async Task NonRconListenerIsNotMistakenForAProjectZomboidServer()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var accept = Task.Run(async () =>
+        {
+            using var client = await listener.AcceptTcpClientAsync();
+        });
+
+        var detected = await new ServerOrchestrationService().IsRconServiceAsync("127.0.0.1", port, "probe-password");
+
+        Assert.False(detected);
+        await accept;
+    }
+
+    [Fact]
+    public async Task RconAuthenticationRejectionStillIdentifiesTheServerProtocol()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var server = Task.Run(async () =>
+        {
+            using var client = await listener.AcceptTcpClientAsync();
+            var stream = client.GetStream();
+            var requestLengthBytes = new byte[4];
+            await stream.ReadExactlyAsync(requestLengthBytes);
+            var requestLength = BinaryPrimitives.ReadInt32LittleEndian(requestLengthBytes);
+            var request = new byte[requestLength];
+            await stream.ReadExactlyAsync(request);
+
+            var response = new byte[14];
+            BinaryPrimitives.WriteInt32LittleEndian(response.AsSpan(0, 4), 10);
+            BinaryPrimitives.WriteInt32LittleEndian(response.AsSpan(4, 4), -1);
+            BinaryPrimitives.WriteInt32LittleEndian(response.AsSpan(8, 4), 2);
+            await stream.WriteAsync(response);
+        });
+
+        var detected = await new ServerOrchestrationService().IsRconServiceAsync("127.0.0.1", port, "wrong-password");
+
+        Assert.True(detected);
+        await server;
     }
 
     [Fact]

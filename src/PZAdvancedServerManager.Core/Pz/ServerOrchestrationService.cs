@@ -52,6 +52,36 @@ public sealed class ServerOrchestrationService
         }
     }
 
+    public async Task<bool> IsRconServiceAsync(string iniPath, CancellationToken cancellationToken = default)
+    {
+        var settings = ReadRconSettings(iniPath, requirePassword: false);
+        return await IsRconServiceAsync("127.0.0.1", settings.Port, settings.Password, cancellationToken);
+    }
+
+    public async Task<bool> IsRconServiceAsync(string host, int port, string password, CancellationToken cancellationToken = default)
+    {
+        using var probeTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        probeTimeout.CancelAfter(TimeSpan.FromSeconds(2));
+        try
+        {
+            await using var rcon = await PzRconClient.ConnectAsync(
+                host,
+                port,
+                string.IsNullOrWhiteSpace(password) ? $"pzasm-probe-{Guid.NewGuid():N}" : password,
+                probeTimeout.Token);
+            return true;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return true;
+        }
+        catch (Exception exception) when (exception is SocketException or TimeoutException or IOException or OperationCanceledException)
+        {
+            if (exception is OperationCanceledException && cancellationToken.IsCancellationRequested) throw;
+            return false;
+        }
+    }
+
     public async Task StopGracefullyAsync(string iniPath, CancellationToken cancellationToken = default)
     {
         var settings = ReadRconSettings(iniPath, requirePassword: true);
@@ -221,18 +251,27 @@ internal sealed class PzRconClient : IAsyncDisposable
     public static async Task<PzRconClient> ConnectAsync(string host, int port, string password, CancellationToken cancellationToken)
     {
         var tcp = new TcpClient();
-        await tcp.ConnectAsync(host, port, cancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
-        var client = new PzRconClient(tcp);
-        var id = client.NextId();
-        await client.SendAsync(id, 3, password, cancellationToken);
-        for (var i = 0; i < 3; i++)
+        PzRconClient? client = null;
+        try
         {
-            var response = await client.ReceiveAsync(cancellationToken);
-            if (response.Id == -1) throw new UnauthorizedAccessException("Authentification RCON refusée.");
-            if (response.Type == 2 && response.Id == id) return client;
+            await tcp.ConnectAsync(host, port, cancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+            client = new PzRconClient(tcp);
+            var id = client.NextId();
+            await client.SendAsync(id, 3, password, cancellationToken);
+            for (var i = 0; i < 3; i++)
+            {
+                var response = await client.ReceiveAsync(cancellationToken);
+                if (response.Id == -1) throw new UnauthorizedAccessException("Authentification RCON refusée.");
+                if (response.Type == 2 && response.Id == id) return client;
+            }
+            throw new IOException("Réponse d'authentification RCON invalide.");
         }
-        await client.DisposeAsync();
-        throw new IOException("Réponse d'authentification RCON invalide.");
+        catch
+        {
+            if (client is not null) await client.DisposeAsync();
+            else tcp.Dispose();
+            throw;
+        }
     }
 
     public async Task<string> CommandAsync(string command, CancellationToken cancellationToken)

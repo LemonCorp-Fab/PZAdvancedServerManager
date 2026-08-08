@@ -9,7 +9,6 @@
 <a class="back-link" asp-page="/Index">← Tableau de bord</a>
 @if (TempData["Message"] is string message) { <div class="toast-message">@message</div> }
 @if (TempData["Error"] is string error) { <div class="error-message">@error</div> }
-@if (TempData["RconOutput"] is string rconOutput) { <div class="info-callout"><strong>Réponse RCON</strong><pre class="rcon-output">@rconOutput</pre></div> }
 
 <section class="project-hero workspace-hero">
     <div class="workspace-title"><span class="eyebrow">SERVEURS PROJECT ZOMBOID</span><h1>Serveurs locaux et distants</h1><p>Configurez et pilotez uniquement le processus Project Zomboid, sur cette machine ou sur un VPS/dédié.</p></div>
@@ -63,7 +62,7 @@
         <section class="panel server-command-center">
             <div class="panel-heading">
                 <div><span class="eyebrow">@(Model.Selected.IsRemote ? "SERVEUR DISTANT" : "SERVEUR LOCAL") · @Model.Selected.Name</span><h2>Centre de contrôle</h2><p>@Model.Selected.Location</p></div>
-                <span class="server-status @(Model.SelectedServerOnline ? "online" : "offline")">@(Model.SelectedServerOnline ? "EN LIGNE · RCON AUTHENTIFIÉ" : "ARRÊTÉ / RCON INDISPONIBLE")</span>
+                <span class="server-status @(Model.SelectedRconAvailable ? "online" : Model.SelectedServerOnline ? "starting" : "offline")">@(Model.SelectedRconAvailable ? "EN LIGNE · RCON AUTHENTIFIÉ" : Model.SelectedServerOnline ? "PROCESSUS ACTIF · RCON EN ATTENTE" : "ARRÊTÉ / RCON INDISPONIBLE")</span>
             </div>
             @if (Model.Selected.CanManageConfiguration) { <div class="summary-columns">
                 <div><strong>Workshop items</strong><span>@Model.WorkshopItems.Count</span><p>@string.Join(" · ", Model.WorkshopItems.Take(6))</p></div>
@@ -86,10 +85,75 @@
                         </details>
                     }
                 </form>
-                <form method="post" asp-page-handler="Stop" asp-route-name="@Model.Selected.Name" data-loading-title="Arrêt propre du serveur…" data-loading-detail="Envoi de save puis quit par RCON et attente de la fermeture complète." data-confirm-title="Sauvegarder et arrêter le serveur ?" data-confirm-message="Le gestionnaire enverra save puis quit par RCON et attendra l’arrêt complet. Aucun arrêt forcé ne sera utilisé." data-confirm-action="Sauvegarder et arrêter" data-confirm-tone="danger"><button class="server-action danger-action" type="submit" disabled="@(!Model.SelectedServerOnline)"><span class="server-action-icon">■</span><span><strong>Sauvegarder et arrêter</strong><small>save puis quit par RCON</small></span></button></form>
-                @if (Model.Selected.IsRemote && Model.Selected.Remote!.AutoRestartAfterRconQuit) { <form method="post" asp-page-handler="RestartRcon" asp-route-name="@Model.Selected.Name" data-loading-title="Redémarrage RCON de Project Zomboid…" data-loading-detail="Sauvegarde du monde, envoi de quit et prise en charge de la relance par le superviseur distant." data-confirm-title="Redémarrer Project Zomboid par RCON ?" data-confirm-message="Le manager enverra save puis quit. Le superviseur distant configuré doit relancer uniquement le processus de jeu." data-confirm-action="Sauvegarder et redémarrer"><button class="server-action primary-action" type="submit" disabled="@(!Model.SelectedServerOnline)"><span class="server-action-icon">↻</span><span><strong>Redémarrer par RCON</strong><small>save + quit + superviseur</small></span></button></form> }
+                <form method="post" asp-page-handler="Stop" asp-route-name="@Model.Selected.Name" data-loading-title="Arrêt propre du serveur…" data-loading-detail="Envoi de save puis quit par RCON et attente de la fermeture complète." data-confirm-title="Sauvegarder et arrêter le serveur ?" data-confirm-message="Le gestionnaire enverra save puis quit par RCON et attendra l’arrêt complet. Aucun arrêt forcé ne sera utilisé." data-confirm-action="Sauvegarder et arrêter" data-confirm-tone="danger"><button class="server-action danger-action" type="submit" disabled="@(!Model.SelectedRconAvailable)"><span class="server-action-icon">■</span><span><strong>Sauvegarder et arrêter</strong><small>save puis quit par RCON</small></span></button></form>
+                @if (Model.Selected.IsRemote && Model.Selected.Remote!.AutoRestartAfterRconQuit) { <form method="post" asp-page-handler="RestartRcon" asp-route-name="@Model.Selected.Name" data-loading-title="Redémarrage RCON de Project Zomboid…" data-loading-detail="Sauvegarde du monde, envoi de quit et prise en charge de la relance par le superviseur distant." data-confirm-title="Redémarrer Project Zomboid par RCON ?" data-confirm-message="Le manager enverra save puis quit. Le superviseur distant configuré doit relancer uniquement le processus de jeu." data-confirm-action="Sauvegarder et redémarrer"><button class="server-action primary-action" type="submit" disabled="@(!Model.SelectedRconAvailable)"><span class="server-action-icon">↻</span><span><strong>Redémarrer par RCON</strong><small>save + quit + superviseur</small></span></button></form> }
             </div>
         </section>
+
+        @if (Model.NetworkInfo is not null)
+        {
+            <section class="panel server-network-panel">
+                <div class="panel-heading">
+                    <div><span class="eyebrow">RÉSEAU DU SERVEUR</span><h2>Adresses et ports</h2><p>Valeurs configurées dans le profil et adresses accessibles depuis cette machine.</p></div>
+                    <div class="network-state-pills">
+                        @if (Model.NetworkInfo.IsPublic is bool isPublic) { <span class="network-state-pill">PUBLIC : @(isPublic ? "OUI" : "NON")</span> }
+                        @if (Model.NetworkInfo.IsOpen is bool isOpen) { <span class="network-state-pill">OUVERT : @(isOpen ? "OUI" : "NON")</span> }
+                    </div>
+                </div>
+                <div class="network-overview">
+                    <article class="network-address-card">
+                        <span class="network-card-label">@(Model.Selected.IsRemote ? "HÔTE CONFIGURÉ" : "IP LOCALES / LAN")</span>
+                        <div class="network-address-list">
+                            @foreach (var address in Model.NetworkInfo.Addresses) { <code>@address</code> }
+                        </div>
+                        <small>@(string.IsNullOrWhiteSpace(Model.NetworkInfo.BindAddress) || Model.NetworkInfo.BindAddress is "0.0.0.0" or "::" ? "Écoute sur toutes les interfaces. L’adresse IP publique n’est pas résolue automatiquement." : $"Adresse d’écoute forcée : {Model.NetworkInfo.BindAddress}")</small>
+                    </article>
+                    <div class="network-port-grid">
+                        @if (Model.NetworkInfo.DefaultPort is int defaultPort) { <article><span>Jeu / Steam</span><strong>@defaultPort</strong><small>DefaultPort · UDP</small></article> }
+                        @if (Model.NetworkInfo.UdpPort is int udpPort) { <article><span>Jeu direct</span><strong>@udpPort</strong><small>UDPPort · RakNet</small></article> }
+                        @if (Model.NetworkInfo.SteamPort1 is int steamPort1) { <article><span>Steam 1</span><strong>@steamPort1</strong><small>SteamPort1</small></article> }
+                        @if (Model.NetworkInfo.SteamPort2 is int steamPort2) { <article><span>Steam 2</span><strong>@steamPort2</strong><small>SteamPort2</small></article> }
+                        <article class="rcon-port-card"><span>Administration RCON</span><strong>@Model.NetworkInfo.RconPort</strong><small>@Model.NetworkInfo.RconHost · TCP</small></article>
+                    </div>
+                </div>
+                @if (!Model.NetworkInfo.ConfigurationAvailable) { <p class="fine-print">Ce profil distant est RCON-only : les ports de jeu ne sont pas lisibles sans accès à l’INI distant.</p> }
+            </section>
+        }
+
+        @if (Model.SelectedRconAvailable)
+        {
+            <section class="panel rcon-console-panel" id="rcon-console">
+                <div class="panel-heading rcon-console-heading">
+                    <div><span class="eyebrow">RCON AUTHENTIFIÉ</span><h2>Console d’administration</h2><p>Historique des commandes envoyées depuis cette session du manager et de leurs réponses.</p></div>
+                    @if (Model.RconHistory.Count > 0)
+                    {
+                        <form method="post" asp-page-handler="ClearRconConsole" asp-route-name="@Model.Selected.Name" data-confirm-title="Effacer l’historique RCON ?" data-confirm-message="Les commandes et réponses conservées en mémoire pour ce profil seront supprimées. Aucun journal Project Zomboid ne sera effacé." data-confirm-action="Effacer l’historique"><button class="button ghost" type="submit">Effacer</button></form>
+                    }
+                </div>
+                <div class="rcon-terminal" data-rcon-transcript aria-live="polite">
+                    @if (Model.RconHistory.Count == 0)
+                    {
+                        <div class="rcon-terminal-empty"><strong>Console prête</strong><span>Envoyez une commande pour afficher sa réponse ici.</span></div>
+                    }
+                    else
+                    {
+                        @foreach (var entry in Model.RconHistory)
+                        {
+                            <article class="rcon-entry @(entry.Succeeded ? "success" : "failure")">
+                                <header><time datetime="@entry.Timestamp.ToString("O")">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss")</time><span>@(entry.Succeeded ? "RÉPONSE" : "ERREUR")</span></header>
+                                <code>&gt; @entry.Command</code>
+                                <pre>@entry.Response</pre>
+                            </article>
+                        }
+                    }
+                </div>
+                <form method="post" asp-page-handler="RconCommand" asp-route-name="@Model.Selected.Name" class="rcon-command-form" data-loading-title="Commande RCON…" data-loading-detail="Envoi de la commande au processus Project Zomboid et attente de sa réponse.">
+                    <label for="rcon-command">Commande RCON</label>
+                    <div class="inline-command"><input id="rcon-command" name="command" required maxlength="256" autocomplete="off" placeholder="players, servermsg…, save…" data-rcon-command /><button class="button primary" type="submit">Envoyer</button></div>
+                    <small>RCON retourne uniquement la réponse aux commandes envoyées ; il ne diffuse pas spontanément le fichier server-console.txt.</small>
+                </form>
+            </section>
+        }
 
         @if (!Model.Selected.IsRemote)
         {
@@ -184,7 +248,6 @@
                     </div></details>
                     <div class="action-row"><button class="button primary" type="submit">Enregistrer</button><button class="button secondary" type="submit" formaction="?handler=TestRcon&name=@Uri.EscapeDataString(Model.Selected.Name)" data-loading-title="Test RCON…" data-loading-detail="Authentification réelle auprès du processus Project Zomboid.">Tester RCON</button><button class="button secondary" type="submit" formaction="?handler=TestRemote&name=@Uri.EscapeDataString(Model.Selected.Name)" data-loading-title="Test SSH…" data-loading-detail="Connexion non interactive avec la clé ou l’agent SSH." disabled="@(!Model.Selected.Remote.HasSshConnection)">Tester SSH</button></div>
                 </form>
-                <form method="post" asp-page-handler="RconCommand" asp-route-name="@Model.Selected.Name" class="rcon-console" data-loading-title="Commande RCON…" data-loading-detail="Envoi de la commande au processus Project Zomboid et attente de sa réponse."><label><span>Console RCON</span><div class="inline-command"><input name="command" required maxlength="256" placeholder="players, servermsg…, save…" /><button class="button primary" type="submit" disabled="@(!Model.SelectedServerOnline)">Exécuter</button></div><small>La commande est envoyée telle quelle au serveur. Utilisez les commandes prises en charge par votre version de Project Zomboid.</small></label></form>
                 <form method="post" asp-page-handler="DeleteRemote" asp-route-name="@Model.Selected.Name" data-confirm-title="Retirer ce profil distant ?" data-confirm-message="Seul le profil enregistré dans le manager sera supprimé. Aucun fichier, processus ou service ne sera modifié sur le serveur distant." data-confirm-action="Retirer le profil" data-confirm-tone="danger"><button class="button danger" type="submit">Retirer le profil distant</button></form>
             </section>
         }

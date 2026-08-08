@@ -43,7 +43,7 @@ Mods=ModIdA;ModIdB;ModIdC;PZASM_Notice_SUFFIX
 - Workshop 导入显示详细进度，包括当前项目、阶段、数量、百分比、分析结果和可恢复错误；
 - 地图优先级助手会分析 `map.info`、`lots=` 依赖和 `.lotheader` 单元格冲突，并支持拖放与原始 `Map=` 编辑；
 - 服务器引导编辑器覆盖身份、访问、RCON、会话、备份和内容，同时保留完整 INI 原始编辑器；
-- 通过真实 RCON 身份验证显示状态、执行任意管理命令、发送 `save`/`quit` 并协调重启，远程配置无需 SSH；
+- 网络概览会显示本地/局域网地址以及已配置的游戏、RakNet、Steam 与 RCON 端口，并提供经认证的 RCON 状态和容量受限的内存命令/响应控制台；仍可执行任意管理命令、发送 `save`/`quit` 并协调重启，远程配置无需 SSH；
 - 发布、SteamCMD 登录和模组更新均提供详细且可取消的进度、实时输出和超时保护；
 - Windows/Linux 本地 UI 与无界面 CLI；
 - 带跨进程锁的 `automation run` 守护进程。

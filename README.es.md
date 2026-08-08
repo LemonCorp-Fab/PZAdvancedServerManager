@@ -43,7 +43,7 @@ Consulta el [estudio completo de arquitectura](docs/ARCHITECTURE.es.md).
 - progreso detallado de importación del Workshop con elemento y fase actuales, contador, porcentaje, resultado del análisis y errores recuperables;
 - asistente de prioridad de mapas basado en `map.info`, dependencias `lots=`, conflictos de celdas `.lotheader`, arrastrar y soltar y edición manual de `Map=`;
 - editor guiado del servidor para identidad, acceso, RCON, sesión, copias y contenido, además del editor INI completo;
-- estado RCON autenticado, consola de comandos, parada `save`/`quit` y reinicio coordinado, también con perfiles remotos sin SSH;
+- vista de red con direcciones locales/LAN y puertos configurados de juego, RakNet, Steam y RCON, además de estado RCON autenticado y una consola limitada en memoria con historial de comandos y respuestas; la parada `save`/`quit` y el reinicio coordinado siguen disponibles, también con perfiles remotos sin SSH;
 - progreso detallado y cancelable para publicaciones, autenticación SteamCMD y actualización de mods, con salida en directo y tiempo máximo;
 - UI local y CLI headless para Windows y Linux;
 - daemon `automation run` con bloqueos entre procesos.

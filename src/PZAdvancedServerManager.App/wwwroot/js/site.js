@@ -960,6 +960,23 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
         message.setAttribute('aria-live', isError ? 'assertive' : 'polite');
     });
 
+    document.querySelectorAll('[data-rcon-transcript]').forEach(transcript => {
+        transcript.scrollTop = transcript.scrollHeight;
+    });
+
+    document.querySelectorAll('[data-rcon-command]').forEach(input => {
+        const commands = Array.from(document.querySelectorAll('.rcon-entry > code'))
+            .map(node => node.textContent.replace(/^>\s*/, '').trim())
+            .filter(command => command && !command.includes('<arguments redacted>'));
+        let index = commands.length;
+        input.addEventListener('keydown', event => {
+            if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+            event.preventDefault();
+            index = event.key === 'ArrowUp' ? Math.max(0, index - 1) : Math.min(commands.length, index + 1);
+            input.value = index < commands.length ? commands[index] : '';
+        });
+    });
+
     document.querySelectorAll('[data-settings-filter]').forEach(input => {
         const catalog = document.getElementById(input.dataset.settingsFilter || '');
         if (!catalog) return;

@@ -16,13 +16,17 @@ public class IndexModel(
     ServerProfileService servers,
     SteamCmdInstaller steamCmdInstaller,
     SteamCmdService steamCmd,
-    ServerWorldDataStore worldData) : PageModel
+    ServerWorldDataStore worldData,
+    RconConsoleStore rconConsole) : PageModel
 {
     public IReadOnlyList<ServerConfigEntry> Configs { get; private set; } = [];
     public ServerConfigEntry? Selected { get; private set; }
     public ServerConfigSummary Summary { get; private set; } = new([], [], []);
     public IReadOnlyList<PackageProject> Projects { get; private set; } = [];
     public bool SelectedServerOnline { get; private set; }
+    public bool SelectedRconAvailable { get; private set; }
+    public ServerNetworkInfo? NetworkInfo { get; private set; }
+    public IReadOnlyList<RconConsoleEntry> RconHistory { get; private set; } = [];
     public bool PlayerPasswordConfigured { get; private set; }
     public bool RconPasswordConfigured { get; private set; }
     public ServerWorldDataStatus? WorldDataStatus { get; private set; }
@@ -50,6 +54,8 @@ public class IndexModel(
         Projects = projectStore.GetAll().Where(x => x.PublishedWorkshopId != 0 && x.LastBuiltAt is not null).ToArray();
         Selected = Configs.FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) ?? Configs.FirstOrDefault();
         if (Selected is null) return;
+        NetworkInfo = servers.ReadNetworkInfo(Selected.Name);
+        RconHistory = rconConsole.List(Selected.Name);
         Remote = RemoteServerForm.From(Selected.Remote);
         if (Selected.CanManageConfiguration)
         {
@@ -76,7 +82,11 @@ public class IndexModel(
             }
             catch (Exception exception) { SandboxError = exception.Message; }
         }
-        try { SelectedServerOnline = await servers.IsOnlineAsync(Selected.Name, cancellationToken); }
+        try
+        {
+            SelectedRconAvailable = await servers.IsRconAuthenticatedAsync(Selected.Name, cancellationToken);
+            SelectedServerOnline = SelectedRconAvailable || servers.IsManagerProcessRunning(Selected.Name);
+        }
         catch (Exception exception) { ConnectionError = string.IsNullOrWhiteSpace(ConnectionError) ? exception.Message : ConnectionError + " " + exception.Message; }
         if (!Selected.IsRemote)
         {
@@ -404,15 +414,29 @@ public class IndexModel(
 
     public async Task<IActionResult> OnPostRconCommandAsync(string name, string command, CancellationToken cancellationToken)
     {
+        var submittedCommand = command?.Trim() ?? string.Empty;
         try
         {
-            var output = await servers.ExecuteRconCommandAsync(name, command, cancellationToken);
-            TempData["Message"] = $"Commande RCON « {command.Trim()} » exécutée.";
-            TempData["RconOutput"] = string.IsNullOrWhiteSpace(output)
+            if (submittedCommand.Length == 0) throw new ValidationException("Saisissez une commande RCON.");
+            var output = await servers.ExecuteRconCommandAsync(name, submittedCommand, cancellationToken);
+            var response = string.IsNullOrWhiteSpace(output)
                 ? "Commande acceptée sans réponse textuelle."
                 : output.Length <= 4000 ? output : output[..4000] + Environment.NewLine + "… réponse tronquée à 4 000 caractères";
+            rconConsole.Add(name, submittedCommand, response, succeeded: true);
+            TempData["Message"] = "Commande RCON exécutée.";
         }
-        catch (Exception exception) { TempData["Error"] = exception.Message; }
+        catch (Exception exception)
+        {
+            rconConsole.Add(name, submittedCommand, exception.Message, succeeded: false);
+            TempData["Error"] = exception.Message;
+        }
+        return RedirectToPage(new { name });
+    }
+
+    public IActionResult OnPostClearRconConsole(string name)
+    {
+        rconConsole.Clear(name);
+        TempData["Message"] = "Historique de la console RCON effacé.";
         return RedirectToPage(new { name });
     }
 

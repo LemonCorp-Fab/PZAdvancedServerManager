@@ -181,6 +181,31 @@ public sealed class ServerProfileService(
         return await orchestration.IsOnlineAsync(RconHost(remote), remote.RconPort, remote.RconPassword, cancellationToken);
     }
 
+    public async Task<bool> IsRconAuthenticatedAsync(string name, CancellationToken cancellationToken = default)
+    {
+        var profile = Get(name);
+        var (host, port, password) = RconEndpoint(profile);
+        return await orchestration.IsOnlineAsync(host, port, password, cancellationToken);
+    }
+
+    public bool IsManagerProcessRunning(string name)
+    {
+        var profile = Get(name);
+        return !profile.IsRemote && orchestration.IsManagedProcessRunning(profile.Name);
+    }
+
+    public ServerNetworkInfo ReadNetworkInfo(string name)
+    {
+        var profile = Get(name);
+        ServerConfigDocument? document = null;
+        if (profile.CanManageConfiguration)
+        {
+            try { document = ReadDocument(profile); }
+            catch when (profile.IsRemote) { }
+        }
+        return ServerNetworkInfo.Create(profile, document);
+    }
+
     public async Task<bool> IsRconPortReachableAsync(string name, CancellationToken cancellationToken = default)
     {
         var profile = Get(name);

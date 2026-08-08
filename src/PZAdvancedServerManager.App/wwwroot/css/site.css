@@ -310,8 +310,9 @@ label small { display: block; margin-top: 6px; color: var(--muted); font-weight:
 
 .dashboard-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 
-.server-layout { display: grid; grid-template-columns: 330px 1fr; gap: 20px; }
-.server-sidebar { align-self: start; }
+.server-layout { display: grid; grid-template-columns: 330px minmax(0,1fr); gap: 20px; }
+.server-sidebar { min-width: 0; align-self: start; }
+.server-content { min-width: 0; }
 .server-sidebar nav { display: grid; gap: 7px; margin-bottom: 24px; }
 .server-sidebar nav a { display: block; padding: 12px; color: var(--text); border: 1px solid var(--line); border-radius: 9px; background: #0e1310; }
 .server-sidebar nav a.active { border-color: #587444; background: #172015; }
@@ -333,6 +334,7 @@ label small { display: block; margin-top: 6px; color: var(--muted); font-weight:
 .summary-columns p { margin: 0; overflow-wrap: anywhere; font-size: .82rem; }
 .server-status { padding: 6px 10px; border: 1px solid var(--line); border-radius: 99px; color: var(--muted); font-size: .74rem; font-weight: 850; letter-spacing: .08em; }
 .server-status.online { color: #c5e995; border-color: #466238; background: #152011; }
+.server-status.starting { color: #9cc9e5; border-color: #36596b; background: #101d23; }
 .server-status.offline { color: #d3b87b; border-color: #594a2c; background: #1b170f; }
 .server-controls { padding-top: 18px; margin-top: 18px; border-top: 1px solid var(--line); }
 .config-editor { min-height: 650px; resize: vertical; color: #d8e3d1; font: 13px/1.55 Consolas, "Cascadia Code", monospace; tab-size: 4; }
@@ -362,6 +364,37 @@ label small { display: block; margin-top: 6px; color: var(--muted); font-weight:
 .server-action small { margin-top: 4px; color: var(--muted); }
 .server-action.danger-action { border-color: #5c3833; background: #241513; }
 .server-action.danger-action .server-action-icon { color: #2a1110; background: #df746a; }
+.server-network-panel { overflow: hidden; }
+.network-state-pills { display: flex; justify-content: flex-end; gap: 7px; flex-wrap: wrap; }
+.network-state-pill { padding: 5px 9px; color: var(--green); border: 1px solid #466238; border-radius: 999px; background: #152011; font-size: .68rem; font-weight: 850; letter-spacing: .06em; }
+.network-overview { display: grid; grid-template-columns: minmax(240px,.7fr) minmax(0,1.3fr); gap: 14px; }
+.network-address-card, .network-port-grid > article { border: 1px solid var(--line); border-radius: 12px; background: #0e1310; }
+.network-address-card { display: grid; align-content: start; gap: 10px; padding: 17px; }
+.network-card-label, .network-port-grid span { color: var(--muted); font-size: .72rem; font-weight: 850; letter-spacing: .07em; text-transform: uppercase; }
+.network-address-list { display: flex; gap: 7px; flex-wrap: wrap; }
+.network-address-list code { padding: 5px 8px; font-size: .86rem; user-select: all; }
+.network-address-card small, .network-port-grid small { color: var(--muted); line-height: 1.45; }
+.network-port-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px,1fr)); gap: 10px; }
+.network-port-grid > article { display: grid; align-content: center; min-height: 116px; padding: 15px; }
+.network-port-grid strong { margin: 4px 0 1px; color: var(--green); font-size: 1.9rem; letter-spacing: -.04em; }
+.network-port-grid .rcon-port-card { border-color: #466238; background: #142012; }
+.rcon-console-panel { border-color: #41543b; background: linear-gradient(145deg, var(--surface), #101713); }
+.rcon-console-heading { margin-bottom: 15px; }
+.rcon-console-heading p { margin: 6px 0 0; }
+.rcon-terminal { max-height: 430px; padding: 15px; overflow: auto; color: #dce7d7; border: 1px solid #314038; border-radius: 12px; background: #090d0b; box-shadow: inset 0 0 26px rgba(0,0,0,.28); font-family: Consolas, "Cascadia Code", monospace; scrollbar-color: #456139 #111713; }
+.rcon-terminal-empty { display: grid; min-height: 125px; place-content: center; justify-items: center; gap: 4px; color: #91a08f; text-align: center; }
+.rcon-terminal-empty strong { color: #cce9a5; }
+.rcon-entry { display: grid; gap: 7px; padding: 11px 12px; border-left: 3px solid #557342; }
+.rcon-entry + .rcon-entry { margin-top: 8px; border-top: 1px solid #202b24; }
+.rcon-entry.failure { border-left-color: #b95b50; }
+.rcon-entry header { display: flex; justify-content: space-between; gap: 12px; color: #71806f; font-size: .68rem; font-weight: 800; letter-spacing: .08em; }
+.rcon-entry.success header span { color: #9ecb68; }
+.rcon-entry.failure header span { color: #ee857b; }
+.rcon-entry code { padding: 0; color: #cbea9f; background: transparent; white-space: pre-wrap; overflow-wrap: anywhere; }
+.rcon-entry pre { margin: 0; color: #d7dfd3; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: .82rem; line-height: 1.5; }
+.rcon-command-form { display: grid; gap: 7px; padding-top: 15px; }
+.rcon-command-form > label { color: var(--text); font-size: .82rem; font-weight: 800; }
+.rcon-command-form > small { color: var(--muted); }
 .pack-apply-panel { display: grid; grid-template-columns: minmax(240px,.7fr) minmax(340px,1fr); gap: 24px; align-items: center; }
 .pack-apply-panel p { margin: 6px 0 0; }
 .pack-apply-form { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 9px; }
@@ -606,7 +639,9 @@ body.has-modal { overflow: hidden; }
 [data-theme="light"] .workspace-tabs button.is-active span { color: #fff; background: rgba(45,79,21,.45); }
 [data-theme="light"] .workspace-tabs button.is-active:hover { color: #fff; background: var(--green-dark); }
 [data-theme="light"] .workspace-savebar { border-color: #d4ddd0; background: rgba(250,252,249,.97); }
-[data-theme="light"] .map-order-summary > div, [data-theme="light"] .server-sidebar nav a, [data-theme="light"] .summary-columns > div { background: #f8faf7; }
+[data-theme="light"] .map-order-summary > div, [data-theme="light"] .server-sidebar nav a, [data-theme="light"] .summary-columns > div, [data-theme="light"] .network-address-card, [data-theme="light"] .network-port-grid > article { background: #f8faf7; }
+[data-theme="light"] .network-port-grid .rcon-port-card { background: #f0f7eb; }
+[data-theme="light"] .network-state-pill { color: #456d21; border-color: #c6d9b8; background: #edf5e7; }
 [data-theme="light"] .priority-badge, [data-theme="light"] .snapshot-badge { color: #315d18; border-color: #b0ca9f; background: #eef7e9; }
 [data-theme="light"] .priority-badge.warning, [data-theme="light"] .conflict-list span { color: #6d5013; border-color: #d9c486; background: #fff7e1; }
 [data-theme="light"] .priority-badge.base, [data-theme="light"] .priority-badge.manual { color: #4f5d53; border-color: #cbd5c8; background: #f3f6f2; }
@@ -689,7 +724,7 @@ body.has-modal { overflow: hidden; }
 @media (max-width: 900px) { .settings-toolbar, .settings-grid { grid-template-columns: 1fr; } .structured-setting { border-right: 0; } }
 
 @media (max-width: 1000px) {
-  .dashboard-grid, .server-layout { grid-template-columns: 1fr; }
+  .dashboard-grid, .server-layout { grid-template-columns: minmax(0,1fr); }
   .project-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .validation-box { grid-template-columns: 1fr; }
   .workspace-hero { grid-template-columns: 1fr; }
@@ -711,7 +746,7 @@ body.has-modal { overflow: hidden; }
   .hero { grid-template-columns: 1fr; padding: 36px 25px; }
   .hero-mark { display: none; }
   .legal-banner, .panel-heading, .project-hero, .section-heading { align-items: flex-start; flex-direction: column; }
-  .dashboard-grid, .project-grid, .form-grid.two, .summary-columns { grid-template-columns: 1fr; }
+  .dashboard-grid, .project-grid, .form-grid.two, .summary-columns, .network-overview { grid-template-columns: 1fr; }
   .form-section-grid, .choice-grid, .choice-grid.three, .mod-add-grid, .map-order-summary, .server-action-grid { grid-template-columns: 1fr; }
   .setting-card.wide { grid-column: auto; }
   .workspace-panel { padding: 19px 15px; }
@@ -754,6 +789,9 @@ body.has-modal { overflow: hidden; }
   .local-catalog-card { grid-template-columns: 30px 42px minmax(0,1fr); }
   .local-catalog-card > .catalog-state { grid-column: 2 / -1; justify-self: start; }
   .catalog-pagination { align-items: stretch; flex-direction: column; text-align: center; }
+  .network-state-pills { justify-content: flex-start; }
+  .inline-command { grid-template-columns: 1fr; }
+  .rcon-command-form .button { width: 100%; }
 }
 
 @media (max-width: 480px) {

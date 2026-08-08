@@ -11,6 +11,8 @@ public sealed class ServerProfileService(
     RemoteServerConnectionStore remoteStore,
     SshRemoteServerService ssh)
 {
+    public PzInstallation Installation => environment.Installation;
+
     public IReadOnlyList<ServerConfigEntry> List()
     {
         var entries = new List<ServerConfigEntry>();
@@ -107,13 +109,25 @@ public sealed class ServerProfileService(
     {
         var profile = Get(name);
         if (profile.IsRemote) EnsureConfigurationAccess(profile);
-        if (profile.IsRemote) return ssh.WriteFileAsync(profile.Remote!, content).GetAwaiter().GetResult();
-        var backup = Backup(profile.Path);
-        var original = ServerConfigDocument.ReadText(profile.Path);
-        var newLine = original.Text.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
-        var temp = profile.Path + ".pzasm.tmp";
-        File.WriteAllText(temp, content.Replace("\r\n", "\n").Replace("\n", newLine), original.Encoding);
-        File.Move(temp, profile.Path, true);
+        string backup;
+        if (profile.IsRemote)
+        {
+            backup = ssh.WriteFileAsync(profile.Remote!, content).GetAwaiter().GetResult();
+        }
+        else
+        {
+            backup = Backup(profile.Path);
+            var original = ServerConfigDocument.ReadText(profile.Path);
+            var newLine = original.Text.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+            var temp = profile.Path + ".pzasm.tmp";
+            File.WriteAllText(temp, content.Replace("\r\n", "\n").Replace("\n", newLine), original.Encoding);
+            File.Move(temp, profile.Path, true);
+        }
+        var persisted = profile.IsRemote
+            ? ssh.ReadFileAsync(profile.Remote!).GetAwaiter().GetResult()
+            : ServerConfigDocument.ReadText(profile.Path).Text;
+        if (!NormalizeText(persisted).Equals(NormalizeText(content), StringComparison.Ordinal))
+            throw new IOException($"La configuration « {profile.Name} » a été écrite mais sa relecture diffère. La sauvegarde reste disponible : {backup}");
         return backup;
     }
 
@@ -256,19 +270,142 @@ public sealed class ServerProfileService(
     public string ResolveIniPath(string name) => Get(name).Path;
     public ServerConfigDocument ReadDocument(string name) => ReadDocument(Get(name));
 
+    public IReadOnlyList<StructuredServerSetting> ReadStructuredSettings(string name) => StructuredServerSettings.ParseIni(ReadRaw(name));
+
+    public SandboxSettingsDocument ReadSandboxDocument(string name)
+    {
+        var profile = Get(name);
+        if (profile.IsRemote)
+        {
+            var sandboxConnection = WithRemotePath(profile.Remote!, SandboxPath(profile));
+            return SandboxSettingsDocument.Parse(ssh.ReadFileAsync(sandboxConnection).GetAwaiter().GetResult());
+        }
+        var path = SandboxPath(profile);
+        if (!File.Exists(path)) throw new FileNotFoundException("Le fichier SandboxVars de ce profil n'existe pas encore. Démarrez une première fois le serveur ou créez-le avec l'éditeur officiel.", path);
+        return SandboxSettingsDocument.Load(path);
+    }
+
+    public string UpdateSandbox(string name, IReadOnlyDictionary<string, string> values)
+    {
+        var profile = Get(name);
+        var document = ReadSandboxDocument(name);
+        document.Update(values);
+        var expected = values.Keys.ToDictionary(key => key, document.Get, StringComparer.Ordinal);
+        string backup;
+        if (profile.IsRemote)
+            backup = ssh.WriteFileAsync(WithRemotePath(profile.Remote!, SandboxPath(profile)), document.Render()).GetAwaiter().GetResult();
+        else
+        {
+            var path = SandboxPath(profile);
+            backup = Backup(path);
+            document.Save(path);
+        }
+        var persisted = ReadSandboxDocument(name);
+        var mismatches = expected.Where(pair => !persisted.Get(pair.Key).Equals(pair.Value, StringComparison.Ordinal)).Select(pair => pair.Key).Take(8).ToArray();
+        if (mismatches.Length > 0)
+            throw new IOException($"Le fichier SandboxVars a été écrit mais la relecture diffère pour : {string.Join(", ", mismatches)}. Sauvegarde : {backup}");
+        return backup;
+    }
+
+    public string ReadLuaFile(string name, ServerLuaFileKind kind)
+    {
+        var profile = Get(name);
+        var path = LuaFilePath(profile, kind);
+        if (profile.IsRemote) return ssh.ReadFileAsync(WithRemotePath(profile.Remote!, path)).GetAwaiter().GetResult();
+        if (!File.Exists(path)) return string.Empty;
+        return ServerConfigDocument.ReadText(path).Text;
+    }
+
+    public string SaveLuaFile(string name, ServerLuaFileKind kind, string content)
+    {
+        ValidateLuaFile(kind, content);
+        var profile = Get(name);
+        var path = LuaFilePath(profile, kind);
+        var current = ReadLuaFile(name, kind);
+        if (NormalizeText(current).Equals(NormalizeText(content), StringComparison.Ordinal)) return string.Empty;
+        string backup;
+        if (profile.IsRemote)
+            backup = ssh.WriteFileAsync(WithRemotePath(profile.Remote!, path), content).GetAwaiter().GetResult();
+        else
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            backup = File.Exists(path) ? Backup(path) : string.Empty;
+            var encoding = File.Exists(path) ? ServerConfigDocument.ReadText(path).Encoding : new UTF8Encoding(false);
+            var temporary = path + ".pzasm.tmp";
+            File.WriteAllText(temporary, content, encoding);
+            File.Move(temporary, path, true);
+        }
+        var persisted = ReadLuaFile(name, kind);
+        if (!NormalizeText(persisted).Equals(NormalizeText(content), StringComparison.Ordinal))
+            throw new IOException($"Le fichier {Path.GetFileName(path)} a été écrit mais sa relecture diffère. Sauvegarde : {backup}");
+        return backup;
+    }
+
     private ServerConfigDocument ReadDocument(ServerConfigEntry profile) => profile.IsRemote
         ? ServerConfigDocument.Parse(ssh.ReadFileAsync(EnsureConfigurationAccess(profile)).GetAwaiter().GetResult())
         : ServerConfigDocument.Load(profile.Path);
 
     private string WriteDocument(ServerConfigEntry profile, ServerConfigDocument document)
     {
-        if (profile.IsRemote) return ssh.WriteFileAsync(EnsureConfigurationAccess(profile), document.Render()).GetAwaiter().GetResult();
-        var backup = Backup(profile.Path);
-        document.Save(profile.Path);
+        var expected = NormalizeText(document.Render());
+        string backup;
+        if (profile.IsRemote)
+            backup = ssh.WriteFileAsync(EnsureConfigurationAccess(profile), document.Render()).GetAwaiter().GetResult();
+        else
+        {
+            backup = Backup(profile.Path);
+            document.Save(profile.Path);
+        }
+        var persisted = NormalizeText(ReadDocument(profile).Render());
+        if (!persisted.Equals(expected, StringComparison.Ordinal))
+            throw new IOException($"La configuration « {profile.Name} » a été écrite mais la vérification de relecture a échoué. La sauvegarde reste disponible : {backup}");
         return backup;
     }
 
+    private static string NormalizeText(string value) => value.Replace("\r\n", "\n", StringComparison.Ordinal);
+
     private string ServerRoot => Path.Combine(environment.Installation.UserZomboidRoot, "Server");
+    private static string SandboxPath(ServerConfigEntry profile) => LuaFilePath(profile, ServerLuaFileKind.SandboxVars);
+
+    private static string LuaFilePath(ServerConfigEntry profile, ServerLuaFileKind kind)
+    {
+        var suffix = kind switch
+        {
+            ServerLuaFileKind.SandboxVars => "_SandboxVars.lua",
+            ServerLuaFileKind.SpawnRegions => "_spawnregions.lua",
+            ServerLuaFileKind.SpawnPoints => "_spawnpoints.lua",
+            _ => throw new ArgumentOutOfRangeException(nameof(kind))
+        };
+        var iniPath = profile.IsRemote ? profile.Remote!.RemoteIniPath : profile.Path;
+        var path = Path.Combine(Path.GetDirectoryName(iniPath) ?? string.Empty, Path.GetFileNameWithoutExtension(iniPath) + suffix);
+        return profile.IsRemote ? path.Replace('\\', '/') : path;
+    }
+
+    private static void ValidateLuaFile(ServerLuaFileKind kind, string content)
+    {
+        if (content.Any(c => c == '\0')) throw new InvalidDataException("Le fichier Lua contient un caractère nul invalide.");
+        if (kind == ServerLuaFileKind.SandboxVars && !content.Contains("SandboxVars", StringComparison.Ordinal))
+            throw new InvalidDataException("Le fichier SandboxVars doit conserver la table SandboxVars.");
+        if (kind is ServerLuaFileKind.SpawnRegions or ServerLuaFileKind.SpawnPoints && content.Length > 0 && !content.Contains("return", StringComparison.Ordinal))
+            throw new InvalidDataException("Le fichier de spawn doit retourner une table Lua.");
+    }
+
+    private static RemoteServerConnection WithRemotePath(RemoteServerConnection source, string path) => new()
+    {
+        Id = source.Id,
+        Name = source.Name,
+        Host = source.Host,
+        SshPort = source.SshPort,
+        SshUser = source.SshUser,
+        SshPrivateKeyPath = source.SshPrivateKeyPath,
+        RemoteIniPath = path,
+        StartCommand = source.StartCommand,
+        RconHost = source.RconHost,
+        RconPort = source.RconPort,
+        RconPassword = source.RconPassword,
+        AutoRestartAfterRconQuit = source.AutoRestartAfterRconQuit,
+        UpdatedAt = source.UpdatedAt
+    };
     private static string RconHost(RemoteServerConnection remote) => string.IsNullOrWhiteSpace(remote.RconHost) ? remote.Host : remote.RconHost;
     private static (string Host, int Port, string Password) RconEndpoint(ServerConfigEntry profile)
     {
@@ -360,3 +497,4 @@ public sealed record ServerConfigEntry(string Name, string Path, ServerConnectio
 public sealed record ServerConfigSummary(IReadOnlyList<string> WorkshopItems, IReadOnlyList<string> Mods, IReadOnlyList<string> Maps);
 public sealed record ServerApplyResult(string BackupPath, IReadOnlyList<string> WorkshopItems, IReadOnlyList<string> Mods, IReadOnlyList<string> Maps);
 public sealed record ServerContentUpdateResult(string BackupPath, int AddedWorkshopItems, int AddedMods, IReadOnlyList<string> WorkshopItems, IReadOnlyList<string> Mods);
+public enum ServerLuaFileKind { SandboxVars, SpawnRegions, SpawnPoints }

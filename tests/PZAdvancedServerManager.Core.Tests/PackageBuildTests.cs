@@ -10,19 +10,30 @@ public sealed class PackageBuildTests : IDisposable
     private readonly string _root = Path.Combine(Path.GetTempPath(), "pzasm-tests", Guid.NewGuid().ToString("N"));
 
     [Fact]
-    public void Bundle_Preserves_ModRoots_AndAddsOneNoticeMod()
+    public void Bundle_Preserves_ModRoots_AndAddsNoticeAndControlModules()
     {
         var source = CreateMod("FirstFolder", "first-id", "return 'first'");
         var project = ValidProject(PackageMode.Bundle,
             new PackageModReference { ModId = "first-id", Name = "First Mod", Version = "1.2.3", SourceModRoot = source, SelectedVersionFolder = "common", WorkshopId = 123, SourceUrl = "https://example.test/123", Permission = new() { Status = PermissionStatus.AuthorOwned } });
         project.PublishedWorkshopId = 999;
         project.InjectConnectionNotice = true;
+        project.InjectInGameControl = true;
 
         var service = new PackageBuildService(new ApplicationPaths(Path.Combine(_root, "data")), new PackageValidator());
         var result = service.Build(project);
 
         Assert.True(File.Exists(Path.Combine(result.WorkshopContentRoot, "mods", "FirstFolder", "common", "media", "lua", "client", "test.lua")));
         Assert.True(File.Exists(Path.Combine(result.WorkshopContentRoot, "mods", project.NoticeModId, "common", "media", "lua", "client", "PZASM_PackNotice.lua")));
+        var controlClientPath = Path.Combine(result.WorkshopContentRoot, "mods", project.ControlModId, "common", "media", "lua", "client", "PZASM_ControlClient.lua");
+        var controlServerPath = Path.Combine(result.WorkshopContentRoot, "mods", project.ControlModId, "common", "media", "lua", "server", "PZASM_ControlServer.lua");
+        Assert.True(File.Exists(controlClientPath));
+        Assert.True(File.Exists(controlServerPath));
+        var controlClient = File.ReadAllText(controlClientPath);
+        Assert.Contains("getActivatedMods()", controlClient);
+        Assert.Contains("getModInfoByID", controlClient);
+        Assert.Contains("Keyboard.KEY_F8", controlClient);
+        Assert.Contains("pzasmIsAdmin", controlClient);
+        Assert.Contains("Events.OnClientCommand", File.ReadAllText(controlServerPath));
         var notice = File.ReadAllText(Path.Combine(result.WorkshopContentRoot, "mods", project.NoticeModId, "common", "media", "lua", "client", "PZASM_PackNotice.lua"));
         Assert.Contains("Version: 1.2.3", notice);
         var publicManifest = File.ReadAllText(Path.Combine(result.WorkshopContentRoot, "pzasm-pack-manifest.json"));
@@ -30,8 +41,20 @@ public sealed class PackageBuildTests : IDisposable
         Assert.DoesNotContain("privateAttachmentPath", publicManifest, StringComparison.OrdinalIgnoreCase);
         var config = File.ReadAllText(result.ServerConfigSnippetPath);
         Assert.Contains("WorkshopItems=999", config);
-        Assert.Contains($"Mods=first-id;{project.NoticeModId}", config);
+        Assert.Contains($"Mods=first-id;{project.NoticeModId};{project.ControlModId}", config);
         Assert.DoesNotContain("WorkshopItems=123", config);
+        Assert.True(File.Exists(result.WorkshopPreviewPath));
+        Assert.Equal(".png", WorkshopPreviewFile.Validate(result.WorkshopPreviewPath));
+        Assert.InRange(new FileInfo(result.WorkshopPreviewPath).Length, 1, WorkshopPreviewFile.MaximumBytes);
+    }
+
+    [Fact]
+    public void WorkshopPreviewValidatorRejectsNonImageContent()
+    {
+        var path = Path.Combine(_root, "not-an-image.png");
+        Directory.CreateDirectory(_root);
+        File.WriteAllText(path, "not an image");
+        Assert.Throws<InvalidDataException>(() => WorkshopPreviewFile.Validate(path));
     }
 
     [Fact]

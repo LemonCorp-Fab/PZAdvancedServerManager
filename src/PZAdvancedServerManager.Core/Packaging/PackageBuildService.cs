@@ -1,4 +1,3 @@
-using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -37,6 +36,8 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
 
             if (project.InjectConnectionNotice && project.Mode == PackageMode.Bundle)
                 NoticeModGenerator.GenerateStandalone(modsRoot, project);
+            if (project.InjectInGameControl && project.Mode == PackageMode.Bundle)
+                ControlModGenerator.GenerateStandalone(modsRoot, project);
 
             if (!validation.CanBuild)
                 throw new PackageBuildException("La fusion a détecté des collisions incompatibles.", validation);
@@ -44,13 +45,14 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
             var description = WorkshopDescriptionGenerator.Generate(project);
             WritePublicManifest(project, contentsRoot);
             var previewPath = PreparePreview(project, nextRoot);
+            var finalPreviewPath = Path.Combine(finalRoot, Path.GetFileName(previewPath));
             var workshopPath = Path.Combine(nextRoot, "workshop.txt");
             File.WriteAllText(workshopPath, GenerateWorkshopTxt(project, description), new UTF8Encoding(false));
             var vdfPath = Path.Combine(nextRoot, "steamcmd-item.vdf");
             File.WriteAllText(vdfPath, GenerateSteamCmdVdf(
                 project,
                 Path.Combine(finalRoot, "Contents"),
-                Path.Combine(finalRoot, "preview.png"),
+                finalPreviewPath,
                 description), new UTF8Encoding(false));
             var serverSnippetPath = Path.Combine(nextRoot, "server-config.txt");
             File.WriteAllText(serverSnippetPath, GenerateServerConfig(project), new UTF8Encoding(false));
@@ -75,6 +77,7 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
                 BuildRoot = finalRoot,
                 WorkshopContentRoot = Path.Combine(finalRoot, "Contents"),
                 WorkshopDescriptorPath = Path.Combine(finalRoot, "workshop.txt"),
+                WorkshopPreviewPath = finalPreviewPath,
                 SteamCmdVdfPath = Path.Combine(finalRoot, "steamcmd-item.vdf"),
                 LockFilePath = Path.Combine(finalRoot, "pack.lock.json"),
                 ServerConfigSnippetPath = Path.Combine(finalRoot, "server-config.txt"),
@@ -144,16 +147,28 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
             CopyFile(candidate.SourceFile, Path.Combine(destinationMedia, relative), stats);
         if (project.InjectConnectionNotice)
             NoticeModGenerator.InjectIntoFusion(fusionRoot, project);
+        if (project.InjectInGameControl)
+            ControlModGenerator.InjectIntoFusion(fusionRoot, project);
         return stats;
     }
 
     private static string PreparePreview(PackageProject project, string buildRoot)
     {
+        if (!string.IsNullOrWhiteSpace(project.PreviewImagePath))
+        {
+            if (!File.Exists(project.PreviewImagePath))
+                throw new FileNotFoundException("L'image Workshop personnalisée est introuvable.", project.PreviewImagePath);
+            var extension = WorkshopPreviewFile.Validate(project.PreviewImagePath);
+            var customTarget = Path.Combine(buildRoot, "preview" + extension);
+            File.Copy(project.PreviewImagePath, customTarget, true);
+            return customTarget;
+        }
+
         var target = Path.Combine(buildRoot, "preview.png");
-        if (!string.IsNullOrWhiteSpace(project.PreviewImagePath) && File.Exists(project.PreviewImagePath))
-            File.Copy(project.PreviewImagePath, target, true);
-        else
-            SimplePngWriter.Write(target, 512, 512);
+        using var source = typeof(PackageBuildService).Assembly.GetManifestResourceStream("PZAdvancedServerManager.Core.Assets.default-workshop-preview.png")
+            ?? throw new InvalidOperationException("La preview Workshop générée est absente de l'application.");
+        using var output = File.Create(target);
+        source.CopyTo(output);
         return target;
     }
 
@@ -187,6 +202,7 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
             ? project.Mods.Where(x => x.Enabled).OrderBy(x => x.Order).Select(x => x.ModId).ToList()
             : [project.FusionModId];
         if (project.InjectConnectionNotice && project.Mode == PackageMode.Bundle) modIds.Add(project.NoticeModId);
+        if (project.InjectInGameControl && project.Mode == PackageMode.Bundle) modIds.Add(project.ControlModId);
 
         var maps = project.MapOrder.Count > 0
             ? project.MapOrder.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToList()
@@ -271,6 +287,7 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
             mode = project.Mode.ToString(),
             targetPzVersion = project.TargetPzVersion,
             noticeInjected = project.InjectConnectionNotice,
+            controlInjected = project.InjectInGameControl,
             legalNotice = "Les mods restent la propriété de leurs auteurs. L'éditeur du pack est seul responsable des autorisations et crédits. LemonCorp et les développeurs de PZASM ne sont pas responsables des packs créés par les utilisateurs.",
             sources = project.Mods.Where(x => x.Enabled).OrderBy(x => x.Order).Select(x => new
             {
@@ -334,58 +351,4 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
 public sealed class PackageBuildException(string message, PackageValidationResult validation) : Exception(message)
 {
     public PackageValidationResult Validation { get; } = validation;
-}
-
-internal static class SimplePngWriter
-{
-    public static void Write(string path, int width, int height)
-    {
-        using var output = File.Create(path);
-        output.Write([137, 80, 78, 71, 13, 10, 26, 10]);
-        using var header = new MemoryStream();
-        WriteBigEndian(header, (uint)width);
-        WriteBigEndian(header, (uint)height);
-        header.WriteByte(8); header.WriteByte(2); header.WriteByte(0); header.WriteByte(0); header.WriteByte(0);
-        WriteChunk(output, "IHDR", header.ToArray());
-
-        using var raw = new MemoryStream();
-        for (var y = 0; y < height; y++)
-        {
-            raw.WriteByte(0);
-            for (var x = 0; x < width; x++)
-            {
-                var accent = ((x / 32) + (y / 32)) % 2 == 0;
-                raw.WriteByte((byte)(accent ? 67 : 35));
-                raw.WriteByte((byte)(accent ? 103 : 55));
-                raw.WriteByte((byte)(accent ? 48 : 41));
-            }
-        }
-        using var compressed = new MemoryStream();
-        using (var zlib = new ZLibStream(compressed, CompressionLevel.SmallestSize, true)) raw.WriteTo(zlib);
-        WriteChunk(output, "IDAT", compressed.ToArray());
-        WriteChunk(output, "IEND", []);
-    }
-
-    private static void WriteChunk(Stream output, string type, byte[] data)
-    {
-        WriteBigEndian(output, (uint)data.Length);
-        var typeBytes = Encoding.ASCII.GetBytes(type);
-        output.Write(typeBytes); output.Write(data);
-        var crcInput = new byte[typeBytes.Length + data.Length];
-        typeBytes.CopyTo(crcInput, 0); data.CopyTo(crcInput, typeBytes.Length);
-        WriteBigEndian(output, Crc32(crcInput));
-    }
-
-    private static uint Crc32(byte[] bytes)
-    {
-        uint crc = 0xffffffff;
-        foreach (var b in bytes)
-        {
-            crc ^= b;
-            for (var i = 0; i < 8; i++) crc = (crc & 1) != 0 ? 0xedb88320 ^ (crc >> 1) : crc >> 1;
-        }
-        return crc ^ 0xffffffff;
-    }
-
-    private static void WriteBigEndian(Stream output, uint value) => output.Write([(byte)(value >> 24), (byte)(value >> 16), (byte)(value >> 8), (byte)value]);
 }

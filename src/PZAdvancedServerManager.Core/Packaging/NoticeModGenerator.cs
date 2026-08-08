@@ -41,6 +41,8 @@ public static class NoticeModGenerator
         var modLines = project.Mods.Where(x => x.Enabled).OrderBy(x => x.Order).ThenBy(x => x.Name).Select((x, i) =>
             $"{i + 1}. {x.Name} — Version: {x.DisplayVersion} — PZ: {(string.IsNullOrWhiteSpace(x.SelectedVersionFolder) ? "root" : x.SelectedVersionFolder)} — Revision: {(string.IsNullOrWhiteSpace(x.PinnedContentHash) ? "not pinned" : x.PinnedContentHash[..Math.Min(12, x.PinnedContentHash.Length)])} — Mod ID: {x.ModId} — Workshop: {(x.WorkshopId == 0 ? "local" : x.WorkshopId)} — Author: {(string.IsNullOrWhiteSpace(x.Author) ? "—" : x.Author)}");
         var exhaustiveList = LuaString(string.Join("\n", modLines));
+        var modCount = project.Mods.Count(x => x.Enabled);
+        var controlEnabled = project.InjectInGameControl ? "true" : "false";
 
         var lua = $$"""
 require "ISUI/ISPanel"
@@ -48,6 +50,7 @@ require "ISUI/ISRichTextPanel"
 require "ISUI/ISButton"
 
 local PZASM_NOTICE_SHOWN = false
+local PZASM_CONTROL_ENABLED = {{controlEnabled}}
 
 local PZASM_TEXT = {
     fr = { rights = "INFORMATION SUR LES DROITS", mods = "Mods inclus et versions", close = "J'ai compris", legal = {{legalFr}} },
@@ -91,21 +94,39 @@ local function pzasmShowPackNotice()
     panel.backgroundColor = {r=0.045, g=0.055, b=0.050, a=0.98}
     panel.borderColor = {r=0.55, g=0.78, b=0.35, a=1}
     panel.moveWithMouse = true
+    panel.prerender = function(self)
+        ISPanel.prerender(self)
+        self:drawRect(0, 0, self.width, 52, 0.98, 0.08, 0.14, 0.09)
+        self:drawRect(0, 51, self.width, 2, 1, 0.55, 0.78, 0.35)
+        self:drawText("PZ", 20, 15, 0.66, 0.86, 0.38, 1, UIFont.Medium)
+        self:drawText("ADVANCED SERVER MANAGER", 58, 16, 0.92, 0.95, 0.90, 1, UIFont.Small)
+        self:drawTextRight("{{modCount}} MANAGED MODS", self.width - 20, 17, 0.66, 0.86, 0.38, 1, UIFont.Small)
+    end
 
-    local rich = ISRichTextPanel:new(22, 18, width - 44, height - 82)
+    local rich = ISRichTextPanel:new(22, 70, width - 44, height - 146)
     rich:initialise()
     rich:addScrollBars()
     rich.background = false
     rich.clip = true
     rich.text = "<H1>" .. pzasmEscapeRichText({{title}}) .. "</H1><LINE>" ..
-        "<H2>" .. pzasmEscapeRichText({{packName}}) .. "</H2><LINE>" ..
+        "<RGB:0.55,0.82,0.34><B>" .. pzasmEscapeRichText({{packName}}) .. "</B><RGB:1,1,1><LINE>" ..
         pzasmEscapeRichText({{description}}) .. "<LINE><LINE>" ..
         "<RGB:0.84,0.67,0.25>" .. text.rights .. "<RGB:1,1,1><LINE>" .. pzasmEscapeRichText(text.legal) ..
         "<LINE><LINE><H2>" .. text.mods .. "</H2><LINE>" .. string.gsub(pzasmEscapeRichText({{exhaustiveList}}), "\n", "<LINE>")
     rich:paginate()
     panel:addChild(rich)
 
-    local close = ISButton:new(width - 142, height - 52, 120, 32, text.close, panel, function(target)
+    if PZASM_CONTROL_ENABLED then
+        local control = ISButton:new(22, height - 55, 230, 34, "PZASM Control · F8", panel, function(target)
+            if _G.PZASM_OpenControl then _G.PZASM_OpenControl() end
+            target:setVisible(false)
+        end)
+        control:initialise()
+        control:instantiate()
+        panel:addChild(control)
+    end
+
+    local close = ISButton:new(width - 164, height - 55, 142, 34, text.close, panel, function(target)
         target:setVisible(false)
         target:removeFromUIManager()
     end)

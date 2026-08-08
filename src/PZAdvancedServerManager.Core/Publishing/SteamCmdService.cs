@@ -9,6 +9,37 @@ namespace PZAdvancedServerManager.Core.Publishing;
 
 public sealed class SteamCmdService(PackageValidator validator)
 {
+    public async Task<SteamCmdResult> UpdateDedicatedServerAsync(
+        string steamCmdPath,
+        string dedicatedServerRoot,
+        CancellationToken cancellationToken = default,
+        IProgress<OperationProgress>? progress = null)
+    {
+        ValidateExecutable(steamCmdPath);
+        if (string.IsNullOrWhiteSpace(dedicatedServerRoot))
+            throw new ArgumentException("Le dossier du serveur dédié est requis.", nameof(dedicatedServerRoot));
+
+        var root = Path.GetFullPath(dedicatedServerRoot);
+        if (!Directory.Exists(root))
+            throw new DirectoryNotFoundException($"Le dossier du serveur dédié n'existe pas : {root}");
+        var startScript = Path.Combine(root, OperatingSystem.IsWindows() ? "StartServer64.bat" : "start-server.sh");
+        if (!File.Exists(startScript))
+            throw new FileNotFoundException("Le dossier choisi ne contient pas le script de démarrage Project Zomboid attendu.", startScript);
+
+        progress?.Report(new OperationProgress("dedicated", "Vérification anonyme de l'installation du serveur dédié et rafraîchissement de ses droits Workshop."));
+        return await RunAsync(
+            steamCmdPath,
+            [
+                "+force_install_dir", root,
+                "+login", "anonymous",
+                "+app_update", PzasmConstants.ProjectZomboidDedicatedServerSteamAppId, "validate",
+                "+quit"
+            ],
+            cancellationToken,
+            progress: progress,
+            timeout: TimeSpan.FromHours(2));
+    }
+
     public async Task<WorkshopDownloadResult> DownloadWorkshopItemAsync(PackageProject project, ulong workshopId, CancellationToken cancellationToken = default, IProgress<OperationProgress>? progress = null)
     {
         if (workshopId == 0) throw new ArgumentOutOfRangeException(nameof(workshopId), "Workshop ID invalide.");
@@ -19,6 +50,23 @@ public sealed class SteamCmdService(PackageValidator validator)
         var steamCmdRoot = Path.GetDirectoryName(project.Automation.SteamCmdPath)!;
         var contentRoot = Path.Combine(steamCmdRoot, "steamapps", "workshop", "content", PzasmConstants.ProjectZomboidSteamAppId, workshopId.ToString());
         return new WorkshopDownloadResult(result, contentRoot);
+    }
+
+    public async Task<WorkshopDownloadResult> VerifyWorkshopItemAvailableAsync(PackageProject project, ulong workshopId, int maximumAttempts = 1, CancellationToken cancellationToken = default, IProgress<OperationProgress>? progress = null)
+    {
+        if (maximumAttempts < 1) throw new ArgumentOutOfRangeException(nameof(maximumAttempts));
+        WorkshopDownloadResult? latest = null;
+        var delays = new[] { TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(7), TimeSpan.FromSeconds(15) };
+        for (var attempt = 1; attempt <= maximumAttempts; attempt++)
+        {
+            progress?.Report(new OperationProgress("availability", $"Vérification du téléchargement Workshop {workshopId} ({attempt}/{maximumAttempts}).", attempt, maximumAttempts));
+            latest = await DownloadWorkshopItemAsync(project, workshopId, cancellationToken);
+            if (latest.SteamCmd.Success && Directory.Exists(latest.ContentRoot) && Directory.EnumerateFiles(latest.ContentRoot, "*", SearchOption.AllDirectories).Any())
+                return latest;
+            if (attempt < maximumAttempts)
+                await Task.Delay(delays[Math.Min(attempt - 1, delays.Length - 1)], cancellationToken);
+        }
+        return latest!;
     }
 
     public async Task<SteamCmdResult> RefreshSourcesAsync(PackageProject project, CancellationToken cancellationToken = default, IProgress<OperationProgress>? progress = null)
@@ -63,6 +111,12 @@ public sealed class SteamCmdService(PackageValidator validator)
         {
             if (id == 0)
                 return new SteamCmdResult(-1, result.StandardOutput, string.Join(Environment.NewLine, result.StandardError, "SteamCMD n’a renvoyé aucun Workshop ID. La publication ne peut pas être confirmée."));
+            var available = await VerifyWorkshopItemAvailableAsync(project, id, 4, cancellationToken, progress);
+            if (!available.SteamCmd.Success || !Directory.Exists(available.ContentRoot) || !Directory.EnumerateFiles(available.ContentRoot, "*", SearchOption.AllDirectories).Any())
+                return new SteamCmdResult(-2, result.StandardOutput, string.Join(Environment.NewLine,
+                    result.StandardError,
+                    available.SteamCmd.CombinedOutput,
+                    $"L’envoi de l’item {id} a été accepté, mais son contenu n’est pas encore téléchargeable avec l’identité configurée après quatre contrôles. L’ID a été conservé; relancez Publier lorsque Steam a terminé sa propagation."));
             project.LastPublishedAt = DateTimeOffset.UtcNow;
         }
         return result;
@@ -134,7 +188,7 @@ public sealed class SteamCmdService(PackageValidator validator)
         var mappedContent = ReadVdfString(vdf, "contentfolder");
         var mappedPreview = ReadVdfString(vdf, "previewfile");
         var expectedContent = Path.GetFullPath(build.WorkshopContentRoot);
-        var expectedPreview = Path.GetFullPath(Path.Combine(build.BuildRoot, "preview.png"));
+        var expectedPreview = Path.GetFullPath(build.WorkshopPreviewPath);
         var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
         if (string.IsNullOrWhiteSpace(mappedContent) ||

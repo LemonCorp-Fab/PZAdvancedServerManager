@@ -33,8 +33,11 @@ public class EditModel(
     public IReadOnlyList<string> ServerConfigNames { get; private set; } = [];
     public MapOrderAnalysis MapAnalysis { get; private set; } = new([], []);
     public SteamCmdStatus SteamCmdStatus { get; private set; } = new(false, string.Empty, string.Empty, null, 0);
+    public bool PreviewAvailable { get; private set; }
+    public string PreviewSourceLabel { get; private set; } = "Preview générée par le manager";
 
     [BindProperty] public ProjectForm Form { get; set; } = new();
+    [BindProperty] public IFormFile? PreviewUpload { get; set; }
 
     public IActionResult OnGet(Guid id, bool refresh = false)
     {
@@ -47,14 +50,36 @@ public class EditModel(
         return Page();
     }
 
-    public IActionResult OnPostSave(Guid id)
+    public async Task<IActionResult> OnPostSaveAsync(Guid id, CancellationToken cancellationToken)
     {
         var project = store.Get(id);
         if (project is null) return NotFound();
-        ApplyForm(project);
-        store.Save(project);
-        TempData["Message"] = "Projet enregistré. Son identifiant stable et son Workshop ID sont conservés.";
+        try
+        {
+            ApplyForm(project);
+            if (Form.ClearPreviewImage) project.PreviewImagePath = null;
+            if (PreviewUpload is { Length: > 0 })
+                project.PreviewImagePath = await SavePreviewUploadAsync(project.Id, PreviewUpload, cancellationToken);
+            store.Save(project);
+            TempData["Message"] = "Projet enregistré. Son identifiant stable, son Workshop ID et sa preview sont conservés.";
+        }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
         return RedirectToPage(new { id });
+    }
+
+    public IActionResult OnGetPreview(Guid id)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+        var preview = ResolvePreviewPath(project);
+        if (preview is null) return NotFound();
+        var contentType = Path.GetExtension(preview).ToLowerInvariant() switch
+        {
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".gif" => "image/gif",
+            _ => "image/png"
+        };
+        return PhysicalFile(preview, contentType);
     }
 
     public IActionResult OnPostAddMod(Guid id, string selectionKey)
@@ -390,6 +415,44 @@ public class EditModel(
         WorkshopDescription = WorkshopDescriptionGenerator.Generate(project);
         ServerConfigNames = servers.List().Select(x => x.Name).ToList();
         MapAnalysis = mapPriority.Analyze(project);
+        var preview = ResolvePreviewPath(project);
+        PreviewAvailable = preview is not null;
+        PreviewSourceLabel = !string.IsNullOrWhiteSpace(project.PreviewImagePath) && System.IO.File.Exists(project.PreviewImagePath)
+            ? "Image personnalisée"
+            : "Preview PZASM générée automatiquement";
+    }
+
+    private string? ResolvePreviewPath(PackageProject project)
+    {
+        if (!string.IsNullOrWhiteSpace(project.PreviewImagePath) && System.IO.File.Exists(project.PreviewImagePath)) return project.PreviewImagePath;
+        var buildRoot = paths.BuildRoot(project.Id);
+        if (!Directory.Exists(buildRoot)) return null;
+        return Directory.EnumerateFiles(buildRoot, "preview.*", SearchOption.TopDirectoryOnly)
+            .FirstOrDefault(path => Path.GetExtension(path).ToLowerInvariant() is ".png" or ".jpg" or ".jpeg" or ".gif");
+    }
+
+    private async Task<string> SavePreviewUploadAsync(Guid projectId, IFormFile upload, CancellationToken cancellationToken)
+    {
+        if (upload.Length > WorkshopPreviewFile.MaximumBytes)
+            throw new InvalidDataException("La preview Workshop dépasse 1 Mio.");
+        var assetRoot = paths.ProjectAssetsRoot(projectId);
+        Directory.CreateDirectory(assetRoot);
+        var temporary = Path.Combine(assetRoot, "preview.upload.tmp");
+        try
+        {
+            await using (var output = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None))
+                await upload.CopyToAsync(output, cancellationToken);
+            var extension = WorkshopPreviewFile.Validate(temporary);
+            var destination = Path.Combine(assetRoot, "preview" + extension);
+            foreach (var candidate in Directory.EnumerateFiles(assetRoot, "preview.*", SearchOption.TopDirectoryOnly).Where(x => !x.Equals(temporary, StringComparison.OrdinalIgnoreCase)))
+                System.IO.File.Delete(candidate);
+            System.IO.File.Move(temporary, destination, true);
+            return destination;
+        }
+        finally
+        {
+            if (System.IO.File.Exists(temporary)) System.IO.File.Delete(temporary);
+        }
     }
 
     private void ApplyForm(PackageProject project)
@@ -399,6 +462,7 @@ public class EditModel(
         project.Mode = Form.Mode;
         project.TargetPzVersion = string.IsNullOrWhiteSpace(Form.TargetPzVersion) ? "42.20.2" : Form.TargetPzVersion.Trim();
         project.InjectConnectionNotice = Form.InjectConnectionNotice;
+        project.InjectInGameControl = Form.InjectInGameControl;
         project.NoticeTitle = string.IsNullOrWhiteSpace(Form.NoticeTitle) ? "PZ Advanced Server Manager" : Form.NoticeTitle.Trim();
         project.PublishedWorkshopId = Form.PublishedWorkshopId;
         project.Visibility = Form.Visibility;
@@ -481,10 +545,12 @@ public class EditModel(
         public PackageMode Mode { get; set; }
         public string TargetPzVersion { get; set; } = "42.20.2";
         public bool InjectConnectionNotice { get; set; }
+        public bool InjectInGameControl { get; set; }
         public string NoticeTitle { get; set; } = string.Empty;
         public ulong PublishedWorkshopId { get; set; }
         public WorkshopVisibility Visibility { get; set; }
         public string? PreviewImagePath { get; set; }
+        public bool ClearPreviewImage { get; set; }
         public string? MapOrder { get; set; }
         public string? Tags { get; set; }
         public bool LegalWarningAccepted { get; set; }
@@ -504,6 +570,7 @@ public class EditModel(
             Mode = project.Mode,
             TargetPzVersion = project.TargetPzVersion,
             InjectConnectionNotice = project.InjectConnectionNotice,
+            InjectInGameControl = project.InjectInGameControl,
             NoticeTitle = project.NoticeTitle,
             PublishedWorkshopId = project.PublishedWorkshopId,
             Visibility = project.Visibility,

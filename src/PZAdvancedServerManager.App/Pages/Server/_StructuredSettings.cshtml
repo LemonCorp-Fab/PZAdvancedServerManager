@@ -1,0 +1,55 @@
+@model PZAdvancedServerManager.App.Pages.Server.StructuredSettingsEditorModel
+@using System.Globalization
+@using PZAdvancedServerManager.Core.Pz
+
+@if (Model.Settings.Count == 0)
+{
+    <div class="empty-state compact"><h3>Aucun réglage détecté</h3><p>@Model.EmptyMessage</p></div>
+}
+else
+{
+    <div class="settings-toolbar">
+        <label><span>Rechercher une option</span><input type="search" placeholder="@Model.SearchPlaceholder" data-settings-filter="@Model.CatalogId" /></label>
+        <div class="info-callout compact"><strong>Édition sans perte</strong><p>Les types et plages sont validés. Les clés inconnues, commentaires et options ajoutées par les mods restent conservés.</p></div>
+    </div>
+    <div id="@Model.CatalogId" class="structured-settings-catalog">
+        @{ var groupIndex = 0; }
+        @foreach (var group in Model.Settings.GroupBy(x => x.Category))
+        {
+            <details class="settings-group" data-settings-group open="@(groupIndex++ == 0 ? "open" : null)">
+                <summary><span><strong>@group.Key</strong><small>@group.Count() option(s)</small></span><span class="count-pill">@group.Count()</span></summary>
+                <div class="settings-grid">
+                @foreach (var setting in group)
+                {
+                    <label class="structured-setting @(setting.IsSecret ? "is-secret" : string.Empty)" data-setting-row data-setting-search="@($"{setting.Key} {setting.Description} {group.Key}".ToLowerInvariant())">
+                        <input type="hidden" name="settingKeys" value="@setting.Key" />
+                        <span class="setting-key">@setting.Key @if (setting.IsSecret) { <em>SECRET</em> }</span>
+                        @if (setting.Kind == StructuredSettingKind.Boolean)
+                        {
+                            <select name="settingValues"><option value="true" selected="@(setting.Value.Equals("true", StringComparison.OrdinalIgnoreCase))">Activé</option><option value="false" selected="@(setting.Value.Equals("false", StringComparison.OrdinalIgnoreCase))">Désactivé</option></select>
+                        }
+                        else if (setting.Options.Count > 1 && setting.Options.Any(x => x.Value == setting.Value))
+                        {
+                            <select name="settingValues">@foreach (var option in setting.Options) { <option value="@option.Value" selected="@(option.Value == setting.Value)">@option.Value — @option.Label</option> }</select>
+                        }
+                        else if (setting.Kind is StructuredSettingKind.Integer or StructuredSettingKind.Decimal)
+                        {
+                            <input name="settingValues" type="number" step="@(setting.Kind == StructuredSettingKind.Integer ? "1" : "any")" min="@(setting.Minimum?.ToString(CultureInfo.InvariantCulture))" max="@(setting.Maximum?.ToString(CultureInfo.InvariantCulture))" value="@setting.Value" />
+                        }
+                        else if (setting.Kind == StructuredSettingKind.LongText)
+                        {
+                            <textarea name="settingValues" rows="3" spellcheck="false">@setting.Value</textarea>
+                        }
+                        else
+                        {
+                            <input name="settingValues" type="@(setting.IsSecret ? "password" : "text")" value="@(setting.IsSecret ? string.Empty : setting.Value)" placeholder="@(setting.IsSecret && setting.Value.Length > 0 ? "Configuré — vide = conserver" : string.Empty)" autocomplete="@(setting.IsSecret ? "new-password" : null)" />
+                        }
+                        @if (!string.IsNullOrWhiteSpace(setting.Description)) { <small>@setting.Description</small> }
+                        @if (setting.Minimum is not null || setting.Maximum is not null) { <small class="setting-range">Plage : @(setting.Minimum?.ToString(CultureInfo.InvariantCulture) ?? "−∞") → @(setting.Maximum?.ToString(CultureInfo.InvariantCulture) ?? "+∞")</small> }
+                    </label>
+                }
+                </div>
+            </details>
+        }
+    </div>
+}

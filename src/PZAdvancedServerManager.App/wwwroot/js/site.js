@@ -285,35 +285,55 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
         previousFocus = null;
     };
 
-    document.addEventListener('submit', event => {
-        const form = event.target;
-        if (!(form instanceof HTMLFormElement) || !form.dataset.confirmTitle) return;
-        if (form.dataset.loadingCommitting === 'true') return;
-        if (form.dataset.confirmBypass === 'true') {
-            delete form.dataset.confirmBypass;
-            return;
-        }
-        if (event.defaultPrevented) return;
-        event.preventDefault();
+    const requestConfirmation = (form, submitter) => {
         previousFocus = document.activeElement;
-        pending = {
-            form,
-            submitter: event.submitter instanceof HTMLButtonElement ? event.submitter : null
-        };
+        pending = { form, submitter };
         title.textContent = form.dataset.confirmTitle;
-        message.textContent = form.dataset.confirmMessage || 'Vérifiez les conséquences avant de continuer.';
+        message.textContent = form.dataset.confirmMessage || 'Vérifiez attentivement les conséquences avant de continuer.';
         accept.textContent = form.dataset.confirmAction || 'Confirmer';
         card?.classList.toggle('is-danger', form.dataset.confirmTone === 'danger');
         card?.classList.toggle('is-publish', form.dataset.confirmTone === 'publish');
         overlay.hidden = false;
         document.body.classList.add('has-modal');
         requestAnimationFrame(() => accept?.focus());
+    };
+
+    document.addEventListener('click', event => {
+        if (!(event.target instanceof Element)) return;
+        const submitter = event.target.closest('button[type="submit"], input[type="submit"]');
+        const form = submitter?.form;
+        if (!(form instanceof HTMLFormElement) || !form.dataset.confirmTitle || form.dataset.confirmBypass === 'true') return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        requestConfirmation(form, submitter instanceof HTMLButtonElement ? submitter : null);
+    }, true);
+
+    document.addEventListener('submit', event => {
+        const form = event.target;
+        if (!(form instanceof HTMLFormElement) || !form.dataset.confirmTitle) return;
+        if (form.dataset.loadingCommitting === 'true') return;
+        if (form.dataset.confirmBypass === 'true') {
+            delete form.dataset.confirmBypass;
+            form.dataset.loadingConfirmed = 'true';
+            return;
+        }
+        if (event.defaultPrevented) return;
+        event.preventDefault();
+        requestConfirmation(form, event.submitter instanceof HTMLButtonElement ? event.submitter : null);
     });
 
     cancel?.addEventListener('click', close);
     accept?.addEventListener('click', () => {
         if (!pending) return;
         const { form, submitter } = pending;
+        let acknowledgement = form.querySelector('input[name="confirmationAcknowledged"]');
+        if (!(acknowledgement instanceof HTMLInputElement)) {
+            acknowledgement = document.createElement('input');
+            acknowledgement.type = 'hidden';
+            acknowledgement.name = 'confirmationAcknowledged';
+            form.append(acknowledgement);
+        }
+        acknowledgement.value = 'true';
         overlay.hidden = true;
         document.body.classList.remove('has-modal');
         pending = null;
@@ -876,6 +896,11 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
             return;
         }
         if (event.defaultPrevented) return;
+        if (form.dataset.confirmTitle && form.dataset.loadingConfirmed !== 'true') {
+            event.preventDefault();
+            return;
+        }
+        delete form.dataset.loadingConfirmed;
         const button = event.submitter instanceof HTMLButtonElement ? event.submitter : form.querySelector('button[type="submit"]');
         if (form.matches('[data-workshop-progress]')) {
             event.preventDefault();
@@ -926,6 +951,25 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
         const isError = message.classList.contains('error-message');
         message.setAttribute('role', isError ? 'alert' : 'status');
         message.setAttribute('aria-live', isError ? 'assertive' : 'polite');
+    });
+
+    document.querySelectorAll('[data-settings-filter]').forEach(input => {
+        const catalog = document.getElementById(input.dataset.settingsFilter || '');
+        if (!catalog) return;
+        input.addEventListener('input', () => {
+            const query = input.value.trim().toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            catalog.querySelectorAll('[data-settings-group]').forEach(group => {
+                let visible = 0;
+                group.querySelectorAll('[data-setting-row]').forEach(row => {
+                    const haystack = (row.dataset.settingSearch || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                    const matches = !query || haystack.includes(query);
+                    row.hidden = !matches;
+                    if (matches) visible++;
+                });
+                group.hidden = visible === 0;
+                if (query && visible > 0) group.open = true;
+            });
+        });
     });
 
     window.addEventListener('pageshow', resetLoading);

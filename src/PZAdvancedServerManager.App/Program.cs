@@ -4,16 +4,28 @@ using PZAdvancedServerManager.Core.Packaging;
 using PZAdvancedServerManager.Core.Publishing;
 using PZAdvancedServerManager.Core.Pz;
 using System.Diagnostics;
+using Microsoft.AspNetCore.Http.Features;
 
 var openBrowser = args.Contains("--open-browser", StringComparer.OrdinalIgnoreCase);
 var dataRootIndex = Array.FindIndex(args, x => x.Equals("--data-root", StringComparison.OrdinalIgnoreCase));
 var dataRoot = dataRootIndex >= 0 && dataRootIndex + 1 < args.Length ? args[dataRootIndex + 1] : null;
-var builder = WebApplication.CreateBuilder(args);
+var adjacentWebRoot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
+var sourceWebRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "wwwroot"));
+var resolvedWebRoot = Directory.Exists(adjacentWebRoot)
+    ? adjacentWebRoot
+    : Directory.Exists(sourceWebRoot) ? sourceWebRoot : null;
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    Args = args,
+    ContentRootPath = AppContext.BaseDirectory,
+    WebRootPath = resolvedWebRoot
+});
 if (string.IsNullOrWhiteSpace(builder.Configuration["urls"]))
     builder.WebHost.UseUrls("http://127.0.0.1:5160");
 
 // Add services to the container.
 builder.Services.AddRazorPages();
+builder.Services.Configure<FormOptions>(options => options.ValueCountLimit = 20000);
 builder.Services.AddSingleton(new ApplicationPaths(dataRoot));
 builder.Services.AddSingleton<PackageProjectStore>();
 builder.Services.AddSingleton<PzDiscoveryService>();
@@ -44,6 +56,7 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseRouting();
+app.UseStaticFiles();
 
 app.Use(async (context, next) =>
 {
@@ -55,9 +68,7 @@ app.Use(async (context, next) =>
 
 app.UseAuthorization();
 
-app.MapStaticAssets();
-app.MapRazorPages()
-   .WithStaticAssets();
+app.MapRazorPages();
 
 if (openBrowser)
 {

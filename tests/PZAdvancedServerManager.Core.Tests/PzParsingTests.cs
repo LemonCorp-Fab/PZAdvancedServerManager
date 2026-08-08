@@ -57,6 +57,61 @@ public sealed class PzParsingTests : IDisposable
         Assert.Contains("Serveur privé\r\nMods=pack;notice\r\n", System.Text.Encoding.Latin1.GetString(bytes));
     }
 
+    [Fact]
+    public void ServerConfigPersistsRconPasswordExactly()
+    {
+        var path = Write("rcon.ini", "RCONPort=27015\nRCONPassword=old-value\n");
+        var config = ServerConfigDocument.Load(path);
+        const string password = "Pzasm-RCON_42!exact";
+        config.Set("RCONPassword", password);
+        config.Save(path);
+
+        var persisted = ServerConfigDocument.Load(path);
+        Assert.Equal(password, persisted.Get("RCONPassword"));
+        Assert.Contains($"RCONPassword={password}", File.ReadAllText(path));
+    }
+
+    [Fact]
+    public void StructuredIniCatalogTypesRangesAndProtectsSecrets()
+    {
+        var content = "# Minimum=1 Maximum=100 Par défaut=32\nMaxPlayers=32\n# Mot de passe RCON\nRCONPassword=very-secret\nVoiceEnable=true\nUnknownFutureOption=value\n";
+        var settings = StructuredServerSettings.ParseIni(content);
+
+        var players = Assert.Single(settings, x => x.Key == "MaxPlayers");
+        Assert.Equal(StructuredSettingKind.Integer, players.Kind);
+        Assert.Equal(1, players.Minimum);
+        Assert.Equal(100, players.Maximum);
+        var password = Assert.Single(settings, x => x.Key == "RCONPassword");
+        Assert.True(password.IsSecret);
+        Assert.Equal("very-secret", StructuredServerSettings.ValidateAndFormat(password, string.Empty, password.Value));
+        Assert.Contains(settings, x => x.Key == "UnknownFutureOption");
+    }
+
+    [Fact]
+    public void SandboxEditorUpdatesNestedValuesWithoutFlatteningLua()
+    {
+        var path = Write("sandbox.lua", "SandboxVars = {\n    -- Minimum=0.00 Maximum=4.00\n    XpMultiplier = 1.0,\n    ZombieConfig = {\n        PopulationMultiplier = 1.0,\n    },\n    CustomMod = {\n        Enabled = true,\n        Label = \"original\",\n    },\n}\n");
+        var document = SandboxSettingsDocument.Load(path);
+        Assert.Contains(document.Settings, x => x.Key == "ZombieConfig.PopulationMultiplier");
+        Assert.Contains(document.Settings, x => x.Key == "CustomMod.Enabled");
+
+        document.Update(new Dictionary<string, string>
+        {
+            ["XpMultiplier"] = "2.5",
+            ["ZombieConfig.PopulationMultiplier"] = "3.0",
+            ["CustomMod.Enabled"] = "false",
+            ["CustomMod.Label"] = "updated"
+        });
+        document.Save(path);
+
+        var persisted = SandboxSettingsDocument.Load(path);
+        Assert.Equal("2.5", persisted.Get("XpMultiplier"));
+        Assert.Equal("3", persisted.Get("ZombieConfig.PopulationMultiplier"));
+        Assert.Equal("false", persisted.Get("CustomMod.Enabled"));
+        Assert.Equal("updated", persisted.Get("CustomMod.Label"));
+        Assert.Contains("ZombieConfig = {", File.ReadAllText(path));
+    }
+
     private string Write(string relative, string content)
     {
         var path = Path.Combine(_root, relative);

@@ -37,6 +37,7 @@ public sealed class PackageProject
     public PackageMode Mode { get; set; } = PackageMode.Bundle;
     public string TargetPzVersion { get; set; } = PzasmConstants.DefaultTargetVersion;
     public bool InjectConnectionNotice { get; set; } = true;
+    public bool InjectInGameControl { get; set; } = true;
     public string NoticeTitle { get; set; } = PzasmConstants.ProductName;
     public ulong PublishedWorkshopId { get; set; }
     public WorkshopVisibility Visibility { get; set; } = WorkshopVisibility.Unlisted;
@@ -57,6 +58,9 @@ public sealed class PackageProject
 
     [JsonIgnore]
     public string NoticeModId => $"PZASM_Notice_{StableSuffix}";
+
+    [JsonIgnore]
+    public string ControlModId => $"PZASM_Control_{StableSuffix}";
 
     [JsonIgnore]
     public string FusionModId => $"PZASM_Pack_{StableSuffix}";
@@ -154,6 +158,7 @@ public sealed class PackageBuildResult
     public required string BuildRoot { get; init; }
     public required string WorkshopContentRoot { get; init; }
     public required string WorkshopDescriptorPath { get; init; }
+    public required string WorkshopPreviewPath { get; init; }
     public required string SteamCmdVdfPath { get; init; }
     public required string LockFilePath { get; init; }
     public required string ServerConfigSnippetPath { get; init; }

@@ -155,6 +155,17 @@ label small { display: block; margin-top: 6px; color: var(--muted); font-weight:
 .mod-order-actions form { display: flex; }
 .mod-refresh-form { margin-right: auto; }
 .description-preview { max-height: 480px; padding: 20px; overflow: auto; white-space: pre-wrap; color: #c8d0c4; border: 1px solid var(--line); border-radius: 10px; background: #090c0a; font-size: .82rem; }
+.preview-editor-layout { display: grid; grid-template-columns: minmax(250px, 390px) minmax(0, 1fr); gap: 24px; align-items: start; }
+.preview-editor-frame { position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 16px; aspect-ratio: 1; background: #101611; box-shadow: 0 14px 35px rgba(0,0,0,.18); }
+.preview-editor-frame img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.preview-source-badge { position: absolute; left: 14px; bottom: 14px; padding: 7px 10px; border: 1px solid rgba(255,255,255,.2); border-radius: 999px; color: #fff; background: rgba(12,18,13,.82); backdrop-filter: blur(8px); font-size: .72rem; font-weight: 800; }
+.preview-placeholder { display: grid; height: 100%; place-content: center; justify-items: center; color: #edf4e8; background: radial-gradient(circle at 70% 25%, rgba(125,178,71,.4), transparent 33%), linear-gradient(145deg,#1b3a23,#0d1911); }
+.preview-placeholder span { display: grid; width: 70px; height: 70px; place-items: center; border-radius: 18px; color: #193017; background: #a6d75f; font-size: 1.6rem; font-weight: 950; }
+.preview-placeholder strong { margin-top: 22px; letter-spacing: .12em; }
+.preview-placeholder small { margin-top: 6px; color: #b8c5b4; }
+.preview-file-picker input[type="file"] { padding: 9px; }
+.secret-state { display: inline-flex; margin-left: 7px; padding: 3px 7px; border-radius: 999px; color: var(--green); background: var(--surface-2); font-size: .65rem; font-style: normal; font-weight: 900; letter-spacing: .06em; vertical-align: middle; }
+@media (max-width: 850px) { .preview-editor-layout { grid-template-columns: 1fr; } .preview-editor-frame { max-width: 420px; } }
 
 .workspace-hero { display: grid; grid-template-columns: minmax(0,1fr) auto; padding: 32px; margin-bottom: 20px; border: 1px solid #344331; border-radius: 20px; background: linear-gradient(125deg, #172018, #0e1310 70%); box-shadow: var(--shadow); }
 .workspace-title { min-width: 0; }
@@ -330,6 +341,8 @@ label small { display: block; margin-top: 6px; color: var(--muted); font-weight:
 .server-command-center .panel-heading p { margin: 7px 0 0; overflow-wrap: anywhere; font-size: .84rem; }
 .server-action-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; margin-top: 17px; }
 .server-action-grid form { min-width: 0; }
+.server-action-grid form:has(.maintenance-action) { order: 3; }
+.maintenance-action { border-color: color-mix(in srgb, var(--accent) 42%, var(--line)); background: color-mix(in srgb, var(--accent-soft) 58%, var(--surface)); }
 .server-action { display: flex; width: 100%; min-height: 78px; padding: 14px 17px; gap: 13px; align-items: center; color: var(--text); text-align: left; border: 1px solid #40523a; border-radius: 12px; background: #172017; cursor: pointer; }
 .server-action:disabled { opacity: .38; cursor: not-allowed; }
 .server-action-icon { display: grid; width: 37px; height: 37px; flex: 0 0 auto; place-items: center; color: #14200f; border-radius: 10px; background: var(--green); }
@@ -633,6 +646,35 @@ body.has-modal { overflow: hidden; }
   .loading-overlay.awaiting-mobile-approval .loading-progress-list { max-height: 125px; }
   .loading-interaction { gap: 8px; padding: 14px; }
 }
+
+.settings-toolbar { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(300px, .8fr); gap: 16px; margin: 20px 0; align-items: end; }
+.settings-toolbar label { margin: 0; }
+.structured-settings-catalog { display: grid; gap: 12px; margin-top: 18px; }
+.settings-group { overflow: clip; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-2); }
+.settings-group > summary { display: flex; padding: 16px 18px; align-items: center; justify-content: space-between; cursor: pointer; list-style: none; }
+.settings-group > summary::-webkit-details-marker { display: none; }
+.settings-group > summary > span:first-child { display: grid; gap: 2px; }
+.settings-group > summary strong { font-size: 1rem; }
+.settings-group > summary small { color: var(--muted); }
+.settings-group[open] > summary { border-bottom: 1px solid var(--line); background: var(--surface); }
+.settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 0; }
+.structured-setting { display: grid; min-width: 0; gap: 8px; margin: 0; padding: 17px 18px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); align-content: start; }
+.structured-setting:nth-child(2n) { border-right: 0; }
+.structured-setting[hidden], .settings-group[hidden] { display: none; }
+.structured-setting .setting-key { display: flex; min-width: 0; gap: 8px; align-items: center; color: var(--text); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .82rem; font-weight: 850; overflow-wrap: anywhere; }
+.structured-setting .setting-key em { padding: 3px 6px; border-radius: 999px; color: #8a5a00; background: #ffecbd; font-family: inherit; font-size: .62rem; font-style: normal; letter-spacing: .05em; }
+.structured-setting small { line-height: 1.45; }
+.structured-setting .setting-range { color: var(--green); font-weight: 750; }
+.structured-setting.is-secret { background: color-mix(in srgb, #ffecbd 18%, transparent); }
+.structured-settings-form .workspace-savebar { position: sticky; z-index: 5; bottom: 12px; margin-top: 20px; box-shadow: 0 12px 35px rgba(15,28,17,.16); }
+.lua-file-editors { display: grid; gap: 12px; margin-top: 18px; }
+.lua-file-editors details { overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-2); }
+.lua-file-editors summary { padding: 16px 18px; cursor: pointer; }
+.lua-file-editors summary span { display: grid; gap: 3px; }
+.lua-file-editors summary small { color: var(--muted); }
+.lua-file-editors details[open] summary { border-bottom: 1px solid var(--line); }
+.lua-file-editors .lua-editor { width: 100%; min-height: 280px; border: 0; border-radius: 0; box-sizing: border-box; }
+@media (max-width: 900px) { .settings-toolbar, .settings-grid { grid-template-columns: 1fr; } .structured-setting { border-right: 0; } }
 
 @media (max-width: 1000px) {
   .dashboard-grid, .server-layout { grid-template-columns: 1fr; }

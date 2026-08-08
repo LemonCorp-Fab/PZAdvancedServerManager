@@ -56,6 +56,7 @@ public static class SafeFileTree
     {
         if (!Directory.Exists(target)) return;
         var resolved = ResolveScopedDirectory(root, target);
+        ClearReadOnlyAttributes(resolved);
         Directory.Delete(resolved, true);
     }
 
@@ -65,26 +66,136 @@ public static class SafeFileTree
         var destinationPath = ResolveScopedDirectory(root, destination);
         if (!Directory.Exists(stagedPath)) throw new DirectoryNotFoundException($"Dossier préparé introuvable : {stagedPath}");
 
-        var previousPath = ResolveScopedDirectory(root, destinationPath + ".previous");
-        DeleteScopedDirectory(root, previousPath);
-        var previousMoved = false;
+        if (!Directory.Exists(destinationPath))
+        {
+            Directory.Move(stagedPath, destinationPath);
+            return;
+        }
+
+        // Keep the stable build directory in place because Explorer and file pickers can hold it open on Windows.
+        var previousPath = ResolveScopedDirectory(root, destinationPath + $".previous-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(previousPath);
+        var previousEntries = new List<(string Current, string Backup)>();
+        var stagedEntries = new List<(string Current, string Destination)>();
         try
         {
-            if (Directory.Exists(destinationPath))
+            foreach (var entry in Directory.EnumerateFileSystemEntries(destinationPath).ToArray())
             {
-                Directory.Move(destinationPath, previousPath);
-                previousMoved = true;
+                var backup = Path.Combine(previousPath, Path.GetFileName(entry));
+                MoveEntry(entry, backup);
+                previousEntries.Add((entry, backup));
             }
-            Directory.Move(stagedPath, destinationPath);
+
+            foreach (var entry in Directory.EnumerateFileSystemEntries(stagedPath).ToArray())
+            {
+                var destinationEntry = Path.Combine(destinationPath, Path.GetFileName(entry));
+                MoveEntry(entry, destinationEntry);
+                stagedEntries.Add((entry, destinationEntry));
+            }
+            Directory.Delete(stagedPath, false);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            RestoreMovedEntries(stagedPath, stagedEntries, previousEntries);
+            TryDeleteScopedDirectory(root, previousPath);
+            SynchronizeDirectory(stagedPath, destinationPath);
+            return;
         }
         catch
         {
-            if (!Directory.Exists(destinationPath) && previousMoved && Directory.Exists(previousPath))
-                Directory.Move(previousPath, destinationPath);
+            RestoreMovedEntries(stagedPath, stagedEntries, previousEntries);
+            TryDeleteScopedDirectory(root, previousPath);
             throw;
         }
 
-        DeleteScopedDirectory(root, previousPath);
+        TryDeleteScopedDirectory(root, previousPath);
+    }
+
+    private static void MoveEntry(string source, string destination)
+    {
+        if (Directory.Exists(source)) Directory.Move(source, destination);
+        else File.Move(source, destination);
+    }
+
+    private static void RestoreMovedEntries(
+        string stagedPath,
+        IEnumerable<(string Current, string Destination)> stagedEntries,
+        IEnumerable<(string Current, string Backup)> previousEntries)
+    {
+        Directory.CreateDirectory(stagedPath);
+        foreach (var entry in stagedEntries.Reverse())
+            if (File.Exists(entry.Destination) || Directory.Exists(entry.Destination)) MoveEntry(entry.Destination, entry.Current);
+        foreach (var entry in previousEntries.Reverse())
+            if (File.Exists(entry.Backup) || Directory.Exists(entry.Backup)) MoveEntry(entry.Backup, entry.Current);
+    }
+
+    private static void SynchronizeDirectory(string source, string destination)
+    {
+        Directory.CreateDirectory(destination);
+        var comparison = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+        var desiredFiles = new HashSet<string>(comparison);
+        var desiredDirectories = new HashSet<string>(comparison) { string.Empty };
+
+        foreach (var directory in Directory.EnumerateDirectories(source, "*", SearchOption.AllDirectories))
+        {
+            var relative = Path.GetRelativePath(source, directory);
+            desiredDirectories.Add(relative);
+            Directory.CreateDirectory(ResolveChild(destination, relative));
+        }
+
+        foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
+        {
+            var relative = Path.GetRelativePath(source, file);
+            desiredFiles.Add(relative);
+            var target = ResolveChild(destination, relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            if (File.Exists(target))
+            {
+                var attributes = File.GetAttributes(target);
+                if ((attributes & FileAttributes.ReadOnly) != 0)
+                    File.SetAttributes(target, attributes & ~FileAttributes.ReadOnly);
+            }
+            File.Copy(file, target, true);
+        }
+
+        foreach (var file in Directory.EnumerateFiles(destination, "*", SearchOption.AllDirectories).ToArray())
+        {
+            var relative = Path.GetRelativePath(destination, file);
+            if (desiredFiles.Contains(relative)) continue;
+            var attributes = File.GetAttributes(file);
+            if ((attributes & FileAttributes.ReadOnly) != 0)
+                File.SetAttributes(file, attributes & ~FileAttributes.ReadOnly);
+            File.Delete(file);
+        }
+
+        foreach (var directory in Directory.EnumerateDirectories(destination, "*", SearchOption.AllDirectories)
+                     .OrderByDescending(path => path.Length).ToArray())
+        {
+            var relative = Path.GetRelativePath(destination, directory);
+            if (desiredDirectories.Contains(relative)) continue;
+            try { Directory.Delete(directory, true); }
+            catch (IOException) when (!Directory.EnumerateFileSystemEntries(directory).Any()) { }
+            catch (UnauthorizedAccessException) when (!Directory.EnumerateFileSystemEntries(directory).Any()) { }
+        }
+
+        DeleteScopedDirectory(Path.GetDirectoryName(source)!, source);
+    }
+
+    private static void TryDeleteScopedDirectory(string root, string target)
+    {
+        try { DeleteScopedDirectory(root, target); }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
+
+    private static void ClearReadOnlyAttributes(string root)
+    {
+        foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+        {
+            var attributes = File.GetAttributes(file);
+            if ((attributes & FileAttributes.ReadOnly) != 0)
+                File.SetAttributes(file, attributes & ~FileAttributes.ReadOnly);
+        }
     }
 
     private static string ResolveChild(string root, string relative)

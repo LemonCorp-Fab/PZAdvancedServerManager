@@ -60,7 +60,7 @@
         <button type="button" role="tab" data-tab-target="expert">Expert</button>
     </nav>
 
-    <form method="post" asp-page-handler="Save" class="workspace-form" data-loading-title="Enregistrement du projet…" data-loading-detail="Mise à jour de la configuration, de l’ordre des cartes et des paramètres de publication.">
+    <form method="post" asp-page-handler="Save" enctype="multipart/form-data" class="workspace-form" data-loading-title="Enregistrement du projet…" data-loading-detail="Mise à jour de la configuration, de l’ordre des cartes, de la preview et des paramètres de publication.">
         <section class="workspace-panel" data-tab-panel="overview" role="tabpanel">
             <div class="panel-heading">
                 <div><span class="eyebrow">ESSENTIEL</span><h2>Identité et comportement du pack</h2><p>Les réglages les plus fréquents, sans exposer les détails techniques.</p></div>
@@ -86,6 +86,7 @@
                     <div class="setting-heading"><span class="step-number">03</span><div><h3>Fenêtre à la connexion</h3><p>Informe clairement les joueurs du contenu installé.</p></div></div>
                     <label class="switch-row"><input asp-for="Form.InjectConnectionNotice" /><span><strong>Afficher la fenêtre PZASM</strong><small>Votre description, l’avertissement de droits et la liste exhaustive des mods.</small></span></label>
                     <label><span>Titre affiché</span><input asp-for="Form.NoticeTitle" /></label>
+                    <label class="switch-row"><input asp-for="Form.InjectInGameControl" /><span><strong>Injecter PZASM Control</strong><small>Bouton PZ permanent et raccourci F8 : états réels, versions, Workshop/Mod IDs et outils réservés aux admins.</small></span></label>
                 </section>
 
                 <section class="setting-card wide legal-check">
@@ -176,13 +177,24 @@
                     </details>
                 </section>
 
-                <section class="setting-card wide">
+                <section class="setting-card wide workshop-preview-editor">
                     <div class="setting-heading"><span class="step-number">03</span><div><h3>Fiche Workshop</h3><p>Contrôlez l’identifiant, la visibilité, les tags et l’image.</p></div></div>
-                    <div class="form-grid two">
-                        <label><span>Workshop ID existant</span><input asp-for="Form.PublishedWorkshopId" /><small>0 crée un nouvel item; l’identifiant renvoyé sera conservé.</small></label>
-                        <label><span>Visibilité</span><select asp-for="Form.Visibility" asp-items="Html.GetEnumSelectList<WorkshopVisibility>()"></select></label>
-                        <label><span>Tags</span><input asp-for="Form.Tags" placeholder="Mod, Build 42" /></label>
-                        <label><span>Image personnalisée</span><input asp-for="Form.PreviewImagePath" placeholder="Chemin .png ou .jpg — aperçu généré si vide" /></label>
+                    <div class="preview-editor-layout">
+                        <div class="preview-editor-frame">
+                            @if (Model.PreviewAvailable) { <img src="?handler=Preview&id=@Model.Project.Id&v=@Model.Project.LastBuiltAt?.UtcTicks" alt="Preview Workshop actuelle" /> }
+                            else { <div class="preview-placeholder"><span>PZ</span><strong>GENERATED PACK</strong><small>Créée au prochain build</small></div> }
+                            <span class="preview-source-badge">@Model.PreviewSourceLabel</span>
+                        </div>
+                        <div class="form-grid">
+                            <div class="form-grid two">
+                                <label><span>Workshop ID existant</span><input asp-for="Form.PublishedWorkshopId" /><small>0 crée un nouvel item; l’identifiant renvoyé sera conservé.</small></label>
+                                <label><span>Visibilité</span><select asp-for="Form.Visibility" asp-items="Html.GetEnumSelectList<WorkshopVisibility>()"></select></label>
+                            </div>
+                            <label><span>Tags</span><input asp-for="Form.Tags" placeholder="Mod, Build 42" /></label>
+                            <label class="preview-file-picker"><span>Votre preview — facultative</span><input asp-for="PreviewUpload" type="file" accept=".png,.jpg,.jpeg,.gif,image/png,image/jpeg,image/gif" /><small>PNG, JPEG ou GIF valide, 1 Mio maximum. Sans image, le manager injecte automatiquement la preview de marque affichée ici.</small></label>
+                            @if (!string.IsNullOrWhiteSpace(Model.Project.PreviewImagePath)) { <label class="switch-row compact-switch"><input asp-for="Form.ClearPreviewImage" /><span><strong>Revenir à la preview générée</strong><small>L’image personnalisée ne sera plus utilisée au prochain build.</small></span></label> }
+                            <details class="expert-disclosure"><summary>Chemin d’image manuel</summary><label><span>Chemin local expert</span><input asp-for="Form.PreviewImagePath" placeholder="C:\…\preview.png" /><small>Le sélecteur de fichier ci-dessus est recommandé. Ce chemin reste disponible pour l’automatisation avancée.</small></label></details>
+                        </div>
                     </div>
                 </section>
 
@@ -227,7 +239,7 @@
                 </section>
                 <section class="setting-card">
                     <div class="setting-heading"><span class="step-number">02</span><div><h3>Identifiants stables</h3><p>Valeurs en lecture seule utilisées dans les builds.</p></div></div>
-                    <dl class="technical-values"><dt>Suffixe</dt><dd>@Model.Project.StableSuffix</dd><dt>Notice Mod ID</dt><dd>@Model.Project.NoticeModId</dd><dt>Fusion Mod ID</dt><dd>@Model.Project.FusionModId</dd></dl>
+                    <dl class="technical-values"><dt>Suffixe</dt><dd>@Model.Project.StableSuffix</dd><dt>Notice Mod ID</dt><dd>@Model.Project.NoticeModId</dd><dt>Control Mod ID</dt><dd>@Model.Project.ControlModId</dd><dt>Fusion Mod ID</dt><dd>@Model.Project.FusionModId</dd></dl>
                 </section>
                 <section class="setting-card wide">
                     <div class="warning-callout"><strong>Les snapshots restent la source du build</strong><p>Changer un chemin ici ne modifie jamais les sources Steam. Utilisez l’actualisation explicite pour remplacer les versions figées.</p></div>

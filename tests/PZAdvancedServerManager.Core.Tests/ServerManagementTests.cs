@@ -178,13 +178,13 @@ public sealed class ServerManagementTests : IDisposable
         Directory.CreateDirectory(dedicatedRoot);
         var script = Path.Combine(dedicatedRoot, "StartServer64.bat");
         var passwordFile = Path.Combine(dedicatedRoot, "admin-password.txt");
-        File.WriteAllText(script, "@echo off\r\necho Enter new administrator password:\r\nset /p ADMIN_PASSWORD=\r\n>\"%~dp0admin-password.txt\" echo %ADMIN_PASSWORD%\r\nping 127.0.0.1 -n 3 > NUL\r\npause\r\n");
+        File.WriteAllText(script, "@echo off\r\necho Enter new administrator password:\r\nset /p ADMIN_PASSWORD=\r\necho Confirm the password:\r\nset /p ADMIN_PASSWORD_CONFIRMATION=\r\n>\"%~dp0admin-password.txt\" echo %ADMIN_PASSWORD%\r\n>>\"%~dp0admin-password.txt\" echo %ADMIN_PASSWORD_CONFIRMATION%\r\nping 127.0.0.1 -n 3 > NUL\r\npause\r\n");
 
         var orchestration = new ServerOrchestrationService();
         orchestration.Start("new-world", dedicatedRoot, "transient-secret", TimeSpan.FromMilliseconds(750));
 
         Assert.True(SpinWait.SpinUntil(() => File.Exists(passwordFile), TimeSpan.FromSeconds(3)));
-        Assert.Equal("transient-secret", File.ReadAllText(passwordFile).Trim());
+        Assert.Equal(["transient-secret", "transient-secret"], File.ReadAllLines(passwordFile));
         Assert.True(SpinWait.SpinUntil(() => !orchestration.IsManagedProcessRunning("new-world"), TimeSpan.FromSeconds(4)));
     }
 

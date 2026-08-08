@@ -179,30 +179,49 @@ public sealed class ServerOrchestrationService
         var adminPrompt = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var passwordSubmissionError = new TaskCompletionSource<Exception?>(TaskCreationOptions.RunContinuationsAsynchronously);
         var pendingAdminPassword = initialAdminPassword;
+        var adminPasswordStage = 0;
+        var adminPasswordLock = new object();
         DataReceivedEventHandler outputHandler = (_, eventArgs) =>
         {
-            if (eventArgs.Data?.Contains("Enter new administrator password", StringComparison.OrdinalIgnoreCase) != true) return;
+            var line = eventArgs.Data;
+            var isInitialPrompt = line?.Contains("Enter new administrator password", StringComparison.OrdinalIgnoreCase) == true;
+            var isConfirmationPrompt = line?.Contains("Confirm the password", StringComparison.OrdinalIgnoreCase) == true;
+            if (!isInitialPrompt && !isConfirmationPrompt) return;
             adminPrompt.TrySetResult();
-            if (pendingAdminPassword is null)
+            lock (adminPasswordLock)
             {
-                try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
-                catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
+                if (pendingAdminPassword is null)
                 {
-                    passwordSubmissionError.TrySetResult(exception);
+                    if (adminPasswordStage < 2)
+                    {
+                        try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
+                        catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
+                        {
+                            passwordSubmissionError.TrySetResult(exception);
+                        }
+                    }
+                    return;
                 }
-                return;
-            }
-            try
-            {
-                process.StandardInput.WriteLine(pendingAdminPassword);
-                process.StandardInput.Flush();
-                pendingAdminPassword = null;
-                passwordSubmissionError.TrySetResult(null);
-            }
-            catch (Exception exception) when (exception is IOException or InvalidOperationException or ObjectDisposedException)
-            {
-                pendingAdminPassword = null;
-                passwordSubmissionError.TrySetResult(exception);
+
+                if ((isInitialPrompt && adminPasswordStage != 0) || (isConfirmationPrompt && adminPasswordStage != 1)) return;
+                try
+                {
+                    process.StandardInput.WriteLine(pendingAdminPassword);
+                    process.StandardInput.Flush();
+                    adminPasswordStage++;
+                    if (adminPasswordStage == 2)
+                    {
+                        pendingAdminPassword = null;
+                        passwordSubmissionError.TrySetResult(null);
+                    }
+                }
+                catch (Exception exception) when (exception is IOException or InvalidOperationException or ObjectDisposedException)
+                {
+                    pendingAdminPassword = null;
+                    passwordSubmissionError.TrySetResult(exception);
+                    try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
+                    catch (Exception) { }
+                }
             }
         };
         process.OutputDataReceived += outputHandler;

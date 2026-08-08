@@ -18,15 +18,36 @@
 <div class="server-layout">
     <aside class="panel server-sidebar">
         <div class="sidebar-heading"><span class="eyebrow">PROFILS DÉTECTÉS</span><span class="count-pill">@Model.Configs.Count</span></div>
-        <nav>
-            @foreach (var config in Model.Configs)
+        <nav class="server-profile-groups">
+            @if (Model.HostedConfigs.Any())
             {
-                <a class="@(Model.Selected?.Name == config.Name ? "active" : "")" asp-route-name="@config.Name"><span class="server-profile-line"><strong>@config.Name</strong><em class="connection-badge @(config.IsRemote ? "remote" : "local")">@(config.IsRemote ? "DISTANT" : "PROFIL LOCAL")</em></span><small>@config.Location</small></a>
+                <section><h3><span>H</span> Hosts locaux <small>@Model.HostedConfigs.Count()</small></h3>
+                @foreach (var config in Model.HostedConfigs)
+                {
+                    <a class="@(Model.Selected?.Name == config.Name ? "active" : "")" asp-route-name="@config.Name"><span class="server-profile-line"><strong>@config.Name</strong><em class="connection-badge hosted">HOST LOCAL</em></span><small>Profil du menu Host · @config.Location</small></a>
+                }</section>
+            }
+            @if (Model.DedicatedConfigs.Any())
+            {
+                <section><h3><span>D</span> Dédiés locaux <small>@Model.DedicatedConfigs.Count()</small></h3>
+                @foreach (var config in Model.DedicatedConfigs)
+                {
+                    <a class="@(Model.Selected?.Name == config.Name ? "active" : "")" asp-route-name="@config.Name"><span class="server-profile-line"><strong>@config.Name</strong><em class="connection-badge dedicated">DÉDIÉ LOCAL</em></span><small>AppID 380870 · @config.Location</small></a>
+                }</section>
+            }
+            @if (Model.RemoteConfigs.Any())
+            {
+                <section><h3><span>R</span> Serveurs distants <small>@Model.RemoteConfigs.Count()</small></h3>
+                @foreach (var config in Model.RemoteConfigs)
+                {
+                    <a class="@(Model.Selected?.Name == config.Name ? "active" : "")" asp-route-name="@config.Name"><span class="server-profile-line"><strong>@config.Name</strong><em class="connection-badge remote">DISTANT</em></span><small>@config.Location</small></a>
+                }</section>
             }
         </nav>
         <form method="post" asp-page-handler="Create" class="stack-form create-server-form" data-loading-title="Création du profil serveur…" data-loading-detail="Génération d’une configuration sûre avec les paramètres de base et RCON.">
             <label><span>Nouveau profil</span><input name="serverName" required placeholder="monserveur" /></label>
-            <button class="button secondary" type="submit">Créer en local</button>
+            <label><span>Mode d’exécution</span><select name="localMode"><option value="Dedicated">Serveur dédié local · AppID 380870</option><option value="Hosted">Host local · lancé depuis le jeu</option></select></label>
+            <button class="button secondary" type="submit">Créer le profil local</button>
         </form>
         <details class="remote-profile-creator">
             <summary>Ajouter un serveur distant</summary>
@@ -72,19 +93,31 @@
                  data-runtime-running="@Model.SelectedRuntime.IsRunning.ToString().ToLowerInvariant()"
                  data-runtime-rcon="@Model.SelectedRuntime.IsRconAuthenticated.ToString().ToLowerInvariant()">
             <div class="panel-heading">
-                <div><span class="eyebrow">@(Model.Selected.IsRemote ? "SERVEUR DISTANT" : "PROFIL SERVEUR LOCAL") · @Model.Selected.Name</span><h2>Centre de contrôle</h2><p>@Model.Selected.Location</p></div>
+                <div><span class="eyebrow">@(Model.Selected.IsRemote ? "SERVEUR DISTANT" : Model.Selected.IsHostedLocal ? "HOST LOCAL · CLIENT PROJECT ZOMBOID" : "SERVEUR DÉDIÉ LOCAL · APPID 380870") · @Model.Selected.Name</span><h2>Centre de contrôle</h2><p>@Model.Selected.Location</p></div>
                 <span class="server-status @Model.RuntimeStatusCss" data-runtime-status>@Model.RuntimeStatusText</span>
             </div>
+            @if (!Model.Selected.IsRemote)
+            {
+                <form method="post" asp-page-handler="SetLocalMode" asp-route-name="@Model.Selected.Name" class="local-profile-mode-form">
+                    <div><strong>Usage prévu de ce profil</strong><small>Le fichier INI reste compatible avec les deux moteurs ; ce choix détermine les commandes et le classement du manager.</small></div>
+                    <select name="localMode" aria-label="Mode d’exécution local"><option value="Hosted" selected="@Model.Selected.IsHostedLocal">Host local depuis le jeu</option><option value="Dedicated" selected="@Model.Selected.IsDedicatedLocal">Serveur dédié local · AppID 380870</option></select>
+                    <button class="button secondary" type="submit">Enregistrer le type</button>
+                </form>
+            }
             @if (Model.Selected.CanManageConfiguration) { <div class="summary-columns">
                 <div><strong>Workshop items</strong><span>@Model.WorkshopItems.Count</span><p>@string.Join(" · ", Model.WorkshopItems.Take(6))</p></div>
                 <div><strong>Mod IDs</strong><span>@Model.Mods.Count</span><p>@string.Join(" · ", Model.Mods.Take(6))</p></div>
                 <div><strong>Cartes</strong><span>@Model.Maps.Count</span><p>@string.Join(" · ", Model.Maps.Take(6))</p></div>
             </div> }
+            @if (Model.Selected.IsHostedLocal)
+            {
+                <div class="info-callout host-profile-guidance"><strong>Profil Host local</strong><p>Ce profil se lance depuis « Host » dans le client Project Zomboid. Le manager supervise la session <code>-coop</code> lorsqu’elle ouvre réellement les ports du jeu ; le simple fait que le client Steam soit démarré ne compte pas comme un serveur.</p></div>
+            }
             <div class="server-action-grid">
-                @if (!Model.Selected.IsRemote) { <form method="post" asp-page-handler="RepairDedicated" asp-route-name="@Model.Selected.Name" data-operation-progress data-loading-title="Mise à jour du serveur dédié…" data-loading-detail="SteamCMD vérifie les fichiers de l’AppID 380870 et rafraîchit les droits de téléchargement Workshop anonymes." data-loading-steps="Connexion Steam anonyme|Vérification des fichiers|Réparation de l’installation|Rafraîchissement des droits Workshop" data-confirm-title="Mettre à jour et réparer le serveur dédié ?" data-confirm-message="SteamCMD validera toute l’installation Project Zomboid Dedicated Server. Cette opération peut lire plusieurs gigaoctets et restaurer les fichiers d’installation officiels." data-confirm-action="Mettre à jour et réparer"><button class="server-action maintenance-action" type="submit" disabled="@Model.SelectedServerOnline"><span class="server-action-icon">↻</span><span><strong>Mettre à jour et réparer</strong><small>AppID 380870 · SteamCMD anonyme</small></span></button></form> }
+                @if (Model.Selected.IsDedicatedLocal) { <form method="post" asp-page-handler="RepairDedicated" asp-route-name="@Model.Selected.Name" data-operation-progress data-loading-title="Mise à jour du serveur dédié…" data-loading-detail="SteamCMD vérifie les fichiers de l’AppID 380870 et rafraîchit les droits de téléchargement Workshop anonymes." data-loading-steps="Connexion Steam anonyme|Vérification des fichiers|Réparation de l’installation|Rafraîchissement des droits Workshop" data-confirm-title="Mettre à jour et réparer le serveur dédié ?" data-confirm-message="SteamCMD validera toute l’installation Project Zomboid Dedicated Server. Cette opération peut lire plusieurs gigaoctets et restaurer les fichiers d’installation officiels." data-confirm-action="Mettre à jour et réparer"><button class="server-action maintenance-action" type="submit" disabled="@Model.SelectedServerOnline"><span class="server-action-icon">↻</span><span><strong>Mettre à jour et réparer</strong><small>AppID 380870 · SteamCMD anonyme</small></span></button></form> }
                 <form method="post" asp-page-handler="Start" asp-route-name="@Model.Selected.Name" class="server-start-form" autocomplete="off" data-loading-title="Démarrage du serveur Project Zomboid…" data-loading-detail="Vérification Workshop, lancement du serveur dédié et initialisation sécurisée du compte admin si nécessaire. La machine hôte ne sera jamais redémarrée.">
-                    <button class="server-action primary-action" type="submit" disabled="@(Model.SelectedServerOnline || !Model.SelectedServerCanStart)"><span class="server-action-icon">▶</span><span><strong>@(Model.Selected.IsRemote ? "Démarrer le serveur distant" : "Démarrer le serveur dédié")</strong><small>@(Model.Selected.IsRemote ? (Model.SelectedServerCanStart ? "Commande SSH configurée" : "Commande SSH à configurer") : "Installation Dedicated Server locale")</small></span></button>
-                    @if (!Model.Selected.IsRemote)
+                    <button class="server-action primary-action" type="submit" disabled="@(Model.SelectedServerOnline || !Model.SelectedServerCanStart)"><span class="server-action-icon">▶</span><span><strong>@(Model.Selected.IsRemote ? "Démarrer le serveur distant" : Model.Selected.IsHostedLocal ? "Lancement depuis le menu Host" : "Démarrer le serveur dédié")</strong><small>@(Model.Selected.IsRemote ? (Model.SelectedServerCanStart ? "Commande SSH configurée" : "Commande SSH à configurer") : Model.Selected.IsHostedLocal ? "Ouvrez Project Zomboid puis choisissez ce profil" : "Installation Dedicated Server locale · AppID 380870")</small></span></button>
+                    @if (Model.Selected.IsDedicatedLocal)
                     {
                         @if (Model.AdminAccountStatus.IsConfigured)
                         {
@@ -129,6 +162,10 @@
                 <div class="warning-callout runtime-instance-warning @(Model.SelectedRuntime.Instances.Count > 1 ? "" : "is-hidden")" data-runtime-instance-warning>
                     <strong>Plusieurs serveurs utilisent le profil @Model.Selected.Name</strong>
                     <p>Une session hébergée et un serveur dédié sont deux processus distincts. Avec le même INI, ils tentent généralement d’utiliser les mêmes ports; conservez une seule instance active par profil.</p>
+                </div>
+                <div class="info-callout runtime-helper-note @(Model.SelectedRuntime.InactiveHostedHelperCount > 0 ? "" : "is-hidden")" data-runtime-helper-note>
+                    <strong>Client Project Zomboid détecté sans session Host active</strong>
+                    <p><span data-runtime-helper-count>@Model.SelectedRuntime.InactiveHostedHelperCount</span> composant(s) coop auxiliaire(s) ont été ignorés : aucun serveur prêt ni démarrage valide n’a été confirmé. Le jeu peut rester ouvert normalement sans créer de faux conflit.</p>
                 </div>
                 <div class="warning-callout runtime-rcon-warning @(Model.SelectedRuntime.RconBindFailed ? "" : "is-hidden")" data-runtime-rcon-warning>
                     <strong>Le serveur dédié fonctionne, mais le port RCON est occupé</strong>

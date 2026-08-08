@@ -130,7 +130,7 @@ public sealed class ServerManagementTests : IDisposable
         var paths = new ApplicationPaths(_root);
         var environment = new PzEnvironmentService(new PzDiscoveryService(paths));
         var store = new RemoteServerConnectionStore(paths);
-        var service = new ServerProfileService(paths, environment, new ServerOrchestrationService(), store, new SshRemoteServerService());
+        var service = new ServerProfileService(paths, environment, new ServerOrchestrationService(), store, new LocalServerProfileStore(paths), new SshRemoteServerService());
         var profileName = $"rcon-{Guid.NewGuid():N}";
 
         var created = await service.CreateRemoteAsync(new RemoteServerConnection
@@ -146,6 +146,20 @@ public sealed class ServerManagementTests : IDisposable
         Assert.False(created.CanManageConfiguration);
         Assert.False(service.CanStart(created.Name));
         Assert.True(service.CanCoordinateRestart(created.Name));
+    }
+
+    [Fact]
+    public void LocalProfileModeIsPersistedIndependentlyFromTheSharedIni()
+    {
+        var paths = new ApplicationPaths(_root);
+        var store = new LocalServerProfileStore(paths);
+
+        store.Save("host-one", LocalServerMode.Hosted);
+        store.Save("dedicated-one", LocalServerMode.Dedicated);
+
+        var reopened = new LocalServerProfileStore(new ApplicationPaths(_root));
+        Assert.Equal(LocalServerMode.Hosted, reopened.Get("HOST-ONE"));
+        Assert.Equal(LocalServerMode.Dedicated, reopened.Get("dedicated-one"));
     }
 
     [Theory]
@@ -171,6 +185,44 @@ public sealed class ServerManagementTests : IDisposable
     public void ServerRuntimeOriginDistinguishesDedicatedAndHostedSessions(string commandLine, ServerRuntimeOrigin expected)
     {
         Assert.Equal(expected, ServerOrchestrationService.ParseRuntimeOriginFromCommandLine(commandLine));
+    }
+
+    [Fact]
+    public void HostedHelperWithFailedStartupIsNotAnActiveServer()
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        Assert.False(ServerOrchestrationService.IsHostedSessionActive(
+            now.AddSeconds(-20),
+            now.AddSeconds(-1),
+            gameReady: false,
+            startupFailed: true,
+            now));
+    }
+
+    [Fact]
+    public void HostedSessionRequiresReadyStateOrRecentStartupProgress()
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        Assert.True(ServerOrchestrationService.IsHostedSessionActive(
+            now.AddMinutes(-10),
+            now.AddMinutes(-8),
+            gameReady: true,
+            startupFailed: false,
+            now));
+        Assert.True(ServerOrchestrationService.IsHostedSessionActive(
+            now.AddSeconds(-45),
+            now.AddSeconds(-2),
+            gameReady: false,
+            startupFailed: false,
+            now));
+        Assert.False(ServerOrchestrationService.IsHostedSessionActive(
+            now.AddMinutes(-10),
+            now.AddSeconds(-2),
+            gameReady: false,
+            startupFailed: false,
+            now));
     }
 
     [Theory]

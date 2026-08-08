@@ -65,4 +65,5 @@ public sealed record ServerRuntimeSnapshot(
 {
     public ServerRuntimeOrigin Origin { get; init; } = ServerRuntimeOrigin.Unknown;
     public IReadOnlyList<ServerRuntimeInstance> Instances { get; init; } = [];
+    public int InactiveHostedHelperCount { get; init; }
 }

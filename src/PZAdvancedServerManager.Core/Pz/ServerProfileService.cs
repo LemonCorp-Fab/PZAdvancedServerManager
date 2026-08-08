@@ -9,6 +9,7 @@ public sealed class ServerProfileService(
     PzEnvironmentService environment,
     ServerOrchestrationService orchestration,
     RemoteServerConnectionStore remoteStore,
+    LocalServerProfileStore localStore,
     SshRemoteServerService ssh)
 {
     public PzInstallation Installation => environment.Installation;
@@ -18,7 +19,7 @@ public sealed class ServerProfileService(
         var entries = new List<ServerConfigEntry>();
         if (Directory.Exists(ServerRoot))
             entries.AddRange(Directory.EnumerateFiles(ServerRoot, "*.ini").OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
-                .Select(x => new ServerConfigEntry(Path.GetFileNameWithoutExtension(x), x, ServerConnectionKind.Local, null)));
+                .Select(x => LocalEntry(Path.GetFileNameWithoutExtension(x), x)));
         entries.AddRange(remoteStore.GetAll().Select(remote => new ServerConfigEntry(remote.Name, remote.RemoteIniPath, ServerConnectionKind.Remote, remote)));
         return entries.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ThenBy(x => x.Kind).ToList();
     }
@@ -30,10 +31,10 @@ public sealed class ServerProfileService(
         if (remote is not null) return new ServerConfigEntry(remote.Name, remote.RemoteIniPath, ServerConnectionKind.Remote, remote);
         var path = Path.Combine(ServerRoot, validated + ".ini");
         if (!File.Exists(path)) throw new FileNotFoundException("Profil serveur introuvable.", path);
-        return new ServerConfigEntry(validated, path, ServerConnectionKind.Local, null);
+        return LocalEntry(validated, path);
     }
 
-    public ServerConfigEntry Create(string name)
+    public ServerConfigEntry Create(string name, LocalServerMode mode = LocalServerMode.Dedicated)
     {
         var validated = ValidateName(name);
         if (remoteStore.Get(validated) is not null) throw new IOException("Un profil distant utilise déjà ce nom.");
@@ -41,7 +42,15 @@ public sealed class ServerProfileService(
         var path = Path.Combine(ServerRoot, validated + ".ini");
         if (File.Exists(path)) throw new IOException("Ce profil serveur existe déjà.");
         File.WriteAllText(path, Template(validated).Replace("\n", Environment.NewLine), new UTF8Encoding(false));
-        return new ServerConfigEntry(validated, path, ServerConnectionKind.Local, null);
+        localStore.Save(validated, mode);
+        return LocalEntry(validated, path);
+    }
+
+    public void SetLocalMode(string name, LocalServerMode mode)
+    {
+        var profile = Get(name);
+        if (profile.IsRemote) throw new InvalidOperationException("Le type d'exécution local ne s'applique pas aux serveurs distants.");
+        localStore.Save(profile.Name, mode);
     }
 
     public async Task<ServerConfigEntry> CreateRemoteAsync(RemoteServerConnection connection, bool createConfigIfMissing, CancellationToken cancellationToken = default)
@@ -176,7 +185,7 @@ public sealed class ServerProfileService(
     {
         var profile = Get(name);
         if (!profile.IsRemote)
-            return orchestration.IsLocalServerProcessRunning(profile.Name) || await orchestration.IsOnlineAsync(profile.Path, cancellationToken);
+            return (await ReadRuntimeAsync(profile.Name, cancellationToken)).IsRunning;
         var remote = profile.Remote!;
         return await orchestration.IsOnlineAsync(RconHost(remote), remote.RconPort, remote.RconPassword, cancellationToken);
     }
@@ -252,7 +261,8 @@ public sealed class ServerProfileService(
     {
         var profile = Get(name);
         if (!profile.IsRemote)
-            return orchestration.IsLocalServerProcessRunning(profile.Name) || await orchestration.IsRconServiceAsync(profile.Path, cancellationToken);
+            return (await ReadRuntimeAsync(profile.Name, cancellationToken)).IsRunning
+                || await orchestration.IsRconServiceAsync(profile.Path, cancellationToken);
         var remote = profile.Remote!;
         return await orchestration.IsRconServiceAsync(RconHost(remote), remote.RconPort, remote.RconPassword, cancellationToken);
     }
@@ -285,6 +295,11 @@ public sealed class ServerProfileService(
         }
         var dedicatedRoot = environment.Installation.DedicatedServerRoot
             ?? throw new DirectoryNotFoundException("Installation Project Zomboid Dedicated Server introuvable.");
+        if (profile.LocalMode != LocalServerMode.Dedicated)
+            throw new InvalidOperationException("Ce profil est configuré comme Host local. Lancez-le depuis le menu Host de Project Zomboid ou changez son mode en serveur dédié local.");
+        var runtime = await ReadRuntimeAsync(profile.Name, cancellationToken);
+        if (runtime.IsRunning)
+            throw new InvalidOperationException($"Un serveur Project Zomboid actif utilise déjà le profil « {profile.Name} ».");
         orchestration.Start(profile.Name, dedicatedRoot, initialAdminPassword);
     }
 
@@ -458,6 +473,15 @@ public sealed class ServerProfileService(
     private static string NormalizeText(string value) => value.Replace("\r\n", "\n", StringComparison.Ordinal);
 
     private string ServerRoot => Path.Combine(environment.Installation.UserZomboidRoot, "Server");
+    private ServerConfigEntry LocalEntry(string name, string path)
+    {
+        var storedMode = localStore.Get(name);
+        var mode = storedMode
+            ?? (orchestration.HasLocalDedicatedProcess(name) ? LocalServerMode.Dedicated : LocalServerMode.Hosted);
+        if (mode == LocalServerMode.Dedicated && storedMode is null) localStore.Save(name, mode);
+        return new ServerConfigEntry(name, path, ServerConnectionKind.Local, null, mode);
+    }
+
     private static string SandboxPath(ServerConfigEntry profile) => LuaFilePath(profile, ServerLuaFileKind.SandboxVars);
 
     private static string LuaFilePath(ServerConfigEntry profile, ServerLuaFileKind kind)
@@ -578,9 +602,22 @@ public sealed class ServerProfileService(
     }
 }
 
-public sealed record ServerConfigEntry(string Name, string Path, ServerConnectionKind Kind, RemoteServerConnection? Remote)
+public enum LocalServerMode
+{
+    Hosted,
+    Dedicated
+}
+
+public sealed record ServerConfigEntry(
+    string Name,
+    string Path,
+    ServerConnectionKind Kind,
+    RemoteServerConnection? Remote,
+    LocalServerMode LocalMode = LocalServerMode.Hosted)
 {
     public bool IsRemote => Kind == ServerConnectionKind.Remote;
+    public bool IsHostedLocal => !IsRemote && LocalMode == LocalServerMode.Hosted;
+    public bool IsDedicatedLocal => !IsRemote && LocalMode == LocalServerMode.Dedicated;
     public bool CanManageConfiguration => !IsRemote || Remote!.HasSshManagement;
     public string Location => IsRemote
         ? $"RCON {(string.IsNullOrWhiteSpace(Remote!.RconHost) ? Remote.Host : Remote.RconHost)}:{Remote.RconPort}" + (Remote.HasSshConnection ? $" · SSH {Remote.SshUser}@{Remote.Host}" : string.Empty)

@@ -217,6 +217,7 @@ internal sealed class PzasmCli
             {
                 profile.Name,
                 profile.Kind,
+                profile.LocalMode,
                 profile.Location,
                 SshHost = profile.Remote?.Host,
                 profile.Remote?.SshPort,
@@ -225,15 +226,16 @@ internal sealed class PzasmCli
                 RconHost = profile.Remote?.RconHost,
                 profile.Remote?.RconPort
             }));
-            else foreach (var profile in configs) Console.WriteLine($"{profile.Name,-30} {profile.Kind,-8} {profile.Location}");
+            else foreach (var profile in configs) Console.WriteLine($"{profile.Name,-30} {(profile.IsRemote ? "Remote" : profile.LocalMode),-10} {profile.Location}");
             return 0;
         }
 
         var name = args.Require("name");
         if (action == "create")
         {
-            var profile = services.Servers.Create(name);
-            Console.WriteLine($"Profil créé : {profile.Path}");
+            var mode = Enum.Parse<LocalServerMode>(args.Get("local-mode") ?? "Dedicated", true);
+            var profile = services.Servers.Create(name, mode);
+            Console.WriteLine($"Profil {profile.LocalMode} créé : {profile.Path}");
             return 0;
         }
         if (action is "create-remote" or "configure-remote")
@@ -276,6 +278,11 @@ internal sealed class PzasmCli
         }
         switch (action)
         {
+            case "set-local-mode":
+                var localMode = Enum.Parse<LocalServerMode>(args.Require("local-mode"), true);
+                services.Servers.SetLocalMode(name, localMode);
+                Console.WriteLine($"{name} est maintenant classé comme {localMode} local.");
+                return 0;
             case "show":
                 Console.WriteLine(services.Servers.ReadRaw(name));
                 return 0;
@@ -676,7 +683,8 @@ Chaque projet représente un pack global indépendant avec son propre Workshop I
   pzasm project build --id <guid>
   pzasm project publish --id <guid> --yes
   pzasm server list [--json]
-  pzasm server create --name <profil>
+  pzasm server create --name <profil> [--local-mode dedicated|hosted]
+  pzasm server set-local-mode --name <profil> --local-mode dedicated|hosted
   pzasm server create-remote --name <profil> --rcon-host <host> --rcon-password <secret> [--rcon-port 27015] [--no-auto-restart] [--ssh-host <host> --ssh-user <user>] [--ini <path>] [--ssh-port 22] [--ssh-key <file>] [--start-command <command>] [--create-config]
   pzasm server configure-remote --name <profil> [--rcon-host <host>] [--rcon-password <secret>] [--rcon-port 27015] [--auto-restart|--no-auto-restart] [--ssh-host <host> --ssh-user <user>] [--ini <path>] [--ssh-port 22] [--ssh-key <file>] [--start-command <command>]
   pzasm server delete-remote --name <profil> --yes
@@ -748,8 +756,9 @@ internal sealed class CliServices
         Projects = new PackageProjectService(paths, Store, snapshots);
         var orchestration = new ServerOrchestrationService();
         var remoteStore = new RemoteServerConnectionStore(paths);
+        var localStore = new LocalServerProfileStore(paths);
         var ssh = new SshRemoteServerService();
-        Servers = new ServerProfileService(paths, Environment, orchestration, remoteStore, ssh);
+        Servers = new ServerProfileService(paths, Environment, orchestration, remoteStore, localStore, ssh);
         WorldData = new ServerWorldDataStore(paths);
         var builder = new PackageBuildService(paths, Validator);
         SteamCmd = new SteamCmdService(Validator);

@@ -48,6 +48,8 @@ document.querySelectorAll('details.mod-card').forEach(card => {
     const output = root.querySelector('[data-runtime-output]');
     const warning = root.querySelector('[data-runtime-rcon-warning]');
     const instanceWarning = root.querySelector('[data-runtime-instance-warning]');
+    const helperNote = root.querySelector('[data-runtime-helper-note]');
+    const helperCount = root.querySelector('[data-runtime-helper-count]');
     const instances = root.querySelector('[data-runtime-instances]');
     const logSummary = root.querySelector('[data-runtime-log-summary]');
     const logSearch = root.querySelector('[data-runtime-log-search]');
@@ -191,6 +193,12 @@ document.querySelectorAll('details.mod-card').forEach(card => {
             const multiple = Array.isArray(data.instances) && data.instances.length > 1;
             instanceWarning.hidden = !multiple;
             instanceWarning.classList.toggle('is-hidden', !multiple);
+        }
+        if (helperNote) {
+            const count = Number(data.inactiveHostedHelperCount || 0);
+            helperNote.hidden = count === 0;
+            helperNote.classList.toggle('is-hidden', count === 0);
+            if (helperCount) helperCount.textContent = String(count);
         }
         renderInstances(data.instances);
         rconPort?.classList.toggle('port-conflict', Boolean(data.rconBindFailed));

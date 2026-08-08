@@ -20,6 +20,9 @@ public class IndexModel(
     RconConsoleStore rconConsole) : PageModel
 {
     public IReadOnlyList<ServerConfigEntry> Configs { get; private set; } = [];
+    public IEnumerable<ServerConfigEntry> HostedConfigs => Configs.Where(config => config.IsHostedLocal);
+    public IEnumerable<ServerConfigEntry> DedicatedConfigs => Configs.Where(config => config.IsDedicatedLocal);
+    public IEnumerable<ServerConfigEntry> RemoteConfigs => Configs.Where(config => config.IsRemote);
     public ServerConfigEntry? Selected { get; private set; }
     public ServerConfigSummary Summary { get; private set; } = new([], [], []);
     public IReadOnlyList<PackageProject> Projects { get; private set; } = [];
@@ -34,7 +37,9 @@ public class IndexModel(
     public InitialAdminAccountStatus AdminAccountStatus { get; private set; } = new(InitialAdminAccountState.Unknown, "État non vérifié.");
     public IReadOnlyList<ServerWorldBackupInfo> WorldBackups { get; private set; } = [];
     public string WorldDataError { get; private set; } = string.Empty;
-    public bool SelectedServerCanStart => Selected is not null && (!Selected.IsRemote || Selected.Remote!.HasSshConnection && !string.IsNullOrWhiteSpace(Selected.Remote.StartCommand));
+    public bool SelectedServerCanStart => Selected is not null
+        && (Selected.IsDedicatedLocal
+            || Selected.IsRemote && Selected.Remote!.HasSshConnection && !string.IsNullOrWhiteSpace(Selected.Remote.StartCommand));
     public bool InitialAdminPasswordRequired => Selected is { IsRemote: false } && AdminAccountStatus.IsRequired;
     public string ConnectionError { get; private set; } = string.Empty;
     public string SandboxError { get; private set; } = string.Empty;
@@ -144,6 +149,7 @@ public class IndexModel(
                 runtime.RconBindFailed,
                 runtime.IsManagedByCurrentSession,
                 runtime.ProcessId,
+                runtime.InactiveHostedHelperCount,
                 origin = runtime.Origin.ToString(),
                 instances = runtime.Instances.Select(instance => new
                 {
@@ -267,11 +273,11 @@ public class IndexModel(
         return RedirectToPage(new { name, tab = "lua-files" });
     }
 
-    public IActionResult OnPostCreate(string serverName)
+    public IActionResult OnPostCreate(string serverName, LocalServerMode localMode = LocalServerMode.Dedicated)
     {
         try
         {
-            var profile = servers.Create(serverName);
+            var profile = servers.Create(serverName, localMode);
             return RedirectToPage(new { name = profile.Name });
         }
         catch (Exception exception)
@@ -279,6 +285,19 @@ public class IndexModel(
             TempData["Error"] = exception.Message;
             return RedirectToPage();
         }
+    }
+
+    public IActionResult OnPostSetLocalMode(string name, LocalServerMode localMode)
+    {
+        try
+        {
+            servers.SetLocalMode(name, localMode);
+            TempData["Message"] = localMode == LocalServerMode.Dedicated
+                ? $"« {name} » est maintenant géré comme serveur dédié local (AppID 380870)."
+                : $"« {name} » est maintenant géré comme profil Host local du jeu.";
+        }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
+        return RedirectToPage(new { name });
     }
 
     public async Task<IActionResult> OnPostCreateRemoteAsync(bool createConfigIfMissing, CancellationToken cancellationToken)

@@ -78,4 +78,6 @@ SteamCMD 会打开独立的 Steam 会话，因此自动化应使用拥有 Projec
 
 配置可以指向本地 INI 文件，也可以连接远程 VPS/独立服务器。远程配置可以仅使用 RCON；SSH 与远程 INI 管理均为可选。状态检查会执行真实的 RCON 身份验证，控制台可发送游戏支持的管理命令，正常停止依次使用 `save` 和 `quit`。
 
+本地配置具有明确的运行模式。**本地主机（Host）**配置从游戏客户端的 Host 菜单启动，使用 `zombie.network.GameServer -coop` 进程和 `coop-console.txt`；**本地独立服务器（Dedicated）**配置通过单独的 Steam 工具 Project Zomboid Dedicated Server（AppID 380870）启动，并使用 `server-console.txt`。两种模式会有意共享原生的 `Zomboid/Server/<名称>.ini` 文件，管理器仅单独保存所选用途。仅存在 `-coop` 辅助进程并不代表 Host 服务器在线：必须检测到有效的近期启动进度或就绪标记；之后出现启动失败时会将其忽略，避免误报冲突。
+
 如果 systemd、Docker、托管面板或其他监督程序会在 `quit` 后重启 Project Zomboid，仅 RCON 的配置也能协调发布：Workshop 上传先完成，随后管理器发送 `save` 和 `quit`。SSH 只用于可选的 INI 管理或显式的游戏启动命令。管理器会拒绝主机级别的 `reboot`、`shutdown` 和 `poweroff` 命令。为支持无人值守操作，RCON 密钥保存在管理器本地配置数据中，因此必须妥善保护该目录。

@@ -318,7 +318,11 @@ public sealed class ServerOrchestrationService
     }
 
     public bool IsLocalServerProcessRunning(string serverName)
-        => IsManagedProcessRunning(serverName) || FindLocalServerProcess(serverName) is not null;
+        => IsManagedProcessRunning(serverName)
+            || FindLocalServerProcesses(serverName).Any(process => process.Origin == ServerRuntimeOrigin.LocalDedicated);
+
+    public bool HasLocalDedicatedProcess(string serverName)
+        => FindLocalServerProcesses(serverName).Any(process => process.Origin == ServerRuntimeOrigin.LocalDedicated);
 
     public async Task<ServerRuntimeSnapshot> InspectLocalRuntimeAsync(
         string serverName,
@@ -335,8 +339,30 @@ public sealed class ServerOrchestrationService
         CancellationToken cancellationToken = default)
     {
         var managedRunning = IsManagedProcessRunning(serverName);
-        var instances = FindLocalServerProcesses(serverName);
-        var orderedInstances = instances
+        var discoveredInstances = FindLocalServerProcesses(serverName);
+        var dedicatedInstances = discoveredInstances
+            .Where(instance => instance.Origin != ServerRuntimeOrigin.LocalHostedSession)
+            .ToArray();
+        var hostedCandidates = discoveredInstances
+            .Where(instance => instance.Origin == ServerRuntimeOrigin.LocalHostedSession)
+            .OrderByDescending(instance => instance.StartedAt)
+            .ToArray();
+        var hostedCandidate = hostedCandidates.FirstOrDefault();
+        var hostedLog = hostedCandidate is not null && !string.IsNullOrWhiteSpace(coopConsolePath)
+            ? ReadServerConsoleTail(coopConsolePath, hostedCandidate.StartedAt, 240)
+            : RuntimeLogReadResult.Empty;
+        var hostedActive = hostedCandidate is not null
+            && IsHostedSessionActive(
+                hostedCandidate.StartedAt,
+                hostedLog.LastOutputAt,
+                hostedLog.GameReady,
+                hostedLog.StartupFailed,
+                DateTimeOffset.UtcNow);
+        var activeInstances = hostedActive
+            ? dedicatedInstances.Append(hostedCandidate!).ToArray()
+            : dedicatedInstances;
+        var inactiveHostedHelperCount = hostedCandidates.Length - (hostedActive ? 1 : 0);
+        var orderedInstances = activeInstances
             .OrderBy(instance => instance.Origin == ServerRuntimeOrigin.LocalDedicated ? 0 : 1)
             .ThenByDescending(instance => instance.StartedAt)
             .ToArray();
@@ -363,11 +389,9 @@ public sealed class ServerOrchestrationService
         }
         else
         {
-            var selectedLogPath = primary?.Origin == ServerRuntimeOrigin.LocalHostedSession
-                && !string.IsNullOrWhiteSpace(coopConsolePath)
-                ? coopConsolePath
-                : serverConsolePath;
-            var logRead = ReadServerConsoleTail(selectedLogPath, startedAt, 240);
+            var logRead = primary?.Origin == ServerRuntimeOrigin.LocalHostedSession
+                ? hostedLog
+                : ReadServerConsoleTail(serverConsolePath, startedAt, 240);
             output = logRead.Lines;
             lastOutputAt = logRead.LastOutputAt;
             logConfirmsGameReady = logRead.GameReady;
@@ -413,8 +437,28 @@ public sealed class ServerOrchestrationService
             output)
         {
             Origin = primary?.Origin ?? ServerRuntimeOrigin.Unknown,
-            Instances = orderedInstances.Select(instance => (ServerRuntimeInstance)instance).ToArray()
+            Instances = orderedInstances.Select(instance => (ServerRuntimeInstance)instance).ToArray(),
+            InactiveHostedHelperCount = inactiveHostedHelperCount
         };
+    }
+
+    public static bool IsHostedSessionActive(
+        DateTimeOffset? processStartedAt,
+        DateTimeOffset? lastOutputAt,
+        bool gameReady,
+        bool startupFailed,
+        DateTimeOffset now)
+    {
+        if (startupFailed) return false;
+        if (gameReady) return true;
+        if (processStartedAt is not { } started || lastOutputAt is not { } lastOutput) return false;
+        var age = now - started;
+        var outputAge = now - lastOutput;
+        return age >= TimeSpan.Zero
+            && age <= TimeSpan.FromMinutes(3)
+            && lastOutput >= started.AddSeconds(-5)
+            && outputAge >= TimeSpan.Zero
+            && outputAge <= TimeSpan.FromSeconds(90);
     }
 
     public static string? ParseServerNameFromCommandLine(string? commandLine)
@@ -433,9 +477,6 @@ public sealed class ServerOrchestrationService
                 : match.Groups["bare"].Value;
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
-
-    private static LocalServerProcess? FindLocalServerProcess(string serverName)
-        => FindLocalServerProcesses(serverName).FirstOrDefault();
 
     private static IReadOnlyList<LocalServerProcess> FindLocalServerProcesses(string serverName)
         => EnumerateLocalServerProcesses()
@@ -571,12 +612,12 @@ public sealed class ServerOrchestrationService
         DateTimeOffset? processStartedAt,
         int capacity)
     {
-        if (!File.Exists(path)) return new([], null, false, false);
+        if (!File.Exists(path)) return RuntimeLogReadResult.Empty;
         try
         {
             var lastWrite = File.GetLastWriteTimeUtc(path);
             if (processStartedAt is { } started && lastWrite < started.UtcDateTime.AddSeconds(-5))
-                return new([], lastWrite, false, false);
+                return new([], lastWrite, false, false, false);
             var length = new FileInfo(path).Length;
             if (_serverConsoleCache.TryGetValue(path, out var cached)
                 && cached.Length == length
@@ -585,30 +626,46 @@ public sealed class ServerOrchestrationService
                 return cached.Result;
             long sequence = 0;
             var lines = new Queue<ServerRuntimeLogLine>();
-            var gameReady = false;
+            var lifecycle = ServerLogLifecycle.Unknown;
             var rconBindFailed = false;
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
             while (reader.ReadLine() is { } rawLine)
             {
-                gameReady |= rawLine.Contains("*** SERVER STARTED ****", StringComparison.OrdinalIgnoreCase);
+                if (rawLine.Contains("*** SERVER STARTED ****", StringComparison.OrdinalIgnoreCase))
+                    lifecycle = ServerLogLifecycle.Ready;
+                else if (IsServerStartupFailure(rawLine) || IsServerStoppedMarker(rawLine))
+                    lifecycle = ServerLogLifecycle.StoppedOrFailed;
                 rconBindFailed |= IsRconBindFailure(rawLine);
                 lines.Enqueue(new ServerRuntimeLogLine(++sequence, null, "LOG", RedactSensitiveOutput(rawLine)));
                 while (lines.Count > capacity) lines.Dequeue();
             }
-            var result = new RuntimeLogReadResult(lines.ToArray(), lastWrite, gameReady, rconBindFailed);
+            var result = new RuntimeLogReadResult(
+                lines.ToArray(),
+                lastWrite,
+                lifecycle == ServerLogLifecycle.Ready,
+                rconBindFailed,
+                lifecycle == ServerLogLifecycle.StoppedOrFailed);
             _serverConsoleCache[path] = new RuntimeLogFileCache(length, lastWrite, capacity, result);
             return result;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            return new([], null, false, false);
+            return RuntimeLogReadResult.Empty;
         }
     }
 
     private static bool IsRconBindFailure(string value)
         => value.Contains("RCON: error creating socket", StringComparison.OrdinalIgnoreCase)
             || value.Contains("RCON port is already in use", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsServerStartupFailure(string value)
+        => value.Contains("Connection Startup Failed", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("Failed to start the server", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsServerStoppedMarker(string value)
+        => value.Contains("SERVER SHUTDOWN", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("Server exited", StringComparison.OrdinalIgnoreCase);
 
     private static string RedactSensitiveOutput(string value)
         => Regex.Replace(
@@ -684,8 +741,13 @@ public sealed class ServerOrchestrationService
         IReadOnlyList<ServerRuntimeLogLine> Lines,
         DateTimeOffset? LastOutputAt,
         bool GameReady,
-        bool RconBindFailed);
+        bool RconBindFailed,
+        bool StartupFailed)
+    {
+        public static RuntimeLogReadResult Empty { get; } = new([], null, false, false, false);
+    }
     private sealed record RuntimeLogFileCache(long Length, DateTime LastWriteUtc, int Capacity, RuntimeLogReadResult Result);
+    private enum ServerLogLifecycle { Unknown, Ready, StoppedOrFailed }
 
     private sealed class RuntimeLogBuffer(int capacity = 600)
     {

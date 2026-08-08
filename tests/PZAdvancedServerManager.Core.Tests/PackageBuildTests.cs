@@ -45,9 +45,14 @@ public sealed class PackageBuildTests : IDisposable
         var result = service.Build(project);
         var vdf = File.ReadAllText(result.SteamCmdVdfPath);
         Assert.Contains("\"publishedfileid\"   \"0\"", vdf);
+        Assert.Contains(result.WorkshopContentRoot.Replace("\\", "\\\\", StringComparison.Ordinal), vdf);
+        Assert.Contains(Path.Combine(result.BuildRoot, "preview.png").Replace("\\", "\\\\", StringComparison.Ordinal), vdf);
+        Assert.DoesNotContain(".next", vdf, StringComparison.OrdinalIgnoreCase);
+        SteamCmdService.ValidatePublishPayload(result);
 
         File.WriteAllText(result.SteamCmdVdfPath, vdf.Replace("\"publishedfileid\"   \"0\"", "\"publishedfileid\"   \"9876543210\"", StringComparison.Ordinal));
-        Assert.Equal(9876543210UL, SteamCmdService.ReadPublishedFileId(result.SteamCmdVdfPath));
+        Assert.Equal(9876543210UL, SteamCmdService.ApplyPublishedFileId(project, result.SteamCmdVdfPath));
+        Assert.Equal(9876543210UL, project.PublishedWorkshopId);
     }
 
     [Fact]

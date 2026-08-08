@@ -47,7 +47,11 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
             var workshopPath = Path.Combine(nextRoot, "workshop.txt");
             File.WriteAllText(workshopPath, GenerateWorkshopTxt(project, description), new UTF8Encoding(false));
             var vdfPath = Path.Combine(nextRoot, "steamcmd-item.vdf");
-            File.WriteAllText(vdfPath, GenerateSteamCmdVdf(project, contentsRoot, previewPath, description), new UTF8Encoding(false));
+            File.WriteAllText(vdfPath, GenerateSteamCmdVdf(
+                project,
+                Path.Combine(finalRoot, "Contents"),
+                Path.Combine(finalRoot, "preview.png"),
+                description), new UTF8Encoding(false));
             var serverSnippetPath = Path.Combine(nextRoot, "server-config.txt");
             File.WriteAllText(serverSnippetPath, GenerateServerConfig(project), new UTF8Encoding(false));
             File.WriteAllText(Path.Combine(nextRoot, "README-BUILD.txt"), GenerateBuildReadme(project, validation), new UTF8Encoding(false));

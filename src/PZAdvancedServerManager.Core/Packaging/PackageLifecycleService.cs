@@ -88,10 +88,20 @@ public sealed class PackageLifecycleService(
             }
 
             progress?.Report(new OperationProgress("publish", "Connexion au compte éditeur et envoi vers Steam Workshop."));
+            var workshopIdBeforePublish = project.PublishedWorkshopId;
             var publish = await steamCmd.PublishAsync(project, build, cancellationToken, progress);
+            var newWorkshopIdAssigned = project.PublishedWorkshopId != workshopIdBeforePublish;
+            if (newWorkshopIdAssigned)
+            {
+                store.Save(project);
+                progress?.Report(new OperationProgress("workshopid", $"Steam a attribué le Workshop ID {project.PublishedWorkshopId}; il a été enregistré même si l’envoi du contenu devait ensuite échouer."));
+            }
             output.Add(publish.CombinedOutput);
             if (publish.Interaction != SteamCmdInteraction.None) throw SteamCmdInteractionRequiredException.FromResult(publish);
-            if (!publish.Success) throw new InvalidOperationException("Publication SteamCMD échouée : " + Tail(publish.CombinedOutput));
+            if (!publish.Success)
+                throw new InvalidOperationException(newWorkshopIdAssigned
+                    ? $"L’item Workshop {project.PublishedWorkshopId} a été créé et son ID a été enregistré, mais l’envoi du contenu a échoué. Relancez Publier après correction; le même item sera mis à jour. Détail SteamCMD : {Tail(publish.CombinedOutput)}"
+                    : "Publication SteamCMD échouée : " + Tail(publish.CombinedOutput));
 
             store.Save(project);
             if (restartViaRconAfterPublish)

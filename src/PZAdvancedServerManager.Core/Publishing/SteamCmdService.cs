@@ -54,15 +54,15 @@ public sealed class SteamCmdService(PackageValidator validator)
         ValidateExecutable(project.Automation.SteamCmdPath);
         if (string.IsNullOrWhiteSpace(project.Automation.SteamUsername))
             throw new InvalidOperationException("Le nom de compte Steam est requis. Le mot de passe n'est jamais conservé par PZASM.");
+        ValidatePublishPayload(build);
 
         var result = await RunAsync(project.Automation.SteamCmdPath,
             ["+login", project.Automation.SteamUsername, "+workshop_build_item", build.SteamCmdVdfPath, "+quit"], cancellationToken, progress: progress, timeout: TimeSpan.FromMinutes(45));
+        var id = ApplyPublishedFileId(project, build.SteamCmdVdfPath);
         if (result.ExitCode == 0)
         {
-            var id = ReadPublishedFileId(build.SteamCmdVdfPath);
             if (id == 0)
                 return new SteamCmdResult(-1, result.StandardOutput, string.Join(Environment.NewLine, result.StandardError, "SteamCMD n’a renvoyé aucun Workshop ID. La publication ne peut pas être confirmée."));
-            project.PublishedWorkshopId = id;
             project.LastPublishedAt = DateTimeOffset.UtcNow;
         }
         return result;
@@ -116,6 +116,46 @@ public sealed class SteamCmdService(PackageValidator validator)
         if (!File.Exists(vdfPath)) return 0;
         var match = Regex.Match(File.ReadAllText(vdfPath), "\\\"publishedfileid\\\"\\s+\\\"(\\d+)\\\"", RegexOptions.IgnoreCase);
         return match.Success && ulong.TryParse(match.Groups[1].Value, out var id) ? id : 0;
+    }
+
+    public static ulong ApplyPublishedFileId(PackageProject project, string vdfPath)
+    {
+        var id = ReadPublishedFileId(vdfPath);
+        if (id != 0) project.PublishedWorkshopId = id;
+        return id;
+    }
+
+    public static void ValidatePublishPayload(PackageBuildResult build)
+    {
+        if (!File.Exists(build.SteamCmdVdfPath))
+            throw new FileNotFoundException("Le manifeste SteamCMD du build est introuvable. Reconstruisez le pack avant de publier.", build.SteamCmdVdfPath);
+
+        var vdf = File.ReadAllText(build.SteamCmdVdfPath);
+        var mappedContent = ReadVdfString(vdf, "contentfolder");
+        var mappedPreview = ReadVdfString(vdf, "previewfile");
+        var expectedContent = Path.GetFullPath(build.WorkshopContentRoot);
+        var expectedPreview = Path.GetFullPath(Path.Combine(build.BuildRoot, "preview.png"));
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+        if (string.IsNullOrWhiteSpace(mappedContent) ||
+            !Path.GetFullPath(mappedContent).Equals(expectedContent, comparison) ||
+            !Directory.Exists(mappedContent))
+            throw new InvalidOperationException($"Le contentfolder du manifeste SteamCMD ne correspond pas au build actuel ou n’existe plus : {mappedContent ?? "non renseigné"}. Reconstruisez le pack avant de publier.");
+        if (!Directory.EnumerateFiles(mappedContent, "*", SearchOption.AllDirectories).Any())
+            throw new InvalidOperationException("Le contenu Workshop du build est vide. La publication n’a pas été lancée.");
+        if (string.IsNullOrWhiteSpace(mappedPreview) ||
+            !Path.GetFullPath(mappedPreview).Equals(expectedPreview, comparison) ||
+            !File.Exists(mappedPreview))
+            throw new InvalidOperationException($"Le previewfile du manifeste SteamCMD ne correspond pas au build actuel ou n’existe plus : {mappedPreview ?? "non renseigné"}. Reconstruisez le pack avant de publier.");
+    }
+
+    private static string? ReadVdfString(string vdf, string key)
+    {
+        var match = Regex.Match(vdf, $"\\\"{Regex.Escape(key)}\\\"\\s+\\\"((?:\\\\.|[^\\\"])*)\\\"", RegexOptions.IgnoreCase);
+        if (!match.Success) return null;
+        return match.Groups[1].Value
+            .Replace("\\\\", "\\", StringComparison.Ordinal)
+            .Replace("\\\"", "\"", StringComparison.Ordinal);
     }
 
     private static async Task<SteamCmdResult> RunAsync(

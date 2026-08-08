@@ -604,6 +604,13 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
         if (buffer.trim()) update(JSON.parse(buffer));
     };
 
+    const resolveSubmissionEndpoint = (form, button) => {
+        const buttonOverride = button instanceof HTMLButtonElement && button.hasAttribute('formaction')
+            ? button.getAttribute('formaction')
+            : null;
+        return new URL(buttonOverride || form.getAttribute('action') || form.action, window.location.href);
+    };
+
     const revealInteraction = () => window.requestAnimationFrame(() => overlayInteraction?.scrollIntoView({ block: 'nearest' }));
 
     const showMobileApproval = (form, button, message) => {
@@ -714,7 +721,7 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
             }
         };
         try {
-            const endpoint = new URL(button?.formAction || form.action, window.location.href);
+            const endpoint = resolveSubmissionEndpoint(form, button);
             const handler = endpoint.searchParams.get('handler');
             if (!handler) throw new Error('Opération serveur non reconnue.');
             endpoint.searchParams.set('handler', `${handler}Stream`);
@@ -734,7 +741,7 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
         beginEstimatedSteps();
         activeController = new AbortController();
         try {
-            const endpoint = new URL(button?.formAction || form.action, window.location.href);
+            const endpoint = resolveSubmissionEndpoint(form, button);
             const formData = new FormData(form, button || undefined);
             const response = await fetch(endpoint, { method: 'POST', body: formData, credentials: 'same-origin', redirect: 'follow', signal: activeController.signal });
             if (!response.ok) throw new Error((await response.text()).trim() || `Le serveur a répondu ${response.status}.`);

@@ -25,6 +25,7 @@ public class IndexModel(
     public IReadOnlyList<PackageProject> Projects { get; private set; } = [];
     public bool SelectedServerOnline { get; private set; }
     public bool SelectedRconAvailable { get; private set; }
+    public ServerRuntimeSnapshot SelectedRuntime { get; private set; } = StoppedRuntime();
     public ServerNetworkInfo? NetworkInfo { get; private set; }
     public IReadOnlyList<RconConsoleEntry> RconHistory { get; private set; } = [];
     public bool PlayerPasswordConfigured { get; private set; }
@@ -44,6 +45,16 @@ public class IndexModel(
     public string SpawnPointsRaw { get; private set; } = string.Empty;
     public StructuredSettingsEditorModel IniEditor => new(AllSettings, "ini-settings-catalog", "RCON, anti-cheat, safehouse, voix…", "Aucune clé INI n'a pu être lue.");
     public StructuredSettingsEditorModel SandboxEditor => new(SandboxSettings, "sandbox-settings-catalog", "population, loot, érosion, véhicule, mod…", SandboxError);
+    public string RuntimeStatusText => RuntimeStatus(SelectedRuntime.State);
+    public string RuntimeStatusDetail => RuntimeDetail(SelectedRuntime);
+    public string RuntimeStatusCss => RuntimeCss(SelectedRuntime.State);
+    public string RuntimeDetectionSource => Selected?.IsRemote == true
+        ? "Supervision distante par RCON"
+        : SelectedRuntime.IsManagedByCurrentSession
+            ? "Processus lancé dans cette session"
+            : SelectedRuntime.IsRunning
+                ? "Processus redécouvert sur la machine"
+                : "Aucun processus associé au profil";
     [BindProperty] public string RawContent { get; set; } = string.Empty;
     [BindProperty] public GuidedServerForm Guided { get; set; } = new();
     [BindProperty] public RemoteServerForm Remote { get; set; } = new();
@@ -85,8 +96,9 @@ public class IndexModel(
         }
         try
         {
-            SelectedRconAvailable = await servers.IsRconAuthenticatedAsync(Selected.Name, cancellationToken);
-            SelectedServerOnline = SelectedRconAvailable || servers.IsManagerProcessRunning(Selected.Name);
+            SelectedRuntime = await servers.ReadRuntimeAsync(Selected.Name, cancellationToken);
+            SelectedRconAvailable = SelectedRuntime.IsRconAuthenticated;
+            SelectedServerOnline = SelectedRuntime.IsRunning;
         }
         catch (Exception exception) { ConnectionError = string.IsNullOrWhiteSpace(ConnectionError) ? exception.Message : ConnectionError + " " + exception.Message; }
         if (!Selected.IsRemote)
@@ -99,6 +111,50 @@ public class IndexModel(
                 WorldBackups = worldData.List(Selected.Name);
             }
             catch (Exception exception) { WorldDataError = exception.Message; }
+        }
+    }
+
+    public async Task<IActionResult> OnGetRuntimeAsync(string name, CancellationToken cancellationToken)
+    {
+        Response.Headers.CacheControl = "no-store, no-cache";
+        try
+        {
+            var profile = servers.Get(name);
+            var runtime = await servers.ReadRuntimeAsync(profile.Name, cancellationToken);
+            return new JsonResult(new
+            {
+                state = runtime.State.ToString(),
+                status = RuntimeStatus(runtime.State),
+                detail = RuntimeDetail(runtime),
+                cssClass = RuntimeCss(runtime.State),
+                runtime.IsRunning,
+                runtime.IsGameReady,
+                runtime.IsRconAuthenticated,
+                runtime.RconBindFailed,
+                runtime.IsManagedByCurrentSession,
+                runtime.ProcessId,
+                startedAt = runtime.StartedAt?.ToString("O"),
+                lastOutputAt = runtime.LastOutputAt?.ToString("O"),
+                source = profile.IsRemote
+                    ? "Supervision distante par RCON"
+                    : runtime.IsManagedByCurrentSession
+                        ? "Processus lancé dans cette session"
+                        : runtime.IsRunning
+                            ? "Processus redécouvert sur la machine"
+                            : "Aucun processus associé au profil",
+                output = runtime.Output.Select(line => new
+                {
+                    line.Sequence,
+                    timestamp = line.Timestamp?.ToString("O"),
+                    line.Stream,
+                    line.Message
+                })
+            });
+        }
+        catch (Exception exception)
+        {
+            Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            return new JsonResult(new { error = exception.Message });
         }
     }
 
@@ -583,6 +639,36 @@ public class IndexModel(
     {
         public void Report(T value) => callback(value);
     }
+
+    private static ServerRuntimeSnapshot StoppedRuntime()
+        => new(ServerRuntimeState.Stopped, false, false, false, false, false, null, null, null, []);
+
+    private static string RuntimeStatus(ServerRuntimeState state) => state switch
+    {
+        ServerRuntimeState.Online => "EN LIGNE · RCON AUTHENTIFIÉ",
+        ServerRuntimeState.OnlineWithoutRcon => "JEU EN LIGNE · RCON INDISPONIBLE",
+        ServerRuntimeState.StartingSlow => "DÉMARRAGE LENT · À VÉRIFIER",
+        ServerRuntimeState.Starting => "DÉMARRAGE · INITIALISATION PZ",
+        _ => "ARRÊTÉ · AUCUN PROCESSUS PZ"
+    };
+
+    private static string RuntimeDetail(ServerRuntimeSnapshot runtime) => runtime.State switch
+    {
+        ServerRuntimeState.Online => "Le processus du jeu est prêt et l'authentification RCON fonctionne.",
+        ServerRuntimeState.OnlineWithoutRcon when runtime.RconBindFailed => "Le jeu est prêt, mais Project Zomboid n'a pas pu ouvrir le port RCON car il est déjà utilisé par un autre processus.",
+        ServerRuntimeState.OnlineWithoutRcon => "Le jeu est prêt sur ses ports de jeu, mais RCON n'est pas authentifié.",
+        ServerRuntimeState.StartingSlow => "Le processus existe, mais aucune progression récente ni confirmation de démarrage n'a été détectée. Consultez le journal ci-dessous.",
+        ServerRuntimeState.Starting => "Le processus Project Zomboid initialise actuellement les mods, les cartes et le monde.",
+        _ => "Aucun processus zombie.network.GameServer correspondant à ce profil n'est actuellement détecté."
+    };
+
+    private static string RuntimeCss(ServerRuntimeState state) => state switch
+    {
+        ServerRuntimeState.Online => "online",
+        ServerRuntimeState.OnlineWithoutRcon => "degraded",
+        ServerRuntimeState.Starting or ServerRuntimeState.StartingSlow => "starting",
+        _ => "offline"
+    };
 
     private static string Limit(string value, int length) => value.Length <= length ? value : value[^length..];
 

@@ -334,6 +334,7 @@ label small { display: block; margin-top: 6px; color: var(--muted); font-weight:
 .summary-columns p { margin: 0; overflow-wrap: anywhere; font-size: .82rem; }
 .server-status { padding: 6px 10px; border: 1px solid var(--line); border-radius: 99px; color: var(--muted); font-size: .74rem; font-weight: 850; letter-spacing: .08em; }
 .server-status.online { color: #c5e995; border-color: #466238; background: #152011; }
+.server-status.degraded { color: #f1cf86; border-color: #725b2e; background: #211a0d; }
 .server-status.starting { color: #9cc9e5; border-color: #36596b; background: #101d23; }
 .server-status.offline { color: #d3b87b; border-color: #594a2c; background: #1b170f; }
 .server-controls { padding-top: 18px; margin-top: 18px; border-top: 1px solid var(--line); }
@@ -372,6 +373,30 @@ label small { display: block; margin-top: 6px; color: var(--muted); font-weight:
 .server-action small { margin-top: 4px; color: var(--muted); }
 .server-action.danger-action { border-color: #5c3833; background: #241513; }
 .server-action.danger-action .server-action-icon { color: #2a1110; background: #df746a; }
+.runtime-monitor { display: grid; gap: 13px; padding-top: 20px; margin-top: 20px; border-top: 1px solid var(--line); }
+.runtime-monitor-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.runtime-monitor-heading h3 { margin: 3px 0 0; font-size: 1.25rem; }
+.runtime-monitor-heading p { max-width: 850px; margin: 6px 0 0; color: var(--muted); font-size: .84rem; line-height: 1.5; }
+.runtime-live-indicator { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 7px; padding: 6px 9px; color: #a9cf7f; border: 1px solid #3e5634; border-radius: 999px; background: #121b0f; font-size: .68rem; font-weight: 850; letter-spacing: .04em; }
+.runtime-live-indicator i { width: 7px; height: 7px; border-radius: 50%; background: #9ccd65; box-shadow: 0 0 0 0 rgba(156,205,101,.55); animation: runtime-pulse 2s infinite; }
+@keyframes runtime-pulse { 70% { box-shadow: 0 0 0 7px rgba(156,205,101,0); } 100% { box-shadow: 0 0 0 0 rgba(156,205,101,0); } }
+.runtime-facts { display: grid; grid-template-columns: .55fr 1.4fr 1fr 1fr; gap: 8px; }
+.runtime-facts > span { display: grid; min-width: 0; gap: 3px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; background: #0e1310; }
+.runtime-facts small { color: var(--muted); font-size: .63rem; font-weight: 850; letter-spacing: .08em; }
+.runtime-facts strong { overflow: hidden; color: var(--text); font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
+.runtime-rcon-warning { margin: 0; }
+.runtime-rcon-warning.is-hidden { display: none; }
+.process-terminal { max-height: 480px; overflow: auto; border: 1px solid #314038; border-radius: 12px; background: #080c0a; box-shadow: inset 0 0 30px rgba(0,0,0,.26); font-family: Consolas, "Cascadia Code", monospace; scrollbar-color: #456139 #111713; }
+.process-terminal-empty { display: grid; min-height: 150px; place-content: center; justify-items: center; gap: 4px; color: #849282; text-align: center; }
+.process-terminal-empty strong { color: #cce9a5; }
+.process-log-line { display: grid; grid-template-columns: 62px 52px minmax(0,1fr); gap: 9px; padding: 4px 11px; align-items: baseline; color: #ced8ca; border-bottom: 1px solid rgba(61,77,65,.32); font-size: .73rem; line-height: 1.45; }
+.process-log-line:hover { background: rgba(126,162,101,.07); }
+.process-log-line time { color: #788578; }
+.process-log-line > span { color: #8fb66b; font-size: .64rem; font-weight: 900; letter-spacing: .06em; }
+.process-log-line.err > span { color: #ef877e; }
+.process-log-line.system > span { color: #86bada; }
+.process-log-line code { padding: 0; color: inherit; background: transparent; white-space: pre-wrap; overflow-wrap: anywhere; }
+.network-port-grid .rcon-port-card.port-conflict { border-color: #8c6831; background: #241b0d; }
 .server-network-panel { overflow: hidden; }
 .network-state-pills { display: flex; justify-content: flex-end; gap: 7px; flex-wrap: wrap; }
 .network-state-pill { padding: 5px 9px; color: var(--green); border: 1px solid #466238; border-radius: 999px; background: #152011; font-size: .68rem; font-weight: 850; letter-spacing: .06em; }
@@ -657,7 +682,12 @@ body.has-modal { overflow: hidden; }
 [data-theme="light"] .connection-badge.local { color: #426b28; border-color: #a9c796; background: #eff7e9; }
 [data-theme="light"] .connection-badge.remote { color: #285f7d; border-color: #a6c9dc; background: #eef8fd; }
 [data-theme="light"] .server-status.online { color: #3d6b20; border-color: #b4d09f; background: #edf8e6; }
+[data-theme="light"] .server-status.degraded { color: #755715; border-color: #d8c078; background: #fff7df; }
 [data-theme="light"] .server-status.offline { color: #76591b; border-color: #dbc88e; background: #fff8e5; }
+[data-theme="light"] .runtime-live-indicator { color: #456b25; border-color: #bad0aa; background: #eff7e9; }
+[data-theme="light"] .runtime-facts > span { background: #f8faf7; }
+[data-theme="light"] .process-terminal { color: #dce7d7; background: #0b100d; }
+[data-theme="light"] .network-port-grid .rcon-port-card.port-conflict { border-color: #ddc47f; background: #fff8e4; }
 [data-theme="light"] .server-action { color: var(--text); border-color: #c5d6bc; background: #f0f7eb; }
 [data-theme="light"] .server-action.danger-action { border-color: #e1bbb7; background: #fff1ef; }
 [data-theme="light"] .server-action:not(.danger-action) .server-action-icon, [data-theme="light"] .tool-icon, [data-theme="light"] .catalog-launch-mark { color: #fff; }
@@ -798,6 +828,9 @@ body.has-modal { overflow: hidden; }
   .local-catalog-card > .catalog-state { grid-column: 2 / -1; justify-self: start; }
   .catalog-pagination { align-items: stretch; flex-direction: column; text-align: center; }
   .network-state-pills { justify-content: flex-start; }
+  .runtime-monitor-heading { align-items: flex-start; flex-direction: column; }
+  .runtime-facts { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .process-log-line { grid-template-columns: 54px 44px minmax(0,1fr); padding-left: 8px; padding-right: 8px; font-size: .68rem; }
   .inline-command { grid-template-columns: 1fr; }
   .rcon-command-form .button { width: 100%; }
 }
@@ -807,6 +840,7 @@ body.has-modal { overflow: hidden; }
   .loading-emblem { display: none; }
   .loading-interaction-actions { align-items: stretch; flex-direction: column-reverse; }
   .loading-interaction-actions .button { width: 100%; }
+  .runtime-facts { grid-template-columns: 1fr; }
 }
 
 .server-data-panel { display: grid; gap: 1.15rem; }

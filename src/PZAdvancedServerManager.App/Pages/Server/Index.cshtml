@@ -59,10 +59,14 @@
         {
             <div class="warning-callout connection-error"><strong>Connexion ou configuration indisponible</strong><p>@Model.ConnectionError</p></div>
         }
-        <section class="panel server-command-center">
+        <section class="panel server-command-center"
+                 data-server-runtime
+                 data-runtime-endpoint="@Url.Page("/Server/Index", "Runtime", new { name = Model.Selected.Name })"
+                 data-runtime-running="@Model.SelectedRuntime.IsRunning.ToString().ToLowerInvariant()"
+                 data-runtime-rcon="@Model.SelectedRuntime.IsRconAuthenticated.ToString().ToLowerInvariant()">
             <div class="panel-heading">
                 <div><span class="eyebrow">@(Model.Selected.IsRemote ? "SERVEUR DISTANT" : "SERVEUR LOCAL") · @Model.Selected.Name</span><h2>Centre de contrôle</h2><p>@Model.Selected.Location</p></div>
-                <span class="server-status @(Model.SelectedRconAvailable ? "online" : Model.SelectedServerOnline ? "starting" : "offline")">@(Model.SelectedRconAvailable ? "EN LIGNE · RCON AUTHENTIFIÉ" : Model.SelectedServerOnline ? "PROCESSUS ACTIF · RCON EN ATTENTE" : "ARRÊTÉ / RCON INDISPONIBLE")</span>
+                <span class="server-status @Model.RuntimeStatusCss" data-runtime-status>@Model.RuntimeStatusText</span>
             </div>
             @if (Model.Selected.CanManageConfiguration) { <div class="summary-columns">
                 <div><strong>Workshop items</strong><span>@Model.WorkshopItems.Count</span><p>@string.Join(" · ", Model.WorkshopItems.Take(6))</p></div>
@@ -95,6 +99,37 @@
                 <form method="post" asp-page-handler="Stop" asp-route-name="@Model.Selected.Name" data-loading-title="Arrêt propre du serveur…" data-loading-detail="Envoi de save puis quit par RCON et attente de la fermeture complète." data-confirm-title="Sauvegarder et arrêter le serveur ?" data-confirm-message="Le gestionnaire enverra save puis quit par RCON et attendra l’arrêt complet. Aucun arrêt forcé ne sera utilisé." data-confirm-action="Sauvegarder et arrêter" data-confirm-tone="danger"><button class="server-action danger-action" type="submit" disabled="@(!Model.SelectedRconAvailable)"><span class="server-action-icon">■</span><span><strong>Sauvegarder et arrêter</strong><small>save puis quit par RCON</small></span></button></form>
                 @if (Model.Selected.IsRemote && Model.Selected.Remote!.AutoRestartAfterRconQuit) { <form method="post" asp-page-handler="RestartRcon" asp-route-name="@Model.Selected.Name" data-loading-title="Redémarrage RCON de Project Zomboid…" data-loading-detail="Sauvegarde du monde, envoi de quit et prise en charge de la relance par le superviseur distant." data-confirm-title="Redémarrer Project Zomboid par RCON ?" data-confirm-message="Le manager enverra save puis quit. Le superviseur distant configuré doit relancer uniquement le processus de jeu." data-confirm-action="Sauvegarder et redémarrer"><button class="server-action primary-action" type="submit" disabled="@(!Model.SelectedRconAvailable)"><span class="server-action-icon">↻</span><span><strong>Redémarrer par RCON</strong><small>save + quit + superviseur</small></span></button></form> }
             </div>
+            <div class="runtime-monitor">
+                <div class="runtime-monitor-heading">
+                    <div><span class="eyebrow">ÉTAT DYNAMIQUE DU PROCESSUS</span><h3>Sortie de Project Zomboid</h3><p data-runtime-detail>@Model.RuntimeStatusDetail</p></div>
+                    <span class="runtime-live-indicator"><i></i> Actualisation automatique</span>
+                </div>
+                <div class="runtime-facts">
+                    <span><small>PROCESSUS</small><strong data-runtime-pid>@(Model.SelectedRuntime.ProcessId?.ToString(CultureInfo.InvariantCulture) ?? "—")</strong></span>
+                    <span><small>DÉTECTION</small><strong data-runtime-source>@Model.RuntimeDetectionSource</strong></span>
+                    <span><small>DÉMARRÉ</small><strong data-runtime-started>@(Model.SelectedRuntime.StartedAt?.ToLocalTime().ToString("G", CultureInfo.CurrentCulture) ?? "—")</strong></span>
+                    <span><small>DERNIÈRE SORTIE</small><strong data-runtime-last-output>@(Model.SelectedRuntime.LastOutputAt?.ToLocalTime().ToString("T", CultureInfo.CurrentCulture) ?? "—")</strong></span>
+                </div>
+                <div class="warning-callout runtime-rcon-warning @(Model.SelectedRuntime.RconBindFailed ? "" : "is-hidden")" data-runtime-rcon-warning>
+                    <strong>Le jeu fonctionne, mais le port RCON est occupé</strong>
+                    <p>Choisissez un autre port RCON libre dans « Accès & RCON », arrêtez ensuite le processus de jeu de manière contrôlée, puis relancez-le pour activer la console d’administration.</p>
+                </div>
+                <div class="process-terminal" data-runtime-output aria-live="polite">
+                    @if (Model.SelectedRuntime.Output.Count == 0)
+                    {
+                        <div class="process-terminal-empty"><strong>Aucune sortie disponible</strong><span>Le journal apparaîtra ici dès que le processus écrira une ligne.</span></div>
+                    }
+                    else
+                    {
+                        @foreach (var line in Model.SelectedRuntime.Output)
+                        {
+                            <div class="process-log-line @line.Stream.ToLowerInvariant()">
+                                <time>@(line.Timestamp?.ToLocalTime().ToString("HH:mm:ss") ?? "journal")</time><span>@line.Stream</span><code>@line.Message</code>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
         </section>
 
         @if (Model.NetworkInfo is not null)
@@ -120,7 +155,7 @@
                         @if (Model.NetworkInfo.UdpPort is int udpPort) { <article><span>Jeu direct</span><strong>@udpPort</strong><small>UDPPort · RakNet</small></article> }
                         @if (Model.NetworkInfo.SteamPort1 is int steamPort1) { <article><span>Steam 1</span><strong>@steamPort1</strong><small>SteamPort1</small></article> }
                         @if (Model.NetworkInfo.SteamPort2 is int steamPort2) { <article><span>Steam 2</span><strong>@steamPort2</strong><small>SteamPort2</small></article> }
-                        <article class="rcon-port-card"><span>Administration RCON</span><strong>@Model.NetworkInfo.RconPort</strong><small>@Model.NetworkInfo.RconHost · TCP</small></article>
+                        <article class="rcon-port-card @(Model.SelectedRuntime.RconBindFailed ? "port-conflict" : "")" data-runtime-rcon-port><span>Administration RCON</span><strong>@Model.NetworkInfo.RconPort</strong><small>@Model.NetworkInfo.RconHost · TCP</small></article>
                     </div>
                 </div>
                 @if (!Model.NetworkInfo.ConfigurationAvailable) { <p class="fine-print">Ce profil distant est RCON-only : les ports de jeu ne sont pas lisibles sans accès à l’INI distant.</p> }

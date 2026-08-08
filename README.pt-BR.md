@@ -43,7 +43,7 @@ Leia o [estudo completo de arquitetura](docs/ARCHITECTURE.pt-BR.md).
 - progresso detalhado da importação do Workshop com item e fase atuais, contador, porcentagem, resultado da análise e erros recuperáveis;
 - assistente de prioridade de mapas baseado em `map.info`, dependências `lots=`, conflitos de células `.lotheader`, arrastar e soltar e edição bruta de `Map=`;
 - editor guiado do servidor para identidade, acesso, RCON, sessão, backups e conteúdo, além do editor INI completo; na inicialização local, a tabela SQLite `whitelist` é lida e a senha inicial de `admin` só é solicitada quando a conta realmente não existe;
-- visão de rede com endereços locais/LAN e portas configuradas de jogo, RakNet, Steam e RCON, além de estado RCON autenticado e console limitado em memória com histórico de comandos e respostas; encerramento `save`/`quit` e reinício coordenado continuam disponíveis, inclusive em perfis remotos sem SSH;
+- redetecção dinâmica de processos locais pelo argumento exato `-servername`, inclusive quando o servidor foi iniciado antes do gerenciador, com fases iniciando/pronto/degradado/parado, captura limitada e sanitizada de stdout/stderr, acompanhamento ao vivo de `server-console.txt`, visão de rede, estado RCON autenticado e console de comandos/respostas; `save`/`quit` e reinício coordenado continuam disponíveis, inclusive sem SSH;
 - progresso detalhado e cancelável para publicação, autenticação SteamCMD e atualização de mods, com saída ao vivo e limite de tempo;
 - UI local e CLI headless para Windows e Linux;
 - daemon `automation run` com bloqueios entre processos.

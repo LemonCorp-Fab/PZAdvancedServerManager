@@ -289,9 +289,20 @@ internal sealed class PzasmCli
                     return 0;
                 }
             case "status":
-                var online = await services.Servers.IsOnlineAsync(name);
-                Console.WriteLine(online ? "online" : "offline");
-                return online ? 0 : 4;
+                var runtime = await services.Servers.ReadRuntimeAsync(name);
+                if (args.Has("json")) WriteJson(runtime);
+                else
+                {
+                    var process = runtime.ProcessId is int processId ? $" pid={processId}" : string.Empty;
+                    var state = runtime.State switch
+                    {
+                        ServerRuntimeState.OnlineWithoutRcon => "online-without-rcon",
+                        ServerRuntimeState.StartingSlow => "starting-slow",
+                        _ => runtime.State.ToString().ToLowerInvariant()
+                    };
+                    Console.WriteLine($"{state}{process} rcon={(runtime.IsRconAuthenticated ? "authenticated" : "unavailable")}");
+                }
+                return runtime.IsRunning ? 0 : 4;
             case "test-rcon":
                 var remote = services.Servers.Get(name).Remote ?? throw new InvalidOperationException("test-rcon is intended for a remote server profile.");
                 await services.Servers.TestRconAsync(remote);
@@ -672,7 +683,7 @@ Chaque projet représente un pack global indépendant avec son propre Workshop I
   pzasm server restart-rcon --name <profil> --yes
   pzasm server show --name <profil>
   pzasm server set --name <profil> --key <clé> [--value <valeur>] --yes
-  pzasm server status --name <profil>
+  pzasm server status --name <profil> [--json]
   pzasm server start --name <profil> [--admin-password <secret> | --admin-password-file <fichier> | --admin-password-env <variable>]
   pzasm server stop --name <profil> --yes
   pzasm server apply --name <profil> --id <guid> --yes

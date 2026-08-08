@@ -33,6 +33,119 @@ document.querySelectorAll('details.mod-card').forEach(card => {
     applyTheme(root.dataset.theme);
 })();
 
+(() => {
+    const root = document.querySelector('[data-server-runtime]');
+    if (!root) return;
+    const endpoint = root.dataset.runtimeEndpoint;
+    if (!endpoint) return;
+
+    const status = root.querySelector('[data-runtime-status]');
+    const detail = root.querySelector('[data-runtime-detail]');
+    const pid = root.querySelector('[data-runtime-pid]');
+    const source = root.querySelector('[data-runtime-source]');
+    const started = root.querySelector('[data-runtime-started]');
+    const lastOutput = root.querySelector('[data-runtime-last-output]');
+    const output = root.querySelector('[data-runtime-output]');
+    const warning = root.querySelector('[data-runtime-rcon-warning]');
+    const rconPort = document.querySelector('[data-runtime-rcon-port]');
+    let knownRunning = root.dataset.runtimeRunning === 'true';
+    let knownRcon = root.dataset.runtimeRcon === 'true';
+    let outputSignature = '';
+    let requestActive = false;
+    let reloadScheduled = false;
+
+    const formatDate = (value, includeDate) => {
+        if (!value) return '—';
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return '—';
+        return new Intl.DateTimeFormat(document.documentElement.lang || 'fr', includeDate
+            ? { dateStyle: 'short', timeStyle: 'medium' }
+            : { timeStyle: 'medium' }).format(date);
+    };
+
+    const renderOutput = lines => {
+        if (!output || !Array.isArray(lines)) return;
+        const last = lines.at(-1);
+        const signature = `${lines.length}:${last?.sequence || 0}:${last?.message || ''}`;
+        if (signature === outputSignature) return;
+        outputSignature = signature;
+        const followsTail = output.scrollHeight - output.scrollTop - output.clientHeight < 45;
+        output.replaceChildren();
+        if (lines.length === 0) {
+            const empty = document.createElement('div');
+            const heading = document.createElement('strong');
+            const copy = document.createElement('span');
+            empty.className = 'process-terminal-empty';
+            heading.textContent = 'Aucune sortie disponible';
+            copy.textContent = 'Le journal apparaîtra ici dès que le processus écrira une ligne.';
+            empty.append(heading, copy);
+            output.append(empty);
+            return;
+        }
+        const fragment = document.createDocumentFragment();
+        lines.forEach(line => {
+            const row = document.createElement('div');
+            const time = document.createElement('time');
+            const stream = document.createElement('span');
+            const message = document.createElement('code');
+            row.className = `process-log-line ${(line.stream || 'log').toLocaleLowerCase()}`;
+            time.textContent = line.timestamp ? formatDate(line.timestamp, false) : 'journal';
+            stream.textContent = line.stream || 'LOG';
+            message.textContent = line.message || '';
+            row.append(time, stream, message);
+            fragment.append(row);
+        });
+        output.append(fragment);
+        if (followsTail || output.scrollTop === 0) output.scrollTop = output.scrollHeight;
+    };
+
+    const render = data => {
+        if (status) {
+            status.textContent = data.status || status.textContent;
+            status.classList.remove('online', 'degraded', 'starting', 'offline');
+            status.classList.add(data.cssClass || 'offline');
+        }
+        if (detail) detail.textContent = data.detail || '';
+        if (pid) pid.textContent = data.processId || '—';
+        if (source) source.textContent = data.source || '—';
+        if (started) started.textContent = formatDate(data.startedAt, true);
+        if (lastOutput) lastOutput.textContent = formatDate(data.lastOutputAt, false);
+        if (warning) {
+            warning.hidden = !data.rconBindFailed;
+            warning.classList.toggle('is-hidden', !data.rconBindFailed);
+        }
+        rconPort?.classList.toggle('port-conflict', Boolean(data.rconBindFailed));
+        renderOutput(data.output);
+
+        const runningChanged = Boolean(data.isRunning) !== knownRunning;
+        const rconChanged = Boolean(data.isRconAuthenticated) !== knownRcon;
+        knownRunning = Boolean(data.isRunning);
+        knownRcon = Boolean(data.isRconAuthenticated);
+        root.dataset.runtimeRunning = String(knownRunning);
+        root.dataset.runtimeRcon = String(knownRcon);
+        if ((runningChanged || rconChanged) && !reloadScheduled) {
+            reloadScheduled = true;
+            window.setTimeout(() => window.location.reload(), 700);
+        }
+    };
+
+    const poll = async () => {
+        if (requestActive || document.hidden || reloadScheduled) return;
+        requestActive = true;
+        try {
+            const response = await fetch(endpoint, { credentials: 'same-origin', cache: 'no-store' });
+            if (!response.ok) return;
+            render(await response.json());
+        } catch { }
+        finally { requestActive = false; }
+    };
+
+    void poll();
+    const timer = window.setInterval(() => void poll(), 2500);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) void poll(); });
+    window.addEventListener('pagehide', () => window.clearInterval(timer), { once: true });
+})();
+
 document.querySelectorAll('[data-tabs]').forEach(tabSet => {
     const buttons = Array.from(tabSet.querySelectorAll(':scope > [role="tablist"] [data-tab-target]'));
     const panels = Array.from(tabSet.querySelectorAll(':scope > .workspace-form > [data-tab-panel], :scope > [data-tab-panel]'));

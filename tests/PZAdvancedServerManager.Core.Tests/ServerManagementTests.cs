@@ -148,6 +148,67 @@ public sealed class ServerManagementTests : IDisposable
         Assert.True(service.CanCoordinateRestart(created.Name));
     }
 
+    [Theory]
+    [InlineData("java -cp projectzomboid.jar zombie.network.GameServer -servername \"servertest\"", "servertest")]
+    [InlineData("java zombie.network.GameServer -servername=alpha-one", "alpha-one")]
+    [InlineData("java zombie.network.GameServer -servername beta_2 -statistic 0", "beta_2")]
+    public void ServerProfileNameIsParsedFromAProjectZomboidCommandLine(string commandLine, string expected)
+    {
+        Assert.Equal(expected, ServerOrchestrationService.ParseServerNameFromCommandLine(commandLine));
+    }
+
+    [Fact]
+    public void UnrelatedJavaProcessIsNotTreatedAsAProjectZomboidServer()
+    {
+        Assert.Null(ServerOrchestrationService.ParseServerNameFromCommandLine("java -jar unrelated.jar -servername servertest"));
+    }
+
+    [Fact]
+    public async Task ManagedProcessOutputIdentifiesReadyGameWithRconBindFailureAndRedactsSecrets()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        var dedicatedRoot = Path.Combine(_root, "dedicated runtime server");
+        Directory.CreateDirectory(dedicatedRoot);
+        var script = Path.Combine(dedicatedRoot, "StartServer64.bat");
+        var iniPath = Path.Combine(dedicatedRoot, "runtime.ini");
+        var consolePath = Path.Combine(dedicatedRoot, "server-console.txt");
+        File.WriteAllText(script, "@echo off\r\necho *** SERVER STARTED ****\r\necho RCON: error creating socket on port 27015\r\necho RCONPassword=top-secret\r\nping 127.0.0.1 -n 5 > NUL\r\n");
+        File.WriteAllText(iniPath, "RCONPort=1\r\nRCONPassword=test-value\r\n");
+        var orchestration = new ServerOrchestrationService();
+
+        orchestration.Start("runtime-profile", dedicatedRoot, TimeSpan.FromMilliseconds(500));
+        var runtime = await orchestration.InspectLocalRuntimeAsync("runtime-profile", iniPath, consolePath);
+
+        Assert.Equal(ServerRuntimeState.OnlineWithoutRcon, runtime.State);
+        Assert.True(runtime.IsRunning);
+        Assert.True(runtime.IsGameReady);
+        Assert.True(runtime.RconBindFailed);
+        Assert.True(runtime.IsManagedByCurrentSession);
+        Assert.Contains(runtime.Output, line => line.Message.Contains("SERVER STARTED", StringComparison.Ordinal));
+        Assert.DoesNotContain(runtime.Output, line => line.Message.Contains("top-secret", StringComparison.Ordinal));
+        Assert.Contains(runtime.Output, line => line.Message.Contains("<redacted>", StringComparison.Ordinal));
+        Assert.True(SpinWait.SpinUntil(() => !orchestration.IsManagedProcessRunning("runtime-profile"), TimeSpan.FromSeconds(6)));
+    }
+
+    [Fact]
+    public async Task LiveServerConsoleCanBeReadWhileAnotherProcessKeepsItOpenForWriting()
+    {
+        var root = Path.Combine(_root, "shared live console");
+        Directory.CreateDirectory(root);
+        var iniPath = Path.Combine(root, "shared.ini");
+        var consolePath = Path.Combine(root, "server-console.txt");
+        File.WriteAllText(iniPath, "RCONPort=1\nRCONPassword=test-value\n");
+        File.WriteAllText(consolePath, "LOG > *** SERVER STARTED ****\nLOG > live output\n");
+        await using var writer = new FileStream(consolePath, FileMode.Open, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+
+        var runtime = await new ServerOrchestrationService().InspectLocalRuntimeAsync("no-such-profile", iniPath, consolePath);
+
+        Assert.Equal(ServerRuntimeState.Stopped, runtime.State);
+        Assert.False(runtime.IsGameReady);
+        Assert.Contains(runtime.Output, line => line.Message.Contains("live output", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void WindowsDedicatedServerScriptReceivesTheSelectedProfileName()
     {

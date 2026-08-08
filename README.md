@@ -50,7 +50,7 @@ See the complete [architecture and feasibility study](docs/ARCHITECTURE.md).
 - guided `Zomboid/Server/*.ini` editor for identity, access, RCON, gameplay, backups, and content, plus the complete raw editor with encoding preservation; local startup reads the SQLite `whitelist` and requests the initial `admin` password only when that account is actually missing;
 - safe pack application that only replaces `WorkshopItems`, `Mods`, and `Map`;
 - local world-data management with verified ZIP backups, player-database sidecars, restore, and fresh start; restore requires an automatic recovery backup, while fresh start offers a backup choice enabled by default;
-- server network overview with configured local/LAN addresses, game, RakNet, Steam and RCON ports, plus authenticated RCON status and a bounded in-memory command/response console; arbitrary administration commands, `save`, `quit`, Windows/Linux startup, and optional coordinated restart remain available for the explicitly selected local or remote profile;
+- dynamic local runtime discovery by the exact `-servername` process argument, including servers started before the manager, explicit startup/ready/degraded/stopped phases, bounded and redacted stdout/stderr capture, live `server-console.txt` tailing, configured local/LAN addresses, game, RakNet, Steam and RCON ports, authenticated RCON status, and a bounded command/response console; arbitrary administration commands, `save`, `quit`, Windows/Linux startup, and optional coordinated restart remain available for the explicitly selected local or remote profile;
 - Windows/Linux CLI for desktop-free and SSH-managed hosts;
 - `automation run` CLI daemon with inter-process locks when the UI and CLI are active at the same time.
 

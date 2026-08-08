@@ -176,7 +176,7 @@ public sealed class ServerProfileService(
     {
         var profile = Get(name);
         if (!profile.IsRemote)
-            return orchestration.IsManagedProcessRunning(profile.Name) || await orchestration.IsOnlineAsync(profile.Path, cancellationToken);
+            return orchestration.IsLocalServerProcessRunning(profile.Name) || await orchestration.IsOnlineAsync(profile.Path, cancellationToken);
         var remote = profile.Remote!;
         return await orchestration.IsOnlineAsync(RconHost(remote), remote.RconPort, remote.RconPassword, cancellationToken);
     }
@@ -192,6 +192,36 @@ public sealed class ServerProfileService(
     {
         var profile = Get(name);
         return !profile.IsRemote && orchestration.IsManagedProcessRunning(profile.Name);
+    }
+
+    public bool IsLocalProcessRunning(string name)
+    {
+        var profile = Get(name);
+        return !profile.IsRemote && orchestration.IsLocalServerProcessRunning(profile.Name);
+    }
+
+    public async Task<ServerRuntimeSnapshot> ReadRuntimeAsync(string name, CancellationToken cancellationToken = default)
+    {
+        var profile = Get(name);
+        if (!profile.IsRemote)
+        {
+            var consolePath = Path.Combine(environment.Installation.UserZomboidRoot, "server-console.txt");
+            return await orchestration.InspectLocalRuntimeAsync(profile.Name, profile.Path, consolePath, cancellationToken);
+        }
+
+        var remote = profile.Remote!;
+        var rconAvailable = await orchestration.IsOnlineAsync(RconHost(remote), remote.RconPort, remote.RconPassword, cancellationToken);
+        return new ServerRuntimeSnapshot(
+            rconAvailable ? ServerRuntimeState.Online : ServerRuntimeState.Stopped,
+            rconAvailable,
+            rconAvailable,
+            rconAvailable,
+            false,
+            false,
+            null,
+            null,
+            null,
+            []);
     }
 
     public ServerNetworkInfo ReadNetworkInfo(string name)
@@ -218,7 +248,7 @@ public sealed class ServerProfileService(
     {
         var profile = Get(name);
         if (!profile.IsRemote)
-            return orchestration.IsManagedProcessRunning(profile.Name) || await orchestration.IsRconServiceAsync(profile.Path, cancellationToken);
+            return orchestration.IsLocalServerProcessRunning(profile.Name) || await orchestration.IsRconServiceAsync(profile.Path, cancellationToken);
         var remote = profile.Remote!;
         return await orchestration.IsRconServiceAsync(RconHost(remote), remote.RconPort, remote.RconPassword, cancellationToken);
     }

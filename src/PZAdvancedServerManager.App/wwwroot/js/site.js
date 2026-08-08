@@ -288,9 +288,16 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
     const requestConfirmation = (form, submitter) => {
         previousFocus = document.activeElement;
         pending = { form, submitter };
+        const toggle = form.dataset.confirmToggle ? form.elements.namedItem(form.dataset.confirmToggle) : null;
+        const variant = toggle instanceof HTMLInputElement ? (toggle.checked ? 'Checked' : 'Unchecked') : '';
+        const selectVariant = (name, fallback) => variant ? form.dataset[`${name}${variant}`] || fallback : fallback;
         title.textContent = form.dataset.confirmTitle;
-        message.textContent = form.dataset.confirmMessage || 'Vérifiez attentivement les conséquences avant de continuer.';
-        accept.textContent = form.dataset.confirmAction || 'Confirmer';
+        message.textContent = selectVariant('confirmMessage', form.dataset.confirmMessage) || 'Vérifiez attentivement les conséquences avant de continuer.';
+        accept.textContent = selectVariant('confirmAction', form.dataset.confirmAction) || 'Confirmer';
+        if (variant) {
+            form.dataset.loadingDetail = selectVariant('loadingDetail', form.dataset.loadingDetail);
+            form.dataset.loadingSteps = selectVariant('loadingSteps', form.dataset.loadingSteps);
+        }
         card?.classList.toggle('is-danger', form.dataset.confirmTone === 'danger');
         card?.classList.toggle('is-publish', form.dataset.confirmTone === 'publish');
         overlay.hidden = false;

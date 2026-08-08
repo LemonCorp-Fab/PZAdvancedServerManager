@@ -329,16 +329,16 @@ public class IndexModel(
             Url.Page("/Server/Index", values: new { name }) ?? $"/Server?name={Uri.EscapeDataString(name)}",
             cancellationToken);
 
-    public async Task<IActionResult> OnPostResetWorldAsync(string name, bool confirmationAcknowledged, CancellationToken cancellationToken)
+    public async Task<IActionResult> OnPostResetWorldAsync(string name, bool createSafetyBackup, bool confirmationAcknowledged, CancellationToken cancellationToken)
     {
-        try { TempData["Message"] = await ResetWorldAsync(name, confirmationAcknowledged, null, cancellationToken); }
+        try { TempData["Message"] = await ResetWorldAsync(name, createSafetyBackup, confirmationAcknowledged, null, cancellationToken); }
         catch (Exception exception) { TempData["Error"] = exception.Message; }
         return RedirectToPage(new { name });
     }
 
-    public async Task<IActionResult> OnPostResetWorldStreamAsync(string name, bool confirmationAcknowledged, CancellationToken cancellationToken)
+    public async Task<IActionResult> OnPostResetWorldStreamAsync(string name, bool createSafetyBackup, bool confirmationAcknowledged, CancellationToken cancellationToken)
         => await StreamOperationAsync(
-            progress => ResetWorldAsync(name, confirmationAcknowledged, progress, cancellationToken),
+            progress => ResetWorldAsync(name, createSafetyBackup, confirmationAcknowledged, progress, cancellationToken),
             Url.Page("/Server/Index", values: new { name }) ?? $"/Server?name={Uri.EscapeDataString(name)}",
             cancellationToken);
 
@@ -473,13 +473,15 @@ public class IndexModel(
         return $"Monde restauré depuis {result.RestoredBackup.Id}. {safety}" + (result.ConfigurationRestored ? " La configuration serveur archivée a également été restaurée." : string.Empty);
     }
 
-    private async Task<string> ResetWorldAsync(string name, bool confirmationAcknowledged, IProgress<OperationProgress>? progress, CancellationToken cancellationToken)
+    private async Task<string> ResetWorldAsync(string name, bool createSafetyBackup, bool confirmationAcknowledged, IProgress<OperationProgress>? progress, CancellationToken cancellationToken)
     {
         if (!confirmationAcknowledged)
             throw new InvalidOperationException("Confirmez explicitement le fresh start dans le dialogue du manager avant de retirer le monde actuel.");
         var location = await GetStoppedWorldDataLocationAsync(name, cancellationToken);
-        var result = await worldData.ResetAsync(location, progress, cancellationToken);
-        return $"Fresh start prêt. Le monde et la base des joueurs seront recréés au prochain démarrage. Sauvegarde de récupération : {result.SafetyBackup.Id}.";
+        var result = await worldData.ResetAsync(location, createSafetyBackup, progress, cancellationToken);
+        return result.SafetyBackup is not null
+            ? $"Fresh start prêt. Le monde et la base des joueurs seront recréés au prochain démarrage. Sauvegarde de récupération : {result.SafetyBackup.Id}."
+            : "Fresh start prêt sans sauvegarde préalable, conformément au choix confirmé. Le monde et la base des joueurs seront recréés au prochain démarrage.";
     }
 
     private async Task<string> RepairDedicatedAsync(string name, bool confirmationAcknowledged, IProgress<OperationProgress>? progress, CancellationToken cancellationToken)

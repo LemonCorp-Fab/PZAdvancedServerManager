@@ -392,9 +392,11 @@ internal sealed class PzasmCli
                     await RequireServerOfflineAsync(services, name);
                     var location = services.Servers.ResolveWorldDataLocation(name);
                     var progress = args.Has("json") ? null : new CliOperationProgress();
-                    var result = await services.WorldData.ResetAsync(location, progress);
+                    var result = await services.WorldData.ResetAsync(location, !args.Has("no-backup"), progress);
                     if (args.Has("json")) WriteJson(result);
-                    else Console.WriteLine($"Fresh start prêt. Sauvegarde de sécurité : {result.SafetyBackup.Id}");
+                    else Console.WriteLine(result.SafetyBackup is not null
+                        ? $"Fresh start prêt. Sauvegarde de sécurité : {result.SafetyBackup.Id}"
+                        : "Fresh start prêt sans sauvegarde préalable, conformément à l'option --no-backup.");
                     return 0;
                 }
             case "delete-backup":
@@ -658,7 +660,7 @@ Chaque projet représente un pack global indépendant avec son propre Workshop I
   pzasm server backup --name <profil> [--json]
   pzasm server backups --name <profil> [--json]
   pzasm server restore --name <profil> --backup <id> [--restore-config] --yes [--json]
-  pzasm server reset-world --name <profil> --yes [--json]
+  pzasm server reset-world --name <profil> --yes [--no-backup] [--json]
   pzasm server delete-backup --name <profil> --backup <id> --yes
   pzasm workshop search [--query <texte-ou-id>] [--sort trend|recent|subscribed|popular|relevance] [--tag <tag>] [--page 1] [--json]
   pzasm steamcmd status [--json]

@@ -171,13 +171,18 @@ public sealed class ServerWorldDataStore(ApplicationPaths paths)
 
     public async Task<ServerWorldResetResult> ResetAsync(
         ServerWorldDataLocation location,
+        bool createSafetyBackup = true,
         IProgress<OperationProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
         ValidateLocation(location);
         if (!Inspect(location).HasData)
             throw new InvalidOperationException("Ce profil est déjà vierge : aucun monde ni base de joueurs n'a été détecté.");
-        var backup = await CreateBackupAsync(location, "pre-reset", progress, cancellationToken);
+        ServerWorldBackupInfo? backup = null;
+        if (createSafetyBackup)
+            backup = await CreateBackupAsync(location, "pre-reset", progress, cancellationToken);
+        else
+            progress?.Report(new OperationProgress("prepare", "Sauvegarde préalable désactivée conformément au choix confirmé par l'administrateur."));
         cancellationToken.ThrowIfCancellationRequested();
         progress?.Report(new OperationProgress("reset", "Retrait transactionnel du monde et de la base de joueurs."));
 
@@ -535,4 +540,4 @@ public sealed record ServerWorldRestoreResult(
     ServerWorldBackupInfo? SafetyBackup,
     bool ConfigurationRestored);
 
-public sealed record ServerWorldResetResult(ServerWorldBackupInfo SafetyBackup);
+public sealed record ServerWorldResetResult(ServerWorldBackupInfo? SafetyBackup);

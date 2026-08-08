@@ -53,12 +53,28 @@ public sealed class ServerWorldDataTests : IDisposable
         Assert.False(File.Exists(location.DatabasePath));
         Assert.False(File.Exists(location.DatabasePath + "-wal"));
         Assert.Equal("configuration", File.ReadAllText(location.ConfigurationFiles[0]));
-        Assert.Equal("pre-reset", reset.SafetyBackup.Reason);
+        Assert.NotNull(reset.SafetyBackup);
+        Assert.Equal("pre-reset", reset.SafetyBackup!.Reason);
 
-        await store.RestoreAsync(location, reset.SafetyBackup.Id, restoreConfiguration: false);
+        await store.RestoreAsync(location, reset.SafetyBackup!.Id, restoreConfiguration: false);
         Assert.Equal("world", File.ReadAllText(Path.Combine(location.WorldPath, "map.bin")));
         Assert.Equal("database", File.ReadAllText(location.DatabasePath));
         Assert.Equal("database-wal", File.ReadAllText(location.DatabasePath + "-wal"));
+    }
+
+    [Fact]
+    public async Task FreshStartCanExplicitlySkipTheSafetyBackup()
+    {
+        var (store, location) = CreateFixture();
+        WriteWorld(location, "world", "database", "configuration");
+
+        var reset = await store.ResetAsync(location, createSafetyBackup: false);
+
+        Assert.Null(reset.SafetyBackup);
+        Assert.Empty(store.List(location.ProfileName));
+        Assert.False(Directory.Exists(location.WorldPath));
+        Assert.False(File.Exists(location.DatabasePath));
+        Assert.Equal("configuration", File.ReadAllText(location.ConfigurationFiles[0]));
     }
 
     [Fact]

@@ -767,7 +767,13 @@ body.has-modal { overflow: hidden; }
 .world-data-actions form:first-child { flex: 1 1 25rem; }
 .world-data-actions .primary-command { width: 100%; min-height: 4.4rem; }
 .backup-command { background: linear-gradient(135deg, var(--green-dark), var(--green)); color: #fff; }
-.world-reset-button { min-height: 100%; }
+.world-data-actions .reset-world-form { display: grid; flex: 1 1 22rem; gap: .55rem; }
+.reset-backup-choice { display: flex; align-items: center; gap: .65rem; padding: .65rem .75rem; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); cursor: pointer; }
+.reset-backup-choice input { flex: 0 0 auto; width: 1.05rem; height: 1.05rem; accent-color: var(--green); }
+.reset-backup-choice span { display: grid; gap: .08rem; }
+.reset-backup-choice strong { color: var(--text); font-size: .82rem; }
+.reset-backup-choice small { color: var(--muted); font-size: .72rem; }
+.world-reset-button { min-height: 2.75rem; }
 .world-backup-heading { display: flex; align-items: end; justify-content: space-between; gap: 1rem; padding-top: .25rem; border-top: 1px solid var(--line); }
 .world-backup-heading h3 { margin: .2rem 0 0; }
 .world-backup-list { display: grid; gap: .75rem; }

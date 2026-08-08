@@ -49,7 +49,7 @@ See the complete [architecture and feasibility study](docs/ARCHITECTURE.md).
 - map-priority assistant using `map.info`, `lots=` dependencies, `.lotheader` cell conflicts, drag-and-drop ordering, and a raw `Map=` fallback;
 - guided `Zomboid/Server/*.ini` editor for identity, access, RCON, gameplay, backups, and content, plus the complete raw editor with encoding preservation;
 - safe pack application that only replaces `WorkshopItems`, `Mods`, and `Map`;
-- local world-data management with verified ZIP backups, player-database sidecars, restore, and fresh start; restore/reset require an offline server and automatically create a recovery backup first;
+- local world-data management with verified ZIP backups, player-database sidecars, restore, and fresh start; restore requires an automatic recovery backup, while fresh start offers a backup choice enabled by default;
 - authenticated RCON status, arbitrary administration commands, `save`, `quit`, Windows/Linux startup, and optional coordinated restart for an explicitly selected local or remote profile;
 - Windows/Linux CLI for desktop-free and SSH-managed hosts;
 - `automation run` CLI daemon with inter-process locks when the UI and CLI are active at the same time.

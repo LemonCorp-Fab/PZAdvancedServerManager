@@ -67,3 +67,8 @@ public sealed record ServerRuntimeSnapshot(
     public IReadOnlyList<ServerRuntimeInstance> Instances { get; init; } = [];
     public int InactiveHostedHelperCount { get; init; }
 }
+
+public sealed record ForcedServerStopResult(
+    string ServerName,
+    IReadOnlyList<int> ProcessIds,
+    DateTimeOffset CompletedAt);

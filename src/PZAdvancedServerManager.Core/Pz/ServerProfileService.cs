@@ -315,6 +315,19 @@ public sealed class ServerProfileService(
         await orchestration.StopGracefullyAsync(RconHost(remote), remote.RconPort, remote.RconPassword, cancellationToken);
     }
 
+    public async Task<ForcedServerStopResult> ForceStopLocalDedicatedAsync(string name, CancellationToken cancellationToken = default)
+    {
+        var profile = Get(name);
+        if (profile.IsRemote)
+            throw new InvalidOperationException("Un processus distant ne peut pas être terminé depuis le gestionnaire local.");
+        var runtime = await ReadRuntimeAsync(profile.Name, cancellationToken);
+        if (runtime.IsRconAuthenticated)
+            throw new InvalidOperationException("RCON est disponible. Utilisez l'arrêt propre save/quit afin de protéger le monde.");
+        if (!runtime.Instances.Any(instance => instance.Origin == ServerRuntimeOrigin.LocalDedicated))
+            throw new InvalidOperationException("Aucun serveur dédié local actif ne correspond à ce profil.");
+        return await orchestration.ForceStopLocalDedicatedAsync(profile.Name, cancellationToken);
+    }
+
     public async Task RestartViaRconAsync(string name, CancellationToken cancellationToken = default)
     {
         var profile = Get(name);

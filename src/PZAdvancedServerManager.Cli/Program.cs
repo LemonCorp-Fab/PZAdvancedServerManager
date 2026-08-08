@@ -335,6 +335,11 @@ internal sealed class PzasmCli
                 await services.Servers.StopAsync(name);
                 Console.WriteLine($"{name} sauvegardé et arrêté proprement.");
                 return 0;
+            case "force-stop-local":
+                if (!args.Has("yes")) return Fail("Arrêt forcé non exécuté. Ajoutez --yes pour confirmer la terminaison sans sauvegarde RCON.", 3);
+                var forced = await services.Servers.ForceStopLocalDedicatedAsync(name);
+                Console.WriteLine($"Processus dédié {name} terminé de force. PID : {string.Join(", ", forced.ProcessIds)}.");
+                return 0;
             case "apply":
                 {
                     if (!args.Has("yes")) return Fail("Application non exécutée. Ajoutez --yes pour remplacer WorkshopItems, Mods et Map avec sauvegarde.", 3);
@@ -696,6 +701,7 @@ Chaque projet représente un pack global indépendant avec son propre Workshop I
   pzasm server status --name <profil> [--json]
   pzasm server start --name <profil> [--admin-password <secret> | --admin-password-file <fichier> | --admin-password-env <variable>]
   pzasm server stop --name <profil> --yes
+  pzasm server force-stop-local --name <profil> --yes
   pzasm server apply --name <profil> --id <guid> --yes
   pzasm server data-status --name <profil> [--json]
   pzasm server backup --name <profil> [--json]

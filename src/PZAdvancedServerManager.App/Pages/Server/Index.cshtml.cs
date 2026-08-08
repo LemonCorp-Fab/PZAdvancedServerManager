@@ -40,6 +40,10 @@ public class IndexModel(
     public bool SelectedServerCanStart => Selected is not null
         && (Selected.IsDedicatedLocal
             || Selected.IsRemote && Selected.Remote!.HasSshConnection && !string.IsNullOrWhiteSpace(Selected.Remote.StartCommand));
+    public bool SelectedServerCanForceStop => Selected is { IsRemote: false }
+        && SelectedRuntime.IsRunning
+        && !SelectedRuntime.IsRconAuthenticated
+        && SelectedRuntime.Instances.Any(instance => instance.Origin == ServerRuntimeOrigin.LocalDedicated);
     public bool InitialAdminPasswordRequired => Selected is { IsRemote: false } && AdminAccountStatus.IsRequired;
     public string ConnectionError { get; private set; } = string.Empty;
     public string SandboxError { get; private set; } = string.Empty;
@@ -509,6 +513,19 @@ public class IndexModel(
         {
             await servers.StopAsync(name, cancellationToken);
             TempData["Message"] = $"Serveur « {name} » sauvegardé puis arrêté proprement par RCON.";
+        }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
+        return RedirectToPage(new { name });
+    }
+
+    public async Task<IActionResult> OnPostForceStopLocalAsync(string name, bool confirmationAcknowledged, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!confirmationAcknowledged)
+                throw new InvalidOperationException("Confirmez explicitement l'arrêt forcé dans le dialogue du manager.");
+            var result = await servers.ForceStopLocalDedicatedAsync(name, cancellationToken);
+            TempData["Message"] = $"Processus dédié « {name} » terminé de force. PID : {string.Join(", ", result.ProcessIds)}. Vérifiez l'intégrité du monde avant le prochain démarrage.";
         }
         catch (Exception exception) { TempData["Error"] = exception.Message; }
         return RedirectToPage(new { name });

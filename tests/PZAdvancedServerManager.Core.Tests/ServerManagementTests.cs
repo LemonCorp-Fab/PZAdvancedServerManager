@@ -225,6 +225,18 @@ public sealed class ServerManagementTests : IDisposable
             now));
     }
 
+    [Fact]
+    public async Task ForceStopRefusesAProfileWithoutAnExactDedicatedProcess()
+    {
+        var orchestration = new ServerOrchestrationService();
+        var profile = $"missing-{Guid.NewGuid():N}";
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => orchestration.ForceStopLocalDedicatedAsync(profile));
+
+        Assert.Contains("Aucun processus serveur dédié actif", exception.Message, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("LOG", "ERROR: General > failure", "error")]
     [InlineData("LOG", "WARN : Sprite > duplicate texture", "warning")]

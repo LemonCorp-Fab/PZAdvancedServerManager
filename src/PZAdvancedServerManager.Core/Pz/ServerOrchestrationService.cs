@@ -324,6 +324,64 @@ public sealed class ServerOrchestrationService
     public bool HasLocalDedicatedProcess(string serverName)
         => FindLocalServerProcesses(serverName).Any(process => process.Origin == ServerRuntimeOrigin.LocalDedicated);
 
+    public async Task<ForcedServerStopResult> ForceStopLocalDedicatedAsync(
+        string serverName,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(serverName) || serverName.Any(c => !char.IsLetterOrDigit(c) && c is not '-' and not '_'))
+            throw new ArgumentException("Nom de profil serveur invalide.", nameof(serverName));
+
+        var candidates = FindLocalServerProcesses(serverName)
+            .Where(process => process.Origin == ServerRuntimeOrigin.LocalDedicated)
+            .ToArray();
+        if (candidates.Length == 0)
+            throw new InvalidOperationException($"Aucun processus serveur dédié actif ne correspond au profil « {serverName} ».");
+
+        var terminated = new List<int>();
+        foreach (var candidate in candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                using var process = Process.GetProcessById(candidate.ProcessId);
+                process.Kill(entireProcessTree: true);
+                terminated.Add(candidate.ProcessId);
+            }
+            catch (ArgumentException)
+            {
+                terminated.Add(candidate.ProcessId);
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
+            {
+                throw new InvalidOperationException($"Le processus dédié PID {candidate.ProcessId} n'a pas pu être terminé : {exception.Message}", exception);
+            }
+        }
+
+        if (_managedServerProcesses.TryGetValue(serverName, out var launcher))
+        {
+            try
+            {
+                if (!launcher.HasExited) launcher.Kill(entireProcessTree: true);
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException) { }
+        }
+
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!HasLocalDedicatedProcess(serverName))
+                return new ForcedServerStopResult(serverName, terminated, DateTimeOffset.UtcNow);
+            await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken);
+        }
+
+        var remaining = FindLocalServerProcesses(serverName)
+            .Where(process => process.Origin == ServerRuntimeOrigin.LocalDedicated)
+            .Select(process => process.ProcessId)
+            .ToArray();
+        throw new TimeoutException($"Les processus dédiés PID {string.Join(", ", remaining)} sont toujours actifs après la demande d'arrêt forcé.");
+    }
+
     public async Task<ServerRuntimeSnapshot> InspectLocalRuntimeAsync(
         string serverName,
         string iniPath,

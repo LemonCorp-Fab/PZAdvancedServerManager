@@ -161,6 +161,27 @@ public sealed class ServerManagementTests : IDisposable
     public void UnrelatedJavaProcessIsNotTreatedAsAProjectZomboidServer()
     {
         Assert.Null(ServerOrchestrationService.ParseServerNameFromCommandLine("java -jar unrelated.jar -servername servertest"));
+        Assert.Null(ServerOrchestrationService.ParseServerNameFromCommandLine("ProjectZomboid64.exe"));
+    }
+
+    [Theory]
+    [InlineData("java zombie.network.GameServer -servername servertest", ServerRuntimeOrigin.LocalDedicated)]
+    [InlineData("java zombie.network.GameServer -coop -servername servertest", ServerRuntimeOrigin.LocalHostedSession)]
+    [InlineData("java zombie.network.GameServer -servername servertest -coop", ServerRuntimeOrigin.LocalHostedSession)]
+    public void ServerRuntimeOriginDistinguishesDedicatedAndHostedSessions(string commandLine, ServerRuntimeOrigin expected)
+    {
+        Assert.Equal(expected, ServerOrchestrationService.ParseRuntimeOriginFromCommandLine(commandLine));
+    }
+
+    [Theory]
+    [InlineData("LOG", "ERROR: General > failure", "error")]
+    [InlineData("LOG", "WARN : Sprite > duplicate texture", "warning")]
+    [InlineData("LOG", "*** SERVER STARTED ****", "success")]
+    [InlineData("SYSTEM", "Launcher started", "system")]
+    [InlineData("LOG", "\tjava.base/example", "stack")]
+    public void RuntimeLogLinesExposeAReadableSeverity(string stream, string message, string expected)
+    {
+        Assert.Equal(expected, new ServerRuntimeLogLine(1, null, stream, message).Level);
     }
 
     [Fact]

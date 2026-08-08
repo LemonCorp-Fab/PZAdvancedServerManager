@@ -45,16 +45,27 @@ public class IndexModel(
     public string SpawnPointsRaw { get; private set; } = string.Empty;
     public StructuredSettingsEditorModel IniEditor => new(AllSettings, "ini-settings-catalog", "RCON, anti-cheat, safehouse, voix…", "Aucune clé INI n'a pu être lue.");
     public StructuredSettingsEditorModel SandboxEditor => new(SandboxSettings, "sandbox-settings-catalog", "population, loot, érosion, véhicule, mod…", SandboxError);
-    public string RuntimeStatusText => RuntimeStatus(SelectedRuntime.State);
+    public string RuntimeStatusText => RuntimeStatus(SelectedRuntime);
     public string RuntimeStatusDetail => RuntimeDetail(SelectedRuntime);
     public string RuntimeStatusCss => RuntimeCss(SelectedRuntime.State);
     public string RuntimeDetectionSource => Selected?.IsRemote == true
         ? "Supervision distante par RCON"
+        : SelectedRuntime.Instances.Count > 1
+            ? "Plusieurs instances locales détectées"
         : SelectedRuntime.IsManagedByCurrentSession
-            ? "Processus lancé dans cette session"
-            : SelectedRuntime.IsRunning
-                ? "Processus redécouvert sur la machine"
-                : "Aucun processus associé au profil";
+            ? "Serveur dédié lancé par le manager"
+            : SelectedRuntime.Origin == ServerRuntimeOrigin.LocalDedicated
+                ? "Serveur dédié local redécouvert"
+                : SelectedRuntime.Origin == ServerRuntimeOrigin.LocalHostedSession
+                    ? "Session hébergée par le client PZ"
+                    : SelectedRuntime.IsRunning
+                        ? "Processus serveur redécouvert sur la machine"
+                        : "Aucun processus associé au profil";
+    public string RuntimeLogSource => SelectedRuntime.Origin == ServerRuntimeOrigin.LocalHostedSession
+        ? "coop-console.txt"
+        : Selected?.IsRemote == true
+            ? "RCON distant"
+            : "server-console.txt";
     [BindProperty] public string RawContent { get; set; } = string.Empty;
     [BindProperty] public GuidedServerForm Guided { get; set; } = new();
     [BindProperty] public RemoteServerForm Remote { get; set; } = new();
@@ -124,7 +135,7 @@ public class IndexModel(
             return new JsonResult(new
             {
                 state = runtime.State.ToString(),
-                status = RuntimeStatus(runtime.State),
+                status = RuntimeStatus(runtime),
                 detail = RuntimeDetail(runtime),
                 cssClass = RuntimeCss(runtime.State),
                 runtime.IsRunning,
@@ -133,21 +144,38 @@ public class IndexModel(
                 runtime.RconBindFailed,
                 runtime.IsManagedByCurrentSession,
                 runtime.ProcessId,
+                origin = runtime.Origin.ToString(),
+                instances = runtime.Instances.Select(instance => new
+                {
+                    instance.ProcessId,
+                    instance.ParentProcessId,
+                    origin = instance.Origin.ToString(),
+                    label = RuntimeOriginLabel(instance.Origin),
+                    startedAt = instance.StartedAt?.ToString("O"),
+                    instance.ExecutablePath
+                }),
                 startedAt = runtime.StartedAt?.ToString("O"),
                 lastOutputAt = runtime.LastOutputAt?.ToString("O"),
                 source = profile.IsRemote
                     ? "Supervision distante par RCON"
+                    : runtime.Instances.Count > 1
+                        ? "Plusieurs instances locales détectées"
                     : runtime.IsManagedByCurrentSession
-                        ? "Processus lancé dans cette session"
-                        : runtime.IsRunning
-                            ? "Processus redécouvert sur la machine"
-                            : "Aucun processus associé au profil",
+                        ? "Serveur dédié lancé par le manager"
+                        : runtime.Origin == ServerRuntimeOrigin.LocalDedicated
+                            ? "Serveur dédié local redécouvert"
+                            : runtime.Origin == ServerRuntimeOrigin.LocalHostedSession
+                                ? "Session hébergée par le client PZ"
+                                : runtime.IsRunning
+                                    ? "Processus serveur redécouvert sur la machine"
+                                    : "Aucun processus associé au profil",
                 output = runtime.Output.Select(line => new
                 {
                     line.Sequence,
                     timestamp = line.Timestamp?.ToString("O"),
                     line.Stream,
-                    line.Message
+                    line.Message,
+                    line.Level
                 })
             });
         }
@@ -643,22 +671,32 @@ public class IndexModel(
     private static ServerRuntimeSnapshot StoppedRuntime()
         => new(ServerRuntimeState.Stopped, false, false, false, false, false, null, null, null, []);
 
-    private static string RuntimeStatus(ServerRuntimeState state) => state switch
+    private static string RuntimeStatus(ServerRuntimeSnapshot runtime) => runtime.State switch
     {
-        ServerRuntimeState.Online => "EN LIGNE · RCON AUTHENTIFIÉ",
-        ServerRuntimeState.OnlineWithoutRcon => "JEU EN LIGNE · RCON INDISPONIBLE",
+        ServerRuntimeState.MultipleInstances => "CONFLIT · PLUSIEURS SERVEURS ACTIFS",
+        ServerRuntimeState.Online when runtime.Origin == ServerRuntimeOrigin.RemoteRcon => "SERVEUR DISTANT EN LIGNE · RCON OK",
+        ServerRuntimeState.Online when runtime.Origin == ServerRuntimeOrigin.LocalHostedSession => "SESSION HÉBERGÉE ACTIVE · RCON OK",
+        ServerRuntimeState.Online => "SERVEUR DÉDIÉ EN LIGNE · RCON OK",
+        ServerRuntimeState.OnlineWithoutRcon when runtime.Origin == ServerRuntimeOrigin.LocalHostedSession => "SESSION HÉBERGÉE ACTIVE",
+        ServerRuntimeState.OnlineWithoutRcon => "SERVEUR DÉDIÉ ACTIF · RCON INDISPONIBLE",
         ServerRuntimeState.StartingSlow => "DÉMARRAGE LENT · À VÉRIFIER",
-        ServerRuntimeState.Starting => "DÉMARRAGE · INITIALISATION PZ",
-        _ => "ARRÊTÉ · AUCUN PROCESSUS PZ"
+        ServerRuntimeState.Starting when runtime.Origin == ServerRuntimeOrigin.LocalHostedSession => "SESSION HÉBERGÉE · INITIALISATION",
+        ServerRuntimeState.Starting => "SERVEUR DÉDIÉ · INITIALISATION",
+        _ => "ARRÊTÉ · AUCUN SERVEUR PZ"
     };
 
     private static string RuntimeDetail(ServerRuntimeSnapshot runtime) => runtime.State switch
     {
-        ServerRuntimeState.Online => "Le processus du jeu est prêt et l'authentification RCON fonctionne.",
-        ServerRuntimeState.OnlineWithoutRcon when runtime.RconBindFailed => "Le jeu est prêt, mais Project Zomboid n'a pas pu ouvrir le port RCON car il est déjà utilisé par un autre processus.",
-        ServerRuntimeState.OnlineWithoutRcon => "Le jeu est prêt sur ses ports de jeu, mais RCON n'est pas authentifié.",
+        ServerRuntimeState.MultipleInstances => "Plusieurs processus serveur utilisent le même profil. Le serveur dédié et la session hébergée sont affichés séparément ci-dessous; leurs ports peuvent entrer en conflit.",
+        ServerRuntimeState.Online when runtime.Origin == ServerRuntimeOrigin.RemoteRcon => "Le serveur distant répond et l'authentification RCON fonctionne.",
+        ServerRuntimeState.Online when runtime.Origin == ServerRuntimeOrigin.LocalHostedSession => "La session multijoueur hébergée par le client Project Zomboid est prête.",
+        ServerRuntimeState.Online => "Le serveur dédié local est prêt et l'authentification RCON fonctionne.",
+        ServerRuntimeState.OnlineWithoutRcon when runtime.RconBindFailed => "Le serveur dédié est prêt, mais Project Zomboid n'a pas pu ouvrir le port RCON car il est déjà utilisé par un autre processus.",
+        ServerRuntimeState.OnlineWithoutRcon when runtime.Origin == ServerRuntimeOrigin.LocalHostedSession => "La session multijoueur hébergée par le client Project Zomboid est active.",
+        ServerRuntimeState.OnlineWithoutRcon => "Le serveur dédié est prêt sur ses ports de jeu, mais RCON n'est pas authentifié.",
         ServerRuntimeState.StartingSlow => "Le processus existe, mais aucune progression récente ni confirmation de démarrage n'a été détectée. Consultez le journal ci-dessous.",
-        ServerRuntimeState.Starting => "Le processus Project Zomboid initialise actuellement les mods, les cartes et le monde.",
+        ServerRuntimeState.Starting when runtime.Origin == ServerRuntimeOrigin.LocalHostedSession => "La session hébergée initialise les mods, les cartes et le monde depuis le client Project Zomboid.",
+        ServerRuntimeState.Starting => "Le serveur dédié initialise actuellement les mods, les cartes et le monde.",
         _ => "Aucun processus zombie.network.GameServer correspondant à ce profil n'est actuellement détecté."
     };
 
@@ -667,7 +705,16 @@ public class IndexModel(
         ServerRuntimeState.Online => "online",
         ServerRuntimeState.OnlineWithoutRcon => "degraded",
         ServerRuntimeState.Starting or ServerRuntimeState.StartingSlow => "starting",
+        ServerRuntimeState.MultipleInstances => "conflict",
         _ => "offline"
+    };
+
+    public static string RuntimeOriginLabel(ServerRuntimeOrigin origin) => origin switch
+    {
+        ServerRuntimeOrigin.LocalDedicated => "Serveur dédié local",
+        ServerRuntimeOrigin.LocalHostedSession => "Session hébergée par le jeu",
+        ServerRuntimeOrigin.RemoteRcon => "Serveur distant par RCON",
+        _ => "Origine indéterminée"
     };
 
     private static string Limit(string value, int length) => value.Length <= length ? value : value[^length..];

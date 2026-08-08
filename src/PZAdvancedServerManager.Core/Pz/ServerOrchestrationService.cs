@@ -325,12 +325,25 @@ public sealed class ServerOrchestrationService
         string iniPath,
         string serverConsolePath,
         CancellationToken cancellationToken = default)
+        => await InspectLocalRuntimeAsync(serverName, iniPath, serverConsolePath, null, cancellationToken);
+
+    public async Task<ServerRuntimeSnapshot> InspectLocalRuntimeAsync(
+        string serverName,
+        string iniPath,
+        string serverConsolePath,
+        string? coopConsolePath,
+        CancellationToken cancellationToken = default)
     {
         var managedRunning = IsManagedProcessRunning(serverName);
-        var discovered = FindLocalServerProcess(serverName);
-        var processRunning = managedRunning || discovered is not null;
-        var processId = discovered?.ProcessId;
-        var startedAt = discovered?.StartedAt;
+        var instances = FindLocalServerProcesses(serverName);
+        var orderedInstances = instances
+            .OrderBy(instance => instance.Origin == ServerRuntimeOrigin.LocalDedicated ? 0 : 1)
+            .ThenByDescending(instance => instance.StartedAt)
+            .ToArray();
+        var primary = orderedInstances.FirstOrDefault();
+        var processRunning = managedRunning || primary is not null;
+        var processId = primary?.ProcessId;
+        var startedAt = primary?.StartedAt;
         if (managedRunning && _managedServerProcesses.TryGetValue(serverName, out var launcher))
         {
             processId ??= launcher.Id;
@@ -350,7 +363,11 @@ public sealed class ServerOrchestrationService
         }
         else
         {
-            var logRead = ReadServerConsoleTail(serverConsolePath, startedAt, 240);
+            var selectedLogPath = primary?.Origin == ServerRuntimeOrigin.LocalHostedSession
+                && !string.IsNullOrWhiteSpace(coopConsolePath)
+                ? coopConsolePath
+                : serverConsolePath;
+            var logRead = ReadServerConsoleTail(selectedLogPath, startedAt, 240);
             output = logRead.Lines;
             lastOutputAt = logRead.LastOutputAt;
             logConfirmsGameReady = logRead.GameReady;
@@ -371,15 +388,17 @@ public sealed class ServerOrchestrationService
         var slow = processRunning && !gameReady && startedAt is { } started
             && DateTimeOffset.UtcNow - started > TimeSpan.FromMinutes(3)
             && (lastOutputAt is null || DateTimeOffset.UtcNow - lastOutputAt > TimeSpan.FromSeconds(90));
-        var state = rconAuthenticated
-            ? ServerRuntimeState.Online
-            : processRunning && gameReady
-                ? ServerRuntimeState.OnlineWithoutRcon
-                : slow
-                    ? ServerRuntimeState.StartingSlow
-                    : processRunning
-                        ? ServerRuntimeState.Starting
-                        : ServerRuntimeState.Stopped;
+        var state = orderedInstances.Length > 1
+            ? ServerRuntimeState.MultipleInstances
+            : rconAuthenticated
+                ? ServerRuntimeState.Online
+                : processRunning && gameReady
+                    ? ServerRuntimeState.OnlineWithoutRcon
+                    : slow
+                        ? ServerRuntimeState.StartingSlow
+                        : processRunning
+                            ? ServerRuntimeState.Starting
+                            : ServerRuntimeState.Stopped;
 
         return new ServerRuntimeSnapshot(
             state,
@@ -391,7 +410,11 @@ public sealed class ServerOrchestrationService
             processId,
             startedAt,
             lastOutputAt,
-            output);
+            output)
+        {
+            Origin = primary?.Origin ?? ServerRuntimeOrigin.Unknown,
+            Instances = orderedInstances.Select(instance => (ServerRuntimeInstance)instance).ToArray()
+        };
     }
 
     public static string? ParseServerNameFromCommandLine(string? commandLine)
@@ -412,10 +435,13 @@ public sealed class ServerOrchestrationService
     }
 
     private static LocalServerProcess? FindLocalServerProcess(string serverName)
+        => FindLocalServerProcesses(serverName).FirstOrDefault();
+
+    private static IReadOnlyList<LocalServerProcess> FindLocalServerProcesses(string serverName)
         => EnumerateLocalServerProcesses()
             .Where(process => process.ServerName.Equals(serverName, StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(process => process.StartedAt)
-            .FirstOrDefault();
+            .ToArray();
 
     private static IReadOnlyList<LocalServerProcess> EnumerateLocalServerProcesses()
     {
@@ -430,14 +456,22 @@ public sealed class ServerOrchestrationService
         var processes = new List<LocalServerProcess>();
         try
         {
-            using var searcher = new ManagementObjectSearcher("SELECT ProcessId, CommandLine FROM Win32_Process WHERE Name='java.exe' OR Name='javaw.exe'");
+            using var searcher = new ManagementObjectSearcher("SELECT ProcessId, ParentProcessId, ExecutablePath, CommandLine FROM Win32_Process WHERE Name='java.exe' OR Name='javaw.exe'");
             using var results = searcher.Get();
             foreach (ManagementBaseObject item in results)
             {
                 var commandLine = item["CommandLine"] as string;
                 var serverName = ParseServerNameFromCommandLine(commandLine);
                 if (serverName is null || !ConvertToProcessId(item["ProcessId"], out var processId)) continue;
-                processes.Add(new LocalServerProcess(processId, serverName, SafeStartTime(processId)));
+                var parentProcessId = ConvertToProcessId(item["ParentProcessId"], out var parentId) ? (int?)parentId : null;
+                var executablePath = item["ExecutablePath"] as string ?? string.Empty;
+                processes.Add(new LocalServerProcess(
+                    processId,
+                    parentProcessId,
+                    serverName,
+                    ParseRuntimeOriginFromCommandLine(commandLine),
+                    SafeStartTime(processId),
+                    executablePath));
             }
         }
         catch (Exception exception) when (exception is ManagementException or UnauthorizedAccessException or PlatformNotSupportedException) { }
@@ -458,11 +492,42 @@ public sealed class ServerOrchestrationService
                 catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { continue; }
                 var serverName = ParseServerNameFromCommandLine(commandLine);
                 if (serverName is null) continue;
-                processes.Add(new LocalServerProcess(processId, serverName, SafeStartTime(processId)));
+                var executablePath = string.Empty;
+                try { executablePath = File.ResolveLinkTarget(Path.Combine(directory, "exe"), returnFinalTarget: true)?.FullName ?? string.Empty; }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
+                processes.Add(new LocalServerProcess(
+                    processId,
+                    ReadLinuxParentProcessId(directory),
+                    serverName,
+                    ParseRuntimeOriginFromCommandLine(commandLine),
+                    SafeStartTime(processId),
+                    executablePath));
             }
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
         return processes;
+    }
+
+    public static ServerRuntimeOrigin ParseRuntimeOriginFromCommandLine(string? commandLine)
+    {
+        if (ParseServerNameFromCommandLine(commandLine) is null) return ServerRuntimeOrigin.Unknown;
+        return Regex.IsMatch(commandLine!, @"(?:^|\s)-coop(?:\s|$)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            ? ServerRuntimeOrigin.LocalHostedSession
+            : ServerRuntimeOrigin.LocalDedicated;
+    }
+
+    private static int? ReadLinuxParentProcessId(string processDirectory)
+    {
+        try
+        {
+            var statusLine = File.ReadLines(Path.Combine(processDirectory, "status"))
+                .FirstOrDefault(line => line.StartsWith("PPid:", StringComparison.Ordinal));
+            return statusLine is not null
+                && int.TryParse(statusLine.AsSpan(5).Trim(), out var parentProcessId)
+                    ? parentProcessId
+                    : null;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { return null; }
     }
 
     private static bool ConvertToProcessId(object? value, out int processId)
@@ -599,7 +664,22 @@ public sealed class ServerOrchestrationService
     }
 
     private sealed record RconSettings(int Port, string Password);
-    private sealed record LocalServerProcess(int ProcessId, string ServerName, DateTimeOffset? StartedAt);
+    private sealed record LocalServerProcess(
+        int ProcessId,
+        int? ParentProcessId,
+        string ServerName,
+        ServerRuntimeOrigin Origin,
+        DateTimeOffset? StartedAt,
+        string ExecutablePath)
+    {
+        public static implicit operator ServerRuntimeInstance(LocalServerProcess process) => new(
+            process.ProcessId,
+            process.ParentProcessId,
+            process.ServerName,
+            process.Origin,
+            process.StartedAt,
+            process.ExecutablePath);
+    }
     private sealed record RuntimeLogReadResult(
         IReadOnlyList<ServerRuntimeLogLine> Lines,
         DateTimeOffset? LastOutputAt,

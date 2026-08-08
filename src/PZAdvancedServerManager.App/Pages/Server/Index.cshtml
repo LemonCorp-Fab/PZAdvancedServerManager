@@ -11,7 +11,7 @@
 @if (TempData["Error"] is string error) { <div class="error-message">@error</div> }
 
 <section class="project-hero workspace-hero">
-    <div class="workspace-title"><span class="eyebrow">SERVEURS PROJECT ZOMBOID</span><h1>Serveurs locaux et distants</h1><p>Configurez et pilotez uniquement le processus Project Zomboid, sur cette machine ou sur un VPS/dédié.</p></div>
+    <div class="workspace-title"><span class="eyebrow">SERVEURS PROJECT ZOMBOID</span><h1>Serveurs locaux et distants</h1><p>Supervisez séparément les serveurs dédiés, les sessions hébergées par le jeu et les machines distantes.</p></div>
     <div class="project-kpis"><span><strong>@Model.Configs.Count</strong> profils</span><span><strong>@Model.Projects.Count</strong> packs</span><span><strong>INI</strong> sauvegardé avant écriture</span></div>
 </section>
 
@@ -21,7 +21,7 @@
         <nav>
             @foreach (var config in Model.Configs)
             {
-                <a class="@(Model.Selected?.Name == config.Name ? "active" : "")" asp-route-name="@config.Name"><span class="server-profile-line"><strong>@config.Name</strong><em class="connection-badge @(config.IsRemote ? "remote" : "local")">@(config.IsRemote ? "DISTANT" : "LOCAL")</em></span><small>@config.Location</small></a>
+                <a class="@(Model.Selected?.Name == config.Name ? "active" : "")" asp-route-name="@config.Name"><span class="server-profile-line"><strong>@config.Name</strong><em class="connection-badge @(config.IsRemote ? "remote" : "local")">@(config.IsRemote ? "DISTANT" : "PROFIL LOCAL")</em></span><small>@config.Location</small></a>
             }
         </nav>
         <form method="post" asp-page-handler="Create" class="stack-form create-server-form" data-loading-title="Création du profil serveur…" data-loading-detail="Génération d’une configuration sûre avec les paramètres de base et RCON.">
@@ -59,13 +59,20 @@
         {
             <div class="warning-callout connection-error"><strong>Connexion ou configuration indisponible</strong><p>@Model.ConnectionError</p></div>
         }
+        <nav class="server-view-tabs" aria-label="Vues du serveur" data-server-view-tabs>
+            <button type="button" data-server-view-target="supervision"><span>01</span><strong>Supervision</strong><small>Processus et journal</small></button>
+            <button type="button" data-server-view-target="network"><span>02</span><strong>Réseau & RCON</strong><small>Ports et commandes</small></button>
+            <button type="button" data-server-view-target="data"><span>03</span><strong>Données</strong><small>Monde et sauvegardes</small></button>
+            <button type="button" data-server-view-target="deployment"><span>04</span><strong>Déploiement</strong><small>Connexion et packs</small></button>
+        </nav>
         <section class="panel server-command-center"
+                 data-server-view="supervision"
                  data-server-runtime
                  data-runtime-endpoint="@Url.Page("/Server/Index", "Runtime", new { name = Model.Selected.Name })"
                  data-runtime-running="@Model.SelectedRuntime.IsRunning.ToString().ToLowerInvariant()"
                  data-runtime-rcon="@Model.SelectedRuntime.IsRconAuthenticated.ToString().ToLowerInvariant()">
             <div class="panel-heading">
-                <div><span class="eyebrow">@(Model.Selected.IsRemote ? "SERVEUR DISTANT" : "SERVEUR LOCAL") · @Model.Selected.Name</span><h2>Centre de contrôle</h2><p>@Model.Selected.Location</p></div>
+                <div><span class="eyebrow">@(Model.Selected.IsRemote ? "SERVEUR DISTANT" : "PROFIL SERVEUR LOCAL") · @Model.Selected.Name</span><h2>Centre de contrôle</h2><p>@Model.Selected.Location</p></div>
                 <span class="server-status @Model.RuntimeStatusCss" data-runtime-status>@Model.RuntimeStatusText</span>
             </div>
             @if (Model.Selected.CanManageConfiguration) { <div class="summary-columns">
@@ -75,8 +82,8 @@
             </div> }
             <div class="server-action-grid">
                 @if (!Model.Selected.IsRemote) { <form method="post" asp-page-handler="RepairDedicated" asp-route-name="@Model.Selected.Name" data-operation-progress data-loading-title="Mise à jour du serveur dédié…" data-loading-detail="SteamCMD vérifie les fichiers de l’AppID 380870 et rafraîchit les droits de téléchargement Workshop anonymes." data-loading-steps="Connexion Steam anonyme|Vérification des fichiers|Réparation de l’installation|Rafraîchissement des droits Workshop" data-confirm-title="Mettre à jour et réparer le serveur dédié ?" data-confirm-message="SteamCMD validera toute l’installation Project Zomboid Dedicated Server. Cette opération peut lire plusieurs gigaoctets et restaurer les fichiers d’installation officiels." data-confirm-action="Mettre à jour et réparer"><button class="server-action maintenance-action" type="submit" disabled="@Model.SelectedServerOnline"><span class="server-action-icon">↻</span><span><strong>Mettre à jour et réparer</strong><small>AppID 380870 · SteamCMD anonyme</small></span></button></form> }
-                <form method="post" asp-page-handler="Start" asp-route-name="@Model.Selected.Name" class="server-start-form" autocomplete="off" data-loading-title="Démarrage de Project Zomboid…" data-loading-detail="Vérification Workshop, lancement du processus de jeu et initialisation sécurisée du compte admin si nécessaire. La machine hôte ne sera jamais redémarrée.">
-                    <button class="server-action primary-action" type="submit" disabled="@(Model.SelectedServerOnline || !Model.SelectedServerCanStart)"><span class="server-action-icon">▶</span><span><strong>Démarrer le jeu</strong><small>@(Model.Selected.IsRemote ? (Model.SelectedServerCanStart ? "Commande SSH configurée" : "Commande SSH à configurer") : "Processus local dédié")</small></span></button>
+                <form method="post" asp-page-handler="Start" asp-route-name="@Model.Selected.Name" class="server-start-form" autocomplete="off" data-loading-title="Démarrage du serveur Project Zomboid…" data-loading-detail="Vérification Workshop, lancement du serveur dédié et initialisation sécurisée du compte admin si nécessaire. La machine hôte ne sera jamais redémarrée.">
+                    <button class="server-action primary-action" type="submit" disabled="@(Model.SelectedServerOnline || !Model.SelectedServerCanStart)"><span class="server-action-icon">▶</span><span><strong>@(Model.Selected.IsRemote ? "Démarrer le serveur distant" : "Démarrer le serveur dédié")</strong><small>@(Model.Selected.IsRemote ? (Model.SelectedServerCanStart ? "Commande SSH configurée" : "Commande SSH à configurer") : "Installation Dedicated Server locale")</small></span></button>
                     @if (!Model.Selected.IsRemote)
                     {
                         @if (Model.AdminAccountStatus.IsConfigured)
@@ -101,40 +108,65 @@
             </div>
             <div class="runtime-monitor">
                 <div class="runtime-monitor-heading">
-                    <div><span class="eyebrow">ÉTAT DYNAMIQUE DU PROCESSUS</span><h3>Sortie de Project Zomboid</h3><p data-runtime-detail>@Model.RuntimeStatusDetail</p></div>
+                    <div><span class="eyebrow">ÉTAT DYNAMIQUE DES SERVEURS</span><h3>Processus Project Zomboid détectés</h3><p data-runtime-detail>@Model.RuntimeStatusDetail</p></div>
                     <span class="runtime-live-indicator"><i></i> Actualisation automatique</span>
                 </div>
                 <div class="runtime-facts">
-                    <span><small>PROCESSUS</small><strong data-runtime-pid>@(Model.SelectedRuntime.ProcessId?.ToString(CultureInfo.InvariantCulture) ?? "—")</strong></span>
+                    <span><small>INSTANCE PRINCIPALE</small><strong data-runtime-pid>@(Model.SelectedRuntime.ProcessId is int processId ? $"PID {processId.ToString(CultureInfo.InvariantCulture)}" : "—")</strong></span>
                     <span><small>DÉTECTION</small><strong data-runtime-source>@Model.RuntimeDetectionSource</strong></span>
                     <span><small>DÉMARRÉ</small><strong data-runtime-started>@(Model.SelectedRuntime.StartedAt?.ToLocalTime().ToString("G", CultureInfo.CurrentCulture) ?? "—")</strong></span>
                     <span><small>DERNIÈRE SORTIE</small><strong data-runtime-last-output>@(Model.SelectedRuntime.LastOutputAt?.ToLocalTime().ToString("T", CultureInfo.CurrentCulture) ?? "—")</strong></span>
                 </div>
-                <div class="warning-callout runtime-rcon-warning @(Model.SelectedRuntime.RconBindFailed ? "" : "is-hidden")" data-runtime-rcon-warning>
-                    <strong>Le jeu fonctionne, mais le port RCON est occupé</strong>
-                    <p>Choisissez un autre port RCON libre dans « Accès & RCON », arrêtez ensuite le processus de jeu de manière contrôlée, puis relancez-le pour activer la console d’administration.</p>
+                <div class="runtime-instance-list" data-runtime-instances>
+                    @foreach (var instance in Model.SelectedRuntime.Instances)
+                    {
+                        <article class="runtime-instance @(instance.Origin == ServerRuntimeOrigin.LocalHostedSession ? "hosted" : "dedicated")">
+                            <span class="runtime-instance-icon">@(instance.Origin == ServerRuntimeOrigin.LocalHostedSession ? "H" : "D")</span>
+                            <div><strong>@IndexModel.RuntimeOriginLabel(instance.Origin)</strong><small>PID @instance.ProcessId · démarré @(instance.StartedAt?.ToLocalTime().ToString("G", CultureInfo.CurrentCulture) ?? "—")</small><code>@instance.ExecutablePath</code></div>
+                        </article>
+                    }
                 </div>
-                <div class="process-terminal" data-runtime-output aria-live="polite">
-                    @if (Model.SelectedRuntime.Output.Count == 0)
-                    {
-                        <div class="process-terminal-empty"><strong>Aucune sortie disponible</strong><span>Le journal apparaîtra ici dès que le processus écrira une ligne.</span></div>
-                    }
-                    else
-                    {
-                        @foreach (var line in Model.SelectedRuntime.Output)
+                <div class="warning-callout runtime-instance-warning @(Model.SelectedRuntime.Instances.Count > 1 ? "" : "is-hidden")" data-runtime-instance-warning>
+                    <strong>Plusieurs serveurs utilisent le profil @Model.Selected.Name</strong>
+                    <p>Une session hébergée et un serveur dédié sont deux processus distincts. Avec le même INI, ils tentent généralement d’utiliser les mêmes ports; conservez une seule instance active par profil.</p>
+                </div>
+                <div class="warning-callout runtime-rcon-warning @(Model.SelectedRuntime.RconBindFailed ? "" : "is-hidden")" data-runtime-rcon-warning>
+                    <strong>Le serveur dédié fonctionne, mais le port RCON est occupé</strong>
+                    <p>Choisissez un autre port RCON libre dans « Accès & RCON », arrêtez ensuite le serveur de manière contrôlée, puis relancez-le pour activer la console d’administration.</p>
+                </div>
+                <div class="process-log-view" data-runtime-log-view>
+                    <div class="process-log-toolbar">
+                        <div><span class="eyebrow">JOURNAL EN DIRECT</span><strong>@Model.RuntimeLogSource</strong><small data-runtime-log-summary>@Model.SelectedRuntime.Output.Count lignes récentes</small></div>
+                        <label class="process-log-search"><span>Rechercher</span><input type="search" placeholder="texte, module, erreur…" data-runtime-log-search /></label>
+                        <div class="process-log-filters" role="group" aria-label="Filtrer le journal">
+                            <button type="button" class="is-active" data-log-filter="all">Tout <span data-log-count="all">@Model.SelectedRuntime.Output.Count</span></button>
+                            <button type="button" data-log-filter="important">Important <span data-log-count="important">0</span></button>
+                            <button type="button" data-log-filter="error">Erreurs <span data-log-count="error">0</span></button>
+                            <button type="button" data-log-filter="warning">Alertes <span data-log-count="warning">0</span></button>
+                        </div>
+                    </div>
+                    <div class="process-terminal" data-runtime-output aria-live="polite">
+                        @if (Model.SelectedRuntime.Output.Count == 0)
                         {
-                            <div class="process-log-line @line.Stream.ToLowerInvariant()">
-                                <time>@(line.Timestamp?.ToLocalTime().ToString("HH:mm:ss") ?? "journal")</time><span>@line.Stream</span><code>@line.Message</code>
-                            </div>
+                            <div class="process-terminal-empty"><strong>Aucune sortie disponible</strong><span>Le journal apparaîtra ici dès que le processus écrira une ligne.</span></div>
                         }
-                    }
+                        else
+                        {
+                            @foreach (var line in Model.SelectedRuntime.Output)
+                            {
+                                <div class="process-log-line level-@line.Level" data-log-level="@line.Level">
+                                    <time>@(line.Timestamp?.ToLocalTime().ToString("HH:mm:ss") ?? $"#{line.Sequence}")</time><span>@line.Level.ToUpperInvariant()</span><code>@line.Message</code>
+                                </div>
+                            }
+                        }
+                    </div>
                 </div>
             </div>
         </section>
 
         @if (Model.NetworkInfo is not null)
         {
-            <section class="panel server-network-panel">
+            <section class="panel server-network-panel" data-server-view="network" hidden>
                 <div class="panel-heading">
                     <div><span class="eyebrow">RÉSEAU DU SERVEUR</span><h2>Adresses et ports</h2><p>Valeurs configurées dans le profil et adresses accessibles depuis cette machine.</p></div>
                     <div class="network-state-pills">
@@ -164,7 +196,7 @@
 
         @if (Model.SelectedRconAvailable)
         {
-            <section class="panel rcon-console-panel" id="rcon-console">
+            <section class="panel rcon-console-panel" id="rcon-console" data-server-view="network" hidden>
                 <div class="panel-heading rcon-console-heading">
                     <div><span class="eyebrow">RCON AUTHENTIFIÉ</span><h2>Console d’administration</h2><p>Historique des commandes envoyées depuis cette session du manager et de leurs réponses.</p></div>
                     @if (Model.RconHistory.Count > 0)
@@ -199,7 +231,7 @@
 
         @if (!Model.Selected.IsRemote)
         {
-            <section class="panel server-data-panel">
+            <section class="panel server-data-panel" data-server-view="data" hidden>
                 <div class="panel-heading">
                     <div><span class="eyebrow">DONNÉES DU SERVEUR</span><h2>Monde, joueurs et sauvegardes</h2><p>Gérez le cycle de vie du monde sans modifier le pack, les mods ou les règles Sandbox actuelles.</p></div>
                     <span class="server-status @(Model.WorldDataStatus?.HasData == true ? "online" : "offline")">@(Model.WorldDataStatus?.HasData == true ? "MONDE DÉTECTÉ" : "AUCUN MONDE")</span>
@@ -270,12 +302,12 @@
         }
         else
         {
-            <section class="panel server-data-panel remote-data-note"><div class="panel-heading"><div><span class="eyebrow">DONNÉES DU SERVEUR DISTANT</span><h2>Backups hébergeur ou accès fichiers requis</h2><p>RCON ne transporte pas les fichiers du monde. Utilisez les snapshots de votre VPS/hébergeur pour l’instant; aucune suppression distante n’est proposée sans chemin de données explicite et vérifiable.</p></div></div></section>
+            <section class="panel server-data-panel remote-data-note" data-server-view="data" hidden><div class="panel-heading"><div><span class="eyebrow">DONNÉES DU SERVEUR DISTANT</span><h2>Backups hébergeur ou accès fichiers requis</h2><p>RCON ne transporte pas les fichiers du monde. Utilisez les snapshots de votre VPS/hébergeur pour l’instant; aucune suppression distante n’est proposée sans chemin de données explicite et vérifiable.</p></div></div></section>
         }
 
         @if (Model.Selected.IsRemote)
         {
-            <section class="panel remote-connection-panel">
+            <section class="panel remote-connection-panel" data-server-view="deployment" hidden>
                 <div class="panel-heading"><div><span class="eyebrow">CONNEXION DISTANTE</span><h3>RCON principal · SSH facultatif</h3><p>RCON suffit pour le statut, les commandes, save/quit et la coordination. SSH n’est requis que pour l’INI ou un démarrage explicite.</p></div></div>
                 <form method="post" asp-page-handler="SaveRemote" asp-route-name="@Model.Selected.Name" class="form-grid" data-loading-title="Enregistrement du profil distant…" data-loading-detail="Validation des paramètres RCON et, si configurés, test des accès SSH facultatifs." data-loading-steps="Validation RCON|Vérification SSH facultative|Enregistrement atomique">
                     <input asp-for="Remote.Name" type="hidden" />
@@ -296,11 +328,11 @@
 
         @if (!Model.Selected.CanManageConfiguration)
         {
-            <div class="info-callout"><strong>Profil RCON-only prêt pour la coordination</strong><p>La gestion de l’INI, des listes de mods et des cartes est masquée car aucun chemin SSH n’est configuré. Vous pouvez toujours tester RCON, envoyer des commandes et sélectionner ce profil dans la planification d’un pack.</p></div>
+            <div class="info-callout" data-server-view="deployment" hidden><strong>Profil RCON-only prêt pour la coordination</strong><p>La gestion de l’INI, des listes de mods et des cartes est masquée car aucun chemin SSH n’est configuré. Vous pouvez toujours tester RCON, envoyer des commandes et sélectionner ce profil dans la planification d’un pack.</p></div>
         }
         else
         {
-        <section class="panel pack-apply-panel">
+        <section class="panel pack-apply-panel" data-server-view="deployment" hidden>
             <div class="info-callout"><strong>Un Workshop ID est requis pour la distribution automatique</strong><p>Project Zomboid peut charger des fichiers locaux sur le serveur, mais ne les transmet pas aux clients. Sans Workshop, chaque joueur doit installer manuellement la même version; le manager ne présente donc ici que les packs construits et publiés.</p></div>
             <div><span class="eyebrow">APPLICATION SÛRE</span><h3>Installer un pack sur ce serveur</h3><p>Seules les listes <code>WorkshopItems</code>, <code>Mods</code> et <code>Map</code> sont remplacées après sauvegarde.</p></div>
             <form method="post" asp-page-handler="ApplyPack" asp-route-name="@Model.Selected.Name" class="pack-apply-form" data-loading-title="Application du pack au serveur…" data-loading-detail="Sauvegarde du profil puis remplacement contrôlé de WorkshopItems, Mods et Map." data-confirm-title="Appliquer ce pack au serveur ?" data-confirm-message="Les listes WorkshopItems, Mods et Map seront remplacées après création d’une sauvegarde horodatée. Les autres réglages du serveur resteront inchangés." data-confirm-action="Appliquer le pack">

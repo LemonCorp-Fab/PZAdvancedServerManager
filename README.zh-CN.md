@@ -43,7 +43,7 @@ Mods=ModIdA;ModIdB;ModIdC;PZASM_Notice_SUFFIX
 - Workshop 导入显示详细进度，包括当前项目、阶段、数量、百分比、分析结果和可恢复错误；
 - 地图优先级助手会分析 `map.info`、`lots=` 依赖和 `.lotheader` 单元格冲突，并支持拖放与原始 `Map=` 编辑；
 - 服务器引导编辑器覆盖身份、访问、RCON、会话、备份和内容，同时保留完整 INI 原始编辑器；本地启动时会读取 SQLite `whitelist` 表，仅在确实缺少 `admin` 账户时要求输入初始密码；
-- 通过精确的 `-servername` 参数动态重新发现本地进程，即使服务器早于管理器启动也能识别；提供启动、就绪、降级和停止阶段，容量受限且已脱敏的 stdout/stderr 捕获、`server-console.txt` 实时跟踪、网络概览、经认证的 RCON 状态以及命令/响应控制台；仍可发送 `save`/`quit` 并协调重启，远程配置无需 SSH；
+- 通过 `zombie.network.GameServer` 和 `-servername` 动态重新发现服务器，即使服务器早于管理器启动也能识别；`-coop` 进程与本地专用服务器会分别显示，单独运行的图形客户端不会被误判，同一配置的重复实例会标记为冲突。分页式服务器视图提供清晰的 `server-console.txt` 或 `coop-console.txt` 日志、搜索与严重级别筛选、容量受限且已脱敏的 stdout/stderr、网络、RCON 以及命令/响应控制台；
 - 发布、SteamCMD 登录和模组更新均提供详细且可取消的进度、实时输出和超时保护；
 - Windows/Linux 本地 UI 与无界面 CLI；
 - 带跨进程锁的 `automation run` 守护进程。

@@ -206,7 +206,8 @@ public sealed class ServerProfileService(
         if (!profile.IsRemote)
         {
             var consolePath = Path.Combine(environment.Installation.UserZomboidRoot, "server-console.txt");
-            return await orchestration.InspectLocalRuntimeAsync(profile.Name, profile.Path, consolePath, cancellationToken);
+            var coopConsolePath = Path.Combine(environment.Installation.UserZomboidRoot, "coop-console.txt");
+            return await orchestration.InspectLocalRuntimeAsync(profile.Name, profile.Path, consolePath, coopConsolePath, cancellationToken);
         }
 
         var remote = profile.Remote!;
@@ -221,7 +222,10 @@ public sealed class ServerProfileService(
             null,
             null,
             null,
-            []);
+            [])
+        {
+            Origin = ServerRuntimeOrigin.RemoteRcon
+        };
     }
 
     public ServerNetworkInfo ReadNetworkInfo(string name)

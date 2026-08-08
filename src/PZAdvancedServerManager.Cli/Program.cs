@@ -296,11 +296,13 @@ internal sealed class PzasmCli
                     var process = runtime.ProcessId is int processId ? $" pid={processId}" : string.Empty;
                     var state = runtime.State switch
                     {
+                        ServerRuntimeState.MultipleInstances => "multiple-instances",
                         ServerRuntimeState.OnlineWithoutRcon => "online-without-rcon",
                         ServerRuntimeState.StartingSlow => "starting-slow",
                         _ => runtime.State.ToString().ToLowerInvariant()
                     };
-                    Console.WriteLine($"{state}{process} rcon={(runtime.IsRconAuthenticated ? "authenticated" : "unavailable")}");
+                    var origin = runtime.Origin.ToString().ToLowerInvariant();
+                    Console.WriteLine($"{state}{process} origin={origin} instances={runtime.Instances.Count} rcon={(runtime.IsRconAuthenticated ? "authenticated" : "unavailable")}");
                 }
                 return runtime.IsRunning ? 0 : 4;
             case "test-rcon":

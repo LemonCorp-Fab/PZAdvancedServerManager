@@ -47,12 +47,19 @@ document.querySelectorAll('details.mod-card').forEach(card => {
     const lastOutput = root.querySelector('[data-runtime-last-output]');
     const output = root.querySelector('[data-runtime-output]');
     const warning = root.querySelector('[data-runtime-rcon-warning]');
+    const instanceWarning = root.querySelector('[data-runtime-instance-warning]');
+    const instances = root.querySelector('[data-runtime-instances]');
+    const logSummary = root.querySelector('[data-runtime-log-summary]');
+    const logSearch = root.querySelector('[data-runtime-log-search]');
+    const logFilters = Array.from(root.querySelectorAll('[data-log-filter]'));
     const rconPort = document.querySelector('[data-runtime-rcon-port]');
     let knownRunning = root.dataset.runtimeRunning === 'true';
     let knownRcon = root.dataset.runtimeRcon === 'true';
     let outputSignature = '';
     let requestActive = false;
     let reloadScheduled = false;
+    let activeLogFilter = 'all';
+    let logQuery = '';
 
     const formatDate = (value, includeDate) => {
         if (!value) return '—';
@@ -61,6 +68,69 @@ document.querySelectorAll('details.mod-card').forEach(card => {
         return new Intl.DateTimeFormat(document.documentElement.lang || 'fr', includeDate
             ? { dateStyle: 'short', timeStyle: 'medium' }
             : { timeStyle: 'medium' }).format(date);
+    };
+
+    const classifyLine = line => {
+        if (line.level) return line.level.toLocaleLowerCase();
+        const message = line.message || '';
+        if (/ERROR:|Exception thrown|BindException/i.test(message) || /^(ERR|STDERR)$/i.test(line.stream || '')) return 'error';
+        if (/WARN\s*:|WARNING/i.test(message)) return 'warning';
+        if (/\*\*\* SERVER STARTED \*\*\*|SERVER STARTED/i.test(message)) return 'success';
+        if (/^SYSTEM$/i.test(line.stream || '')) return 'system';
+        if (/^\s|Stack trace:/i.test(message)) return 'stack';
+        return 'info';
+    };
+
+    const levelLabel = level => ({ error: 'ERR', warning: 'WARN', success: 'OK', system: 'SYS', stack: 'TRACE', info: 'INFO' })[level] || 'INFO';
+
+    const applyLogFilter = () => {
+        if (!output) return;
+        const rows = Array.from(output.querySelectorAll('.process-log-line'));
+        const counts = { all: rows.length, important: 0, error: 0, warning: 0 };
+        rows.forEach(row => {
+            const level = row.dataset.logLevel || 'info';
+            const important = level === 'error' || level === 'warning' || level === 'success';
+            if (important) counts.important++;
+            if (level === 'error') counts.error++;
+            if (level === 'warning') counts.warning++;
+            const levelMatches = activeLogFilter === 'all'
+                || activeLogFilter === 'important' && important
+                || level === activeLogFilter;
+            const queryMatches = !logQuery || row.textContent.toLocaleLowerCase().includes(logQuery);
+            row.hidden = !(levelMatches && queryMatches);
+        });
+        Object.entries(counts).forEach(([name, count]) => {
+            const target = root.querySelector(`[data-log-count="${name}"]`);
+            if (target) target.textContent = String(count);
+        });
+        if (logSummary) {
+            const visible = rows.filter(row => !row.hidden).length;
+            logSummary.textContent = visible === rows.length ? `${rows.length} lignes récentes` : `${visible} sur ${rows.length} lignes`;
+        }
+    };
+
+    const renderInstances = values => {
+        if (!instances || !Array.isArray(values)) return;
+        instances.replaceChildren();
+        values.forEach(instance => {
+            const hosted = instance.origin === 'LocalHostedSession';
+            const card = document.createElement('article');
+            const icon = document.createElement('span');
+            const body = document.createElement('div');
+            const heading = document.createElement('strong');
+            const detailLine = document.createElement('small');
+            const executable = document.createElement('code');
+            card.className = `runtime-instance ${hosted ? 'hosted' : 'dedicated'}`;
+            icon.className = 'runtime-instance-icon';
+            icon.textContent = hosted ? 'H' : 'D';
+            heading.textContent = instance.label || (hosted ? 'Session hébergée par le jeu' : 'Serveur dédié local');
+            detailLine.textContent = `PID ${instance.processId || '—'} · démarré ${formatDate(instance.startedAt, true)}`;
+            executable.textContent = instance.executablePath || '';
+            body.append(heading, detailLine, executable);
+            card.append(icon, body);
+            instances.append(card);
+        });
+        instances.hidden = values.length === 0;
     };
 
     const renderOutput = lines => {
@@ -84,29 +154,32 @@ document.querySelectorAll('details.mod-card').forEach(card => {
         }
         const fragment = document.createDocumentFragment();
         lines.forEach(line => {
+            const level = classifyLine(line);
             const row = document.createElement('div');
             const time = document.createElement('time');
             const stream = document.createElement('span');
             const message = document.createElement('code');
-            row.className = `process-log-line ${(line.stream || 'log').toLocaleLowerCase()}`;
-            time.textContent = line.timestamp ? formatDate(line.timestamp, false) : 'journal';
-            stream.textContent = line.stream || 'LOG';
+            row.className = `process-log-line level-${level}`;
+            row.dataset.logLevel = level;
+            time.textContent = line.timestamp ? formatDate(line.timestamp, false) : `#${line.sequence || '—'}`;
+            stream.textContent = levelLabel(level);
             message.textContent = line.message || '';
             row.append(time, stream, message);
             fragment.append(row);
         });
         output.append(fragment);
+        applyLogFilter();
         if (followsTail || output.scrollTop === 0) output.scrollTop = output.scrollHeight;
     };
 
     const render = data => {
         if (status) {
             status.textContent = data.status || status.textContent;
-            status.classList.remove('online', 'degraded', 'starting', 'offline');
+            status.classList.remove('online', 'degraded', 'starting', 'conflict', 'offline');
             status.classList.add(data.cssClass || 'offline');
         }
         if (detail) detail.textContent = data.detail || '';
-        if (pid) pid.textContent = data.processId || '—';
+        if (pid) pid.textContent = data.processId ? `PID ${data.processId}` : '—';
         if (source) source.textContent = data.source || '—';
         if (started) started.textContent = formatDate(data.startedAt, true);
         if (lastOutput) lastOutput.textContent = formatDate(data.lastOutputAt, false);
@@ -114,6 +187,12 @@ document.querySelectorAll('details.mod-card').forEach(card => {
             warning.hidden = !data.rconBindFailed;
             warning.classList.toggle('is-hidden', !data.rconBindFailed);
         }
+        if (instanceWarning) {
+            const multiple = Array.isArray(data.instances) && data.instances.length > 1;
+            instanceWarning.hidden = !multiple;
+            instanceWarning.classList.toggle('is-hidden', !multiple);
+        }
+        renderInstances(data.instances);
         rconPort?.classList.toggle('port-conflict', Boolean(data.rconBindFailed));
         renderOutput(data.output);
 
@@ -128,6 +207,16 @@ document.querySelectorAll('details.mod-card').forEach(card => {
             window.setTimeout(() => window.location.reload(), 700);
         }
     };
+
+    logFilters.forEach(button => button.addEventListener('click', () => {
+        activeLogFilter = button.dataset.logFilter || 'all';
+        logFilters.forEach(candidate => candidate.classList.toggle('is-active', candidate === button));
+        applyLogFilter();
+    }));
+    logSearch?.addEventListener('input', () => {
+        logQuery = logSearch.value.trim().toLocaleLowerCase();
+        applyLogFilter();
+    });
 
     const poll = async () => {
         if (requestActive || document.hidden || reloadScheduled) return;
@@ -144,6 +233,38 @@ document.querySelectorAll('details.mod-card').forEach(card => {
     const timer = window.setInterval(() => void poll(), 2500);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) void poll(); });
     window.addEventListener('pagehide', () => window.clearInterval(timer), { once: true });
+})();
+
+(() => {
+    const tabs = document.querySelector('[data-server-view-tabs]');
+    if (!tabs) return;
+    const container = tabs.closest('.server-content');
+    if (!container) return;
+    const buttons = Array.from(tabs.querySelectorAll('[data-server-view-target]'));
+    const views = Array.from(container.querySelectorAll('[data-server-view]'));
+    const profile = new URLSearchParams(window.location.search).get('name') || 'default';
+    const storageKey = `pzasm-server-view:${profile}`;
+    const activate = name => {
+        if (!buttons.some(button => button.dataset.serverViewTarget === name)) name = 'supervision';
+        buttons.forEach(button => {
+            const active = button.dataset.serverViewTarget === name;
+            button.classList.toggle('is-active', active);
+            button.setAttribute('aria-selected', String(active));
+        });
+        views.forEach(view => {
+            const active = view.dataset.serverView === name;
+            view.hidden = !active;
+            view.classList.toggle('is-active', active);
+        });
+        try { window.sessionStorage.setItem(storageKey, name); } catch { }
+    };
+    buttons.forEach(button => button.addEventListener('click', () => activate(button.dataset.serverViewTarget)));
+    let initial = new URLSearchParams(window.location.search).get('view');
+    if (!initial && window.location.hash === '#rcon-console') initial = 'network';
+    if (!initial) {
+        try { initial = window.sessionStorage.getItem(storageKey); } catch { }
+    }
+    activate(initial || 'supervision');
 })();
 
 document.querySelectorAll('[data-tabs]').forEach(tabSet => {

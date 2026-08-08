@@ -29,6 +29,7 @@ public class IndexModel(
     public IReadOnlyList<ServerWorldBackupInfo> WorldBackups { get; private set; } = [];
     public string WorldDataError { get; private set; } = string.Empty;
     public bool SelectedServerCanStart => Selected is not null && (!Selected.IsRemote || Selected.Remote!.HasSshConnection && !string.IsNullOrWhiteSpace(Selected.Remote.StartCommand));
+    public bool InitialAdminPasswordRecommended => Selected is { IsRemote: false } && WorldDataStatus?.HasWorld != true;
     public string ConnectionError { get; private set; } = string.Empty;
     public string SandboxError { get; private set; } = string.Empty;
     public IReadOnlyList<StructuredServerSetting> AllSettings { get; private set; } = [];
@@ -252,13 +253,18 @@ public class IndexModel(
         return RedirectToPage();
     }
 
-    public async Task<IActionResult> OnPostStartAsync(string name, CancellationToken cancellationToken)
+    public async Task<IActionResult> OnPostStartAsync(string name, string? initialAdminPassword, string? initialAdminPasswordConfirmation, CancellationToken cancellationToken)
     {
         try
         {
             var profile = servers.Get(name);
             if (!profile.IsRemote)
             {
+                if (!string.Equals(initialAdminPassword, initialAdminPasswordConfirmation, StringComparison.Ordinal))
+                    throw new InvalidOperationException("Les deux saisies du mot de passe administrateur initial ne correspondent pas.");
+                var worldStatus = worldData.Inspect(servers.ResolveWorldDataLocation(name));
+                if (!worldStatus.HasWorld && string.IsNullOrEmpty(initialAdminPassword))
+                    throw new InvalidOperationException("Ce profil n'a pas encore de monde actif. Saisissez et confirmez le mot de passe du compte « admin » pour permettre son initialisation non interactive.");
                 var steamStatus = steamCmdInstaller.GetStatus();
                 if (steamStatus.Installed)
                 {
@@ -274,7 +280,7 @@ public class IndexModel(
                     }
                 }
             }
-            await servers.StartAsync(name, cancellationToken);
+            await servers.StartAsync(name, profile.IsRemote ? null : initialAdminPassword, cancellationToken);
             TempData["Message"] = $"Démarrage du jeu « {name} » demandé. Le statut RCON apparaîtra après son initialisation.";
         }
         catch (Exception exception)

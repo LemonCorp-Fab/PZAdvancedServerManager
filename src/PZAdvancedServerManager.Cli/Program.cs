@@ -307,7 +307,7 @@ internal sealed class PzasmCli
                 Console.WriteLine($"{name} saved and quit through RCON. Its configured supervisor must restart Project Zomboid.");
                 return 0;
             case "start":
-                await services.Servers.StartAsync(name);
+                await services.Servers.StartAsync(name, ReadInitialAdminPassword(args));
                 Console.WriteLine($"Démarrage demandé pour {name}.");
                 return 0;
             case "stop":
@@ -417,6 +417,24 @@ internal sealed class PzasmCli
     {
         if (await services.Servers.IsRconServiceAsync(name))
             throw new InvalidOperationException("Le serveur doit être arrêté avant toute opération sur le monde et la base de joueurs. Un service RCON Project Zomboid répond encore pour ce profil.");
+    }
+
+    private static string? ReadInitialAdminPassword(CliArguments args)
+    {
+        var selected = new[] { "admin-password", "admin-password-file", "admin-password-env" }.Where(args.Has).ToArray();
+        if (selected.Length > 1)
+            throw new ArgumentException("Utilisez une seule source pour le mot de passe administrateur initial.");
+        if (selected.Length == 0) return null;
+        if (selected[0] == "admin-password") return args.Require("admin-password");
+        if (selected[0] == "admin-password-env")
+        {
+            var variable = args.Require("admin-password-env");
+            return Environment.GetEnvironmentVariable(variable)
+                ?? throw new InvalidOperationException($"La variable d'environnement {variable} n'est pas définie.");
+        }
+        var path = Path.GetFullPath(args.Require("admin-password-file"));
+        if (!File.Exists(path)) throw new FileNotFoundException("Fichier de mot de passe administrateur introuvable.", path);
+        return File.ReadAllText(path).TrimEnd('\r', '\n');
     }
 
     private static async Task<int> AutomationAsync(string[] raw, CliArguments args, CliServices services)
@@ -651,7 +669,7 @@ Chaque projet représente un pack global indépendant avec son propre Workshop I
   pzasm server show --name <profil>
   pzasm server set --name <profil> --key <clé> [--value <valeur>] --yes
   pzasm server status --name <profil>
-  pzasm server start --name <profil>
+  pzasm server start --name <profil> [--admin-password <secret> | --admin-password-file <fichier> | --admin-password-env <variable>]
   pzasm server stop --name <profil> --yes
   pzasm server apply --name <profil> --id <guid> --yes
   pzasm server data-status --name <profil> [--json]

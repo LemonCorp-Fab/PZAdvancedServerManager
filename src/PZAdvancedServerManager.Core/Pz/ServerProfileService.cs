@@ -212,16 +212,21 @@ public sealed class ServerProfileService(
     }
 
     public async Task StartAsync(string name, CancellationToken cancellationToken = default)
+        => await StartAsync(name, null, cancellationToken);
+
+    public async Task StartAsync(string name, string? initialAdminPassword, CancellationToken cancellationToken = default)
     {
         var profile = Get(name);
         if (profile.IsRemote)
         {
+            if (!string.IsNullOrEmpty(initialAdminPassword))
+                throw new InvalidOperationException("Le mot de passe administrateur initial ne peut être transmis qu'à un serveur local lancé par le manager.");
             await ssh.RunStartCommandAsync(profile.Remote!, cancellationToken);
             return;
         }
         var dedicatedRoot = environment.Installation.DedicatedServerRoot
             ?? throw new DirectoryNotFoundException("Installation Project Zomboid Dedicated Server introuvable.");
-        orchestration.Start(profile.Name, dedicatedRoot);
+        orchestration.Start(profile.Name, dedicatedRoot, initialAdminPassword);
     }
 
     public async Task StopAsync(string name, CancellationToken cancellationToken = default)

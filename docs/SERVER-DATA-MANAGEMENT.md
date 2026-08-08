@@ -37,6 +37,22 @@ pzasm server delete-backup --name <profile> --backup <id> --yes
 Use `--data-root <directory>` when the UI and CLI must share the same archive catalog. Destructive CLI operations require `--yes`.
 Passing `--no-backup` with `reset-world` explicitly accepts that the removed world cannot be recovered from PZASM unless another archive already exists.
 
+## First start after a fresh start
+
+Removing the player database also removes Project Zomboid's built-in `admin` account. On the next launch, the game requests a new administrator password from its console. The local server start card therefore exposes two transient confirmation fields whenever no active world is detected.
+
+The manager waits for Project Zomboid's actual password prompt and then writes the value to the process standard input. The value is not persisted, included in the Java or shell command line, or written to manager logs. It is ignored when the existing database does not request administrator initialization.
+
+For headless startup, use exactly one of the following:
+
+```text
+pzasm server start --name <profile> --admin-password-file <file>
+pzasm server start --name <profile> --admin-password-env <environment-variable>
+pzasm server start --name <profile> --admin-password <value>
+```
+
+The file or environment-variable forms are recommended because a direct command-line value may remain visible in shell history. PZASM still passes the resulting value to the game through standard input only.
+
 ## Remote servers
 
 RCON can save, stop, restart, and administer Project Zomboid, but it cannot transfer world files. Consequently, the data panel does not present local file operations for an RCON-only remote profile. Use the VPS/provider snapshot system, run the PZASM CLI locally on the host with access to its `Zomboid` data directory, or configure a separately verified file-transfer workflow. The manager never guesses a remote filesystem path and never deletes remote data through RCON.

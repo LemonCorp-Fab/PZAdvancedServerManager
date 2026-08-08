@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace PZAdvancedServerManager.Core.Pz;
@@ -130,9 +131,15 @@ public sealed class ServerOrchestrationService
     }
 
     public void Start(string serverName, string dedicatedServerRoot) =>
-        Start(serverName, dedicatedServerRoot, TimeSpan.FromSeconds(12));
+        Start(serverName, dedicatedServerRoot, null, TimeSpan.FromSeconds(12));
 
     public void Start(string serverName, string dedicatedServerRoot, TimeSpan startupProbeDuration)
+        => Start(serverName, dedicatedServerRoot, null, startupProbeDuration);
+
+    public void Start(string serverName, string dedicatedServerRoot, string? initialAdminPassword)
+        => Start(serverName, dedicatedServerRoot, initialAdminPassword, TimeSpan.FromSeconds(12));
+
+    public void Start(string serverName, string dedicatedServerRoot, string? initialAdminPassword, TimeSpan startupProbeDuration)
     {
         if (string.IsNullOrWhiteSpace(serverName) || serverName.Any(c => !char.IsLetterOrDigit(c) && c is not '-' and not '_'))
             throw new ArgumentException("Nom de profil serveur invalide.", nameof(serverName));
@@ -140,28 +147,68 @@ public sealed class ServerOrchestrationService
             throw new ArgumentOutOfRangeException(nameof(startupProbeDuration));
         if (IsManagedProcessRunning(serverName))
             throw new InvalidOperationException($"Le serveur « {serverName} » a déjà été lancé par le manager.");
+        initialAdminPassword = ValidateInitialAdminPassword(initialAdminPassword);
         var script = Path.Combine(dedicatedServerRoot, OperatingSystem.IsWindows() ? "StartServer64.bat" : "start-server.sh");
         if (!File.Exists(script)) throw new FileNotFoundException("Script de démarrage du serveur dédié introuvable.", script);
+        var launcher = OperatingSystem.IsWindows() ? PrepareWindowsLauncher(script, dedicatedServerRoot) : script;
 
         var start = new ProcessStartInfo
         {
             UseShellExecute = false,
             CreateNoWindow = true,
-            WorkingDirectory = dedicatedServerRoot
+            WorkingDirectory = dedicatedServerRoot,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8
         };
         if (OperatingSystem.IsWindows())
         {
             start.FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
-            start.Arguments = $"/D /S /C \"\"{script}\" -servername \"{serverName}\" < NUL\"";
+            start.Arguments = $"/D /S /C \"\"{launcher}\" -servername \"{serverName}\"\"";
         }
         else
         {
             start.FileName = "/bin/bash";
-            start.ArgumentList.Add(script);
+            start.ArgumentList.Add(launcher);
             start.ArgumentList.Add("-servername");
             start.ArgumentList.Add(serverName);
         }
         var process = Process.Start(start) ?? throw new InvalidOperationException("Le processus serveur n'a pas pu démarrer.");
+        var adminPrompt = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var passwordSubmissionError = new TaskCompletionSource<Exception?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pendingAdminPassword = initialAdminPassword;
+        DataReceivedEventHandler outputHandler = (_, eventArgs) =>
+        {
+            if (eventArgs.Data?.Contains("Enter new administrator password", StringComparison.OrdinalIgnoreCase) != true) return;
+            adminPrompt.TrySetResult();
+            if (pendingAdminPassword is null)
+            {
+                try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
+                catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
+                {
+                    passwordSubmissionError.TrySetResult(exception);
+                }
+                return;
+            }
+            try
+            {
+                process.StandardInput.WriteLine(pendingAdminPassword);
+                process.StandardInput.Flush();
+                pendingAdminPassword = null;
+                passwordSubmissionError.TrySetResult(null);
+            }
+            catch (Exception exception) when (exception is IOException or InvalidOperationException or ObjectDisposedException)
+            {
+                pendingAdminPassword = null;
+                passwordSubmissionError.TrySetResult(exception);
+            }
+        };
+        process.OutputDataReceived += outputHandler;
+        process.ErrorDataReceived += outputHandler;
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
         _managedServerProcesses[serverName] = process;
         var startedAtUtc = DateTime.UtcNow;
         if (process.WaitForExit(startupProbeDuration))
@@ -169,12 +216,62 @@ public sealed class ServerOrchestrationService
             var exitCode = process.ExitCode;
             _managedServerProcesses.TryRemove(new KeyValuePair<string, Process>(serverName, process));
             process.Dispose();
+            TryDeleteLauncher(launcher, script);
+            if (adminPrompt.Task.IsCompleted && initialAdminPassword is null)
+                throw new InvalidOperationException("Le serveur doit créer son compte « admin ». Saisissez un mot de passe administrateur initial dans la carte de démarrage, puis relancez-le.");
+            if (passwordSubmissionError.Task.IsCompletedSuccessfully && passwordSubmissionError.Task.Result is { } submissionError)
+                throw new InvalidOperationException($"Le mot de passe administrateur initial n'a pas pu être transmis au serveur : {submissionError.Message}", submissionError);
             throw new InvalidOperationException($"Le serveur dédié s'est arrêté pendant son initialisation (code {exitCode}). {ReadRecentStartupFailure(startedAtUtc)}".Trim());
         }
 
         process.EnableRaisingEvents = true;
-        process.Exited += (_, _) => ReleaseManagedProcess(serverName, process);
-        if (process.HasExited) ReleaseManagedProcess(serverName, process);
+        process.Exited += (_, _) =>
+        {
+            ReleaseManagedProcess(serverName, process);
+            TryDeleteLauncher(launcher, script);
+        };
+        if (process.HasExited)
+        {
+            ReleaseManagedProcess(serverName, process);
+            TryDeleteLauncher(launcher, script);
+        }
+    }
+
+    private static string? ValidateInitialAdminPassword(string? password)
+    {
+        if (string.IsNullOrEmpty(password)) return null;
+        if (password.Length > 128 || password.Any(char.IsControl))
+            throw new ArgumentException("Le mot de passe administrateur initial doit contenir entre 1 et 128 caractères sans caractère de contrôle.", nameof(password));
+        return password;
+    }
+
+    private static string PrepareWindowsLauncher(string sourceScript, string dedicatedServerRoot)
+    {
+        var source = File.ReadAllText(sourceScript);
+        var installationPrefix = Path.GetFullPath(dedicatedServerRoot).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var lines = source.Replace("%~dp0", installationPrefix, StringComparison.OrdinalIgnoreCase)
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Split('\n')
+            .Where(line =>
+            {
+                var command = line.Trim().TrimStart('@').TrimStart();
+                return !command.Equals("pause", StringComparison.OrdinalIgnoreCase)
+                    && !command.StartsWith("pause ", StringComparison.OrdinalIgnoreCase);
+            });
+        var launcherRoot = Path.Combine(Path.GetTempPath(), "PZAdvancedServerManager", "launchers");
+        Directory.CreateDirectory(launcherRoot);
+        var sourceHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(sourceScript))))[..16].ToLowerInvariant();
+        var target = Path.Combine(launcherRoot, $"pzasm-{sourceHash}-{Guid.NewGuid():N}.bat");
+        File.WriteAllText(target, string.Join("\r\n", lines), new UTF8Encoding(false));
+        return target;
+    }
+
+    private static void TryDeleteLauncher(string launcher, string sourceScript)
+    {
+        if (launcher.Equals(sourceScript, StringComparison.OrdinalIgnoreCase)) return;
+        try { if (File.Exists(launcher)) File.Delete(launcher); }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
     }
 
     public bool IsManagedProcessRunning(string serverName)
@@ -202,8 +299,10 @@ public sealed class ServerOrchestrationService
             return "Vérifiez l'installation dédiée et son journal server-console.txt.";
         try
         {
-            var clues = File.ReadLines(logPath)
-                .TakeLast(160)
+            var recentLines = File.ReadLines(logPath).TakeLast(160).ToArray();
+            if (recentLines.Any(line => line.Contains("Enter new administrator password", StringComparison.OrdinalIgnoreCase)))
+                return "Project Zomboid doit créer son compte « admin ». Saisissez le mot de passe administrateur initial dans la carte de démarrage, puis réessayez.";
+            var clues = recentLines
                 .Where(line => line.Contains("ERROR", StringComparison.OrdinalIgnoreCase)
                     || line.Contains("Exception", StringComparison.OrdinalIgnoreCase)
                     || line.Contains("onItemNotDownloaded", StringComparison.OrdinalIgnoreCase)

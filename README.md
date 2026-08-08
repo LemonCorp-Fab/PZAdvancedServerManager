@@ -86,7 +86,7 @@ PZASM never modifies Steam sources during a build. It builds from private pinned
 4. Record the author and permission or license evidence for every source.
 5. Review mod and map order.
 6. Build locally and inspect `pack.lock.json` and `server-config.txt`.
-7. Install SteamCMD in one click, configure the publisher account, use **Connect / renew session** once, and publish with private visibility. If Steam Guard is enabled, approve SteamCMD's mobile notification first or use a current code as a fallback. Passwords and codes are never persisted by the manager.
+7. Install SteamCMD in one click and configure a dedicated publisher account that owns Project Zomboid. Use **Create / replace session** once, then use **Verify existing session** for later checks and publish with private visibility. If Steam Guard is enabled, approve SteamCMD's mobile notification first or use a current code as a fallback. Passwords and codes are never persisted by the manager.
 8. Test on a staging server.
 9. Apply the pack from the Servers page; PZASM backs up the `.ini` first.
 
@@ -98,6 +98,7 @@ The CLI uses the same projects as the UI. Every `project create` command creates
 # Local inventory
 dotnet run --project src/PZAdvancedServerManager.Cli -- scan
 dotnet run --project src/PZAdvancedServerManager.Cli -- steamcmd install
+dotnet run --project src/PZAdvancedServerManager.Cli -- steamcmd verify --id <guid>
 dotnet run --project src/PZAdvancedServerManager.Cli -- workshop search --query "map Build 42" --sort subscribed
 
 # Create and populate a pack
@@ -170,11 +171,19 @@ Remote profiles can be RCON-only. RCON provides authenticated status, the comman
 
 Remote SSH is non-interactive and uses an SSH agent or private key. The RCON password is stored in the manager's local profile data because it is required for unattended status and graceful stops; protect the PZASM data directory like the Project Zomboid server INI files.
 
+## Steam publishing identity
+
+SteamCMD opens its own Steam session. Do not use the same account that is active in the desktop Steam client for unattended publishing: concurrent use can interrupt the desktop session or an active game. Use a dedicated publishing account that owns Project Zomboid, keep that account as the Workshop item owner, and protect the portable SteamCMD data directory.
+
+The first interactive login creates the portable refresh token in SteamCMD's `config/config.vdf`. Later verification, manual publishing, and scheduled publishing pass only the account name and reuse that token. PZASM never copies desktop Steam cookies or login files, never stores the password or Steam Guard code, and never silently renews the token with a password. Valve documents this preserved-`config.vdf` pattern for unattended SteamCMD builds in its [uploading guide](https://partner.steamgames.com/doc/sdk/uploading).
+
+A true **Sign in through Steam** publisher is technically possible only as an authorized Steamworks integration. Valve requires the Project Zomboid publisher to add the tool's AppID to the Workshop **App Publish Permissions** before a separate application can upload through `ISteamUGC`; Steam OAuth additionally requires a Valve-issued client ID with AppID-scoped `write_cloud` permission. PZASM cannot grant itself either permission. Until the game publisher and Valve authorize such an integration, SteamCMD is the deployable publishing provider. See Valve's [Workshop implementation guide](https://partner.steamgames.com/doc/features/workshop/implementation) and [OAuth documentation](https://partner.steamgames.com/doc/webapi_overview/oauth).
+
 ## Known limitations
 
 - Public Project Zomboid Workshop sources support anonymous SteamCMD downloads; restricted or private items can still require an authenticated account.
 - SteamCMD downloads known Workshop IDs but does not expose a complete search command. The internal catalog enumerates public Steam Community browse results and resolves item metadata through Steam's public details API before SteamCMD downloads the selection.
-- Workshop publication relies on SteamCMD's portable account session. The UI and `pzasm steamcmd login` send the password through standard input and then follow SteamCMD's actual challenge: accounts without Steam Guard continue immediately, while protected accounts wait for the Steam Mobile approval notification and poll it automatically. If the approval expires or the user chooses the fallback, the current code is applied with SteamCMD's documented `set_steam_guard_code` command through standard input before retrying. Steam supports QR sign-in in its desktop client and web pages, but SteamCMD exposes no documented QR payload or login command; showing an unrelated web QR would not authorize the publishing session. SteamCMD keeps its own refresh token in its portable directory. PZASM stores only the last successful verification time, never the password or code. Scheduled and manual publishing reuse that cached session and fail with a reconnect-required result if it expires.
+- Workshop publication relies on SteamCMD's portable account session. The UI and `pzasm steamcmd login` send the password through standard input and then follow SteamCMD's actual challenge: accounts without Steam Guard continue immediately, while protected accounts wait for the Steam Mobile approval notification and poll it automatically. If the approval expires or the user chooses the fallback, the current code is applied with SteamCMD's documented `set_steam_guard_code` command through standard input before retrying. Steam supports QR sign-in in its desktop client and web pages, but SteamCMD exposes no documented QR payload or login command; showing an unrelated web QR would not authorize the publishing session. SteamCMD keeps its own refresh token in its portable directory. `pzasm steamcmd verify` tests that cached session without a password or token renewal. PZASM stores only the last successful verification time, never the password or code. Scheduled and manual publishing reuse that cached session and fail with a reconnect-required result if it expires.
 - Linux SteamCMD may require the distribution's 32-bit runtime libraries; the installer reports bootstrap errors without hiding the extracted tool.
 - A new item can remain hidden until the Workshop legal agreement is accepted.
 - A source update can change dependencies, Mod IDs, maps, or licensing and may be blocked during validation.

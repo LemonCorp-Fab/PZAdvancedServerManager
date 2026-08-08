@@ -202,6 +202,25 @@ public class EditModel(
         return RedirectToPage(new { id, tab = "distribution" });
     }
 
+    public async Task<IActionResult> OnPostVerifySteamSessionAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+        try
+        {
+            ApplyForm(project);
+            store.Save(project);
+            var result = await steamCmd.VerifyCachedSessionAsync(project, cancellationToken);
+            if (result.Interaction != SteamCmdInteraction.None) throw SteamCmdInteractionRequiredException.FromResult(result);
+            if (!result.Success) throw new InvalidOperationException("Vérification de la session SteamCMD échouée : " + Limit(result.CombinedOutput, 1800));
+            project.Automation.SteamSessionVerifiedAt = DateTimeOffset.UtcNow;
+            store.Save(project);
+            TempData["Message"] = "Session SteamCMD existante vérifiée sans mot de passe et sans créer de nouveau jeton.";
+        }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
+        return RedirectToPage(new { id, tab = "distribution" });
+    }
+
     public async Task<IActionResult> OnPostAuthenticateSteamStreamAsync(Guid id, string steamPassword, string? steamGuardCode, CancellationToken cancellationToken)
     {
         var project = store.Get(id);
@@ -216,6 +235,23 @@ public class EditModel(
             project.Automation.SteamSessionVerifiedAt = DateTimeOffset.UtcNow;
             store.Save(project);
             return "Session SteamCMD portable vérifiée et prête pour le service";
+        }, Url.Page("/Projects/Edit", null, new { id, tab = "distribution" })!, cancellationToken);
+    }
+
+    public async Task<IActionResult> OnPostVerifySteamSessionStreamAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+        ApplyForm(project);
+        store.Save(project);
+        return await StreamOperationAsync(async progress =>
+        {
+            var result = await steamCmd.VerifyCachedSessionAsync(project, cancellationToken, progress);
+            if (result.Interaction != SteamCmdInteraction.None) throw SteamCmdInteractionRequiredException.FromResult(result);
+            if (!result.Success) throw new InvalidOperationException("Vérification de la session SteamCMD échouée : " + Limit(result.CombinedOutput, 1800));
+            project.Automation.SteamSessionVerifiedAt = DateTimeOffset.UtcNow;
+            store.Save(project);
+            return "Session SteamCMD existante vérifiée sans mot de passe ni nouveau jeton";
         }, Url.Page("/Projects/Edit", null, new { id, tab = "distribution" })!, cancellationToken);
     }
 

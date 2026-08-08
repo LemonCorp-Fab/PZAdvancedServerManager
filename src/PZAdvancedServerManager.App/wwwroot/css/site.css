@@ -510,6 +510,11 @@ body.has-modal { overflow: hidden; }
 .rcon-console { display: grid; gap: 8px; padding-top: 18px; border-top: 1px solid var(--line); }
 .inline-command { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; }
 .steam-session-fields { margin-top: 12px; }
+.publisher-account-warning { margin: 0 0 14px; }
+.steam-session-actions { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 9px; }
+.steam-session-actions .button { min-height: 42px; white-space: normal; line-height: 1.25; }
+.steam-auth-explanation { margin-top: 12px; }
+.steam-auth-explanation p { margin: 10px 0 0; color: var(--muted); font-size: .87rem; line-height: 1.55; }
 .steam-session-status { display: grid; grid-template-columns: 12px minmax(0,1fr); gap: 10px; margin: 12px 0; padding: 12px 13px; align-items: start; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
 .steam-session-status .status-dot { width: 10px; height: 10px; margin-top: 5px; border-radius: 50%; background: #c47a35; box-shadow: 0 0 0 4px rgba(196,122,53,.12); }
 .steam-session-status.is-ready .status-dot { background: var(--green); box-shadow: 0 0 0 4px rgba(120,169,67,.14); }
@@ -672,6 +677,7 @@ body.has-modal { overflow: hidden; }
   .mod-summary-status { grid-column: 2; max-width: none; justify-content: flex-start; }
   .mod-actions { align-items: stretch; flex-direction: column; }
   .mod-refresh-form .button { width: 100%; }
+  .steam-session-actions { grid-template-columns: 1fr; }
   .mod-order-actions { justify-content: flex-end; }
   .path-list { grid-template-columns: 1fr; }
   .path-list dt { margin-top: 8px; }

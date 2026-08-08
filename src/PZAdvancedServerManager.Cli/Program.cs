@@ -366,7 +366,7 @@ internal sealed class PzasmCli
 
     private static async Task<int> SteamCmdAsync(string[] raw, CliArguments args, CliServices services)
     {
-        if (raw.Length < 2) return Fail("Sous-commande requise : status, install ou login.");
+        if (raw.Length < 2) return Fail("Sous-commande requise : status, install, verify ou login.");
         switch (raw[1].ToLowerInvariant())
         {
             case "status":
@@ -397,6 +397,7 @@ internal sealed class PzasmCli
                     if (args.Get("steam-user") is { } username) project.Automation.SteamUsername = username.Trim();
                     if (args.Get("steamcmd") is { } executable) project.Automation.SteamCmdPath = executable.Trim();
                     if (Console.IsInputRedirected) throw new InvalidOperationException("Steam login requires an interactive terminal so secrets are never passed on the command line.");
+                    Console.WriteLine("Use a dedicated publishing account that owns Project Zomboid. Reusing the account active in the desktop Steam client can disrupt that session.");
                     var password = ReadSecret("Steam password: ");
                     var progress = new Progress<OperationProgress>(value => Console.WriteLine($"[{value.Phase}] {value.Message}"));
                     Console.WriteLine("If Steam Guard is enabled, approve the Steam Mobile notification first. SteamCMD continues automatically; a current code is requested only as a fallback. SteamCMD does not expose a QR login for this publishing session.");
@@ -414,6 +415,22 @@ internal sealed class PzasmCli
                     project.Automation.SteamSessionVerifiedAt = DateTimeOffset.UtcNow;
                     services.Store.Save(project);
                     Console.WriteLine("Portable SteamCMD session verified. The scheduler can now reuse it without storing the password or Steam Guard code.");
+                    return 0;
+                }
+            case "verify":
+                {
+                    var project = RequireProject(services.Store, args);
+                    if (args.Get("steam-user") is { } username) project.Automation.SteamUsername = username.Trim();
+                    if (args.Get("steamcmd") is { } executable) project.Automation.SteamCmdPath = executable.Trim();
+                    var progress = args.Has("json") ? null : new Progress<OperationProgress>(value => Console.WriteLine($"[{value.Phase}] {value.Message}"));
+                    var verification = await services.SteamCmd.VerifyCachedSessionAsync(project, progress: progress);
+                    if (verification.Interaction != SteamCmdInteraction.None)
+                        return Fail(SteamCmdInteractionRequiredException.FromResult(verification).Message, 2);
+                    if (!verification.Success) return Fail("SteamCMD session verification failed: " + verification.CombinedOutput, 2);
+                    project.Automation.SteamSessionVerifiedAt = DateTimeOffset.UtcNow;
+                    services.Store.Save(project);
+                    if (args.Has("json")) WriteJson(new { success = true, verifiedAt = project.Automation.SteamSessionVerifiedAt });
+                    else Console.WriteLine("Existing SteamCMD session verified without a password or a new token.");
                     return 0;
                 }
             default:
@@ -549,6 +566,7 @@ Chaque projet représente un pack global indépendant avec son propre Workshop I
   pzasm workshop search [--query <texte-ou-id>] [--sort trend|recent|subscribed|popular|relevance] [--tag <tag>] [--page 1] [--json]
   pzasm steamcmd status [--json]
   pzasm steamcmd install [--id <guid>] [--json]
+  pzasm steamcmd verify --id <guid> [--steam-user <nom>] [--steamcmd <path>] [--json]
   pzasm steamcmd login --id <guid> [--steam-user <nom>] [--steamcmd <path>]
   pzasm automation once
   pzasm automation execute --id <guid>

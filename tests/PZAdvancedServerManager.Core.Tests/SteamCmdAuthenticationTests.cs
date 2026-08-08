@@ -15,6 +15,16 @@ public sealed class SteamCmdAuthenticationTests
     }
 
     [Fact]
+    public void VerifiesCachedSessionWithoutSecretArguments()
+    {
+        var arguments = SteamCmdService.CreateCachedSessionVerificationArguments("publisher_account");
+
+        Assert.Equal(["+login", "publisher_account", "+info", "+quit"], arguments);
+        Assert.DoesNotContain(arguments, value => value.Contains("password", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(arguments, value => value.Contains("guard", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void DetectsPasswordPromptWithoutLineBreak()
     {
         Assert.True(SteamCmdPromptClassifier.RequestsPassword("Cached credentials not found.\n\npassword:"));

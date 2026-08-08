@@ -82,10 +82,33 @@ public sealed class SteamCmdService(PackageValidator validator)
             cancellationToken, credentials, progress, TimeSpan.FromMinutes(5), project.Automation.SteamUsername);
     }
 
+    public async Task<SteamCmdResult> VerifyCachedSessionAsync(PackageProject project, CancellationToken cancellationToken = default, IProgress<OperationProgress>? progress = null)
+    {
+        ValidateExecutable(project.Automation.SteamCmdPath);
+        if (string.IsNullOrWhiteSpace(project.Automation.SteamUsername))
+            throw new InvalidOperationException("Enregistrez d'abord le nom du compte Steam éditeur.");
+
+        progress?.Report(new OperationProgress("steamcmd", "Vérification de la session déjà conservée par SteamCMD, sans mot de passe ni renouvellement de jeton."));
+        return await RunAsync(
+            project.Automation.SteamCmdPath,
+            CreateCachedSessionVerificationArguments(project.Automation.SteamUsername),
+            cancellationToken,
+            new SteamCredentials(string.Empty, string.Empty),
+            progress,
+            TimeSpan.FromMinutes(2),
+            project.Automation.SteamUsername);
+    }
+
     public static IReadOnlyList<string> CreateAuthenticationArguments(string username)
     {
         ValidateAccountName(username);
         return ["+login", username, "+quit"];
+    }
+
+    public static IReadOnlyList<string> CreateCachedSessionVerificationArguments(string username)
+    {
+        ValidateAccountName(username);
+        return ["+login", username, "+info", "+quit"];
     }
 
     public static ulong ReadPublishedFileId(string vdfPath)

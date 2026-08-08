@@ -132,6 +132,8 @@ The notice is a separate client Lua mod in Bundle mode and an integrated client 
 
 Injection is enabled by default and can be disabled per project. The notice downloads nothing and contacts no external service.
 
+SteamCMD is a separate Steam session, so production automation should use a dedicated publishing account that owns Project Zomboid instead of the account active in the desktop client. The first login creates the portable token; later checks use `steamcmd verify`, which supplies no password and does not create another token. PZASM never imports desktop Steam cookies or login files. A desktop-session publisher would require an authorized Steamworks application: the Project Zomboid publisher must add the tool AppID to the Workshop App Publish Permissions for `ISteamUGC`, while OAuth requires a Valve-issued client ID with AppID-scoped `write_cloud` access. An external tool cannot grant itself either permission.
+
 ## Why an external application is required
 
 A Project Zomboid mod runs inside the game's process and lifecycle. It is not a reliable environment for:

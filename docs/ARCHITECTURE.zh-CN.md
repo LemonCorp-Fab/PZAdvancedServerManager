@@ -53,6 +53,8 @@ steamapps/workshop/content/108600/<WorkshopId>/
 
 计划任务会记录权限、验证依赖、按需刷新来源、构建、发布，并在需要时通过 RCON 协调服务器。受监督的登录只通过标准输入把密码交给 SteamCMD，不会保存密码。未启用 Steam Guard 的账户会直接继续。对于受保护的账户，SteamCMD 会向 Steam 手机应用发送批准请求并自动轮询结果，界面同时显示活动等待状态。只有手机批准过期或用户主动选择备用方式时，才会请求当前验证码；随后 PZASM 通过标准输入使用 SteamCMD 文档中的 `set_steam_guard_code` 命令重试。Steam 客户端和网页支持二维码登录，但 SteamCMD 没有公开文档化的二维码数据或二维码登录命令，因此单独的网页二维码无法建立发布会话。SteamCMD 随后在便携目录中保留自己的令牌；手动和计划发布仅使用此会话。管理器仅记录上次验证成功的时间。会话过期时会要求重新连接，不会停在不可见的输入提示上。界面会实时显示进度、执行超时限制，并可取消外部进程。
 
+SteamCMD 会打开独立的 Steam 会话，因此自动化应使用拥有 Project Zomboid 的专用发布账户，而不是桌面客户端中正在使用的账户。首次登录会创建便携令牌；之后的检查使用 `steamcmd verify`，无需密码，也不会创建新令牌。PZASM 绝不会导入 Steam 客户端的 Cookie 或登录文件。若要通过桌面会话发布，必须使用获授权的 Steamworks 应用：Project Zomboid 发行方需要把工具 AppID 加入 Workshop 的 App Publish Permissions 以使用 `ISteamUGC`；OAuth 还要求 Valve 分配客户端 ID，并授予限定到该 AppID 的 `write_cloud` 权限。外部工具无法自行获得这些权限。
+
 ## 为什么需要外部程序
 
 游戏内模组无法可靠管理 SteamCMD、游戏未运行时的计划任务、私有文件或多个服务器配置。因此 PZASM 使用共享核心的本地 ASP.NET Core 程序和无界面 CLI。只有生成的 Lua 连接提示会在 Project Zomboid 中运行。

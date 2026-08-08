@@ -81,17 +81,19 @@
             <div class="warning-callout connection-error"><strong>Connexion ou configuration indisponible</strong><p>@Model.ConnectionError</p></div>
         }
         <nav class="server-view-tabs" aria-label="Vues du serveur" data-server-view-tabs>
-            <button type="button" data-server-view-target="supervision"><span>01</span><strong>Supervision</strong><small>Processus et journal</small></button>
-            <button type="button" data-server-view-target="network"><span>02</span><strong>Réseau & RCON</strong><small>Ports et commandes</small></button>
-            <button type="button" data-server-view-target="data"><span>03</span><strong>Données</strong><small>Monde et sauvegardes</small></button>
-            <button type="button" data-server-view-target="deployment"><span>04</span><strong>Déploiement</strong><small>Connexion et packs</small></button>
+            <button type="button" data-server-view-target="supervision"><span>01</span><strong>Supervision</strong><small>Démarrage et maintenance</small></button>
+            <button type="button" data-server-view-target="runtime"><span>02</span><strong>État dynamique</strong><small>Processus et journaux</small></button>
+            <button type="button" data-server-view-target="network"><span>03</span><strong>Réseau & RCON</strong><small>Ports et commandes</small></button>
+            <button type="button" data-server-view-target="data"><span>04</span><strong>Données</strong><small>Monde et sauvegardes</small></button>
+            <button type="button" data-server-view-target="configuration"><span>05</span><strong>Configuration</strong><small>INI, Sandbox et Lua</small></button>
+            <button type="button" data-server-view-target="deployment"><span>06</span><strong>Déploiement</strong><small>Connexion et packs</small></button>
         </nav>
-        <section class="panel server-command-center"
-                 data-server-view="supervision"
-                 data-server-runtime
-                 data-runtime-endpoint="@Url.Page("/Server/Index", "Runtime", new { name = Model.Selected.Name })"
-                 data-runtime-running="@Model.SelectedRuntime.IsRunning.ToString().ToLowerInvariant()"
-                 data-runtime-rcon="@Model.SelectedRuntime.IsRconAuthenticated.ToString().ToLowerInvariant()">
+        <div class="server-view-stack"
+             data-server-runtime
+             data-runtime-endpoint="@Url.Page("/Server/Index", "Runtime", new { name = Model.Selected.Name })"
+             data-runtime-running="@Model.SelectedRuntime.IsRunning.ToString().ToLowerInvariant()"
+             data-runtime-rcon="@Model.SelectedRuntime.IsRconAuthenticated.ToString().ToLowerInvariant()">
+        <section class="panel server-command-center" data-server-view="supervision">
             <div class="panel-heading">
                 <div><span class="eyebrow">@(Model.Selected.IsRemote ? "SERVEUR DISTANT" : Model.Selected.IsHostedLocal ? "HOST LOCAL · CLIENT PROJECT ZOMBOID" : "SERVEUR DÉDIÉ LOCAL · APPID 380870") · @Model.Selected.Name</span><h2>Centre de contrôle</h2><p>@Model.Selected.Location</p></div>
                 <span class="server-status @Model.RuntimeStatusCss" data-runtime-status>@Model.RuntimeStatusText</span>
@@ -145,7 +147,9 @@
                 }
                 @if (Model.Selected.IsRemote && Model.Selected.Remote!.AutoRestartAfterRconQuit) { <form method="post" asp-page-handler="RestartRcon" asp-route-name="@Model.Selected.Name" data-loading-title="Redémarrage RCON de Project Zomboid…" data-loading-detail="Sauvegarde du monde, envoi de quit et prise en charge de la relance par le superviseur distant." data-confirm-title="Redémarrer Project Zomboid par RCON ?" data-confirm-message="Le manager enverra save puis quit. Le superviseur distant configuré doit relancer uniquement le processus de jeu." data-confirm-action="Sauvegarder et redémarrer"><button class="server-action primary-action" type="submit" disabled="@(!Model.SelectedRconAvailable)"><span class="server-action-icon">↻</span><span><strong>Redémarrer par RCON</strong><small>save + quit + superviseur</small></span></button></form> }
             </div>
-            <div class="runtime-monitor">
+        </section>
+
+        <section class="panel runtime-monitor runtime-monitor-panel" data-server-view="runtime" hidden>
                 <div class="runtime-monitor-heading">
                     <div><span class="eyebrow">ÉTAT DYNAMIQUE DES SERVEURS</span><h3>Processus Project Zomboid détectés</h3><p data-runtime-detail>@Model.RuntimeStatusDetail</p></div>
                     <span class="runtime-live-indicator"><i></i> Actualisation automatique</span>
@@ -204,7 +208,6 @@
                         }
                     </div>
                 </div>
-            </div>
         </section>
 
         @if (Model.NetworkInfo is not null)
@@ -372,6 +375,10 @@
         @if (!Model.Selected.CanManageConfiguration)
         {
             <div class="info-callout" data-server-view="deployment" hidden><strong>Profil RCON-only prêt pour la coordination</strong><p>La gestion de l’INI, des listes de mods et des cartes est masquée car aucun chemin SSH n’est configuré. Vous pouvez toujours tester RCON, envoyer des commandes et sélectionner ce profil dans la planification d’un pack.</p></div>
+            <section class="panel configuration-unavailable-panel" data-server-view="configuration" hidden>
+                <div class="panel-heading"><div><span class="eyebrow">CONFIGURATION DU SERVEUR</span><h2>Accès aux fichiers requis</h2><p>Ce profil distant est actuellement piloté uniquement par RCON.</p></div></div>
+                <div class="info-callout"><strong>Ajoutez un chemin INI accessible par SSH</strong><p>RCON permet de superviser le processus et d’envoyer des commandes, mais ne donne pas accès aux fichiers INI, Sandbox ou Lua. Configurez SSH dans « Déploiement » pour activer cet espace.</p></div>
+            </section>
         }
         else
         {
@@ -385,7 +392,7 @@
             @if (Model.SelectedServerOnline) { <p class="fine-print warning-text">Arrêtez proprement le serveur avant d’appliquer un pack.</p> }
         </section>
 
-        <div class="workspace server-workspace" data-tabs="server-editor-@Model.Selected.Name">
+        <div class="workspace server-workspace" data-server-view="configuration" hidden data-tabs="server-editor-@Model.Selected.Name">
             <nav class="workspace-tabs" aria-label="Sections du serveur" role="tablist">
                 <button type="button" role="tab" data-tab-target="identity">Identité</button>
                 <button type="button" role="tab" data-tab-target="access">Accès & RCON</button>
@@ -481,6 +488,7 @@
             </section>
         </div>
         }
+        </div>
     }
     </div>
 </div>

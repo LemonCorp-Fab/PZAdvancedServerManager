@@ -267,7 +267,11 @@ document.querySelectorAll('details.mod-card').forEach(card => {
         try { window.sessionStorage.setItem(storageKey, name); } catch { }
     };
     buttons.forEach(button => button.addEventListener('click', () => activate(button.dataset.serverViewTarget)));
-    let initial = new URLSearchParams(window.location.search).get('view');
+    const parameters = new URLSearchParams(window.location.search);
+    const requestedTab = parameters.get('tab');
+    const configurationTabs = new Set(['identity', 'access', 'gameplay', 'content', 'all-settings', 'sandbox', 'lua-files', 'raw']);
+    let initial = parameters.get('view');
+    if (!initial && configurationTabs.has(requestedTab)) initial = 'configuration';
     if (!initial && window.location.hash === '#rcon-console') initial = 'network';
     if (!initial) {
         try { initial = window.sessionStorage.getItem(storageKey); } catch { }

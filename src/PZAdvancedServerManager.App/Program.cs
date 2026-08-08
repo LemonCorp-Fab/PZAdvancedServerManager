@@ -40,6 +40,7 @@ builder.Services.AddSingleton<ServerOrchestrationService>();
 builder.Services.AddSingleton<RemoteServerConnectionStore>();
 builder.Services.AddSingleton<SshRemoteServerService>();
 builder.Services.AddSingleton<ServerProfileService>();
+builder.Services.AddSingleton<ServerWorldDataStore>();
 builder.Services.AddSingleton<PackageSourceSnapshotService>();
 builder.Services.AddSingleton<PackageProjectService>();
 builder.Services.AddSingleton<PackageLifecycleService>();

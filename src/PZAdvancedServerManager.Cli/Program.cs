@@ -208,7 +208,7 @@ internal sealed class PzasmCli
 
     private static async Task<int> ServerAsync(string[] raw, CliArguments args, CliServices services)
     {
-        if (raw.Length < 2) return Fail("Sous-commande requise : list, create, show, set, status, start, stop ou apply.");
+        if (raw.Length < 2) return Fail("Sous-commande requise : list, create, show, set, status, start, stop, apply, data-status, backup, backups, restore, reset-world ou delete-backup.");
         var action = raw[1].ToLowerInvariant();
         if (action == "list")
         {
@@ -323,9 +323,100 @@ internal sealed class PzasmCli
                     Console.WriteLine($"Pack appliqué. Sauvegarde: {result.BackupPath}");
                     return 0;
                 }
+            case "data-status":
+                {
+                    var location = services.Servers.ResolveWorldDataLocation(name);
+                    var status = services.WorldData.Inspect(location);
+                    var backups = services.WorldData.List(name);
+                    var result = new
+                    {
+                        profile = name,
+                        status.HasData,
+                        status.HasWorld,
+                        status.HasDatabase,
+                        status.LastModifiedAt,
+                        status.WorldPath,
+                        status.DatabasePath,
+                        backupCount = backups.Count,
+                        backupRoot = services.WorldData.GetBackupRoot(name)
+                    };
+                    if (args.Has("json")) WriteJson(result);
+                    else
+                    {
+                        Console.WriteLine($"Profil: {name}");
+                        Console.WriteLine($"Monde: {(status.HasWorld ? "présent" : "absent")} — {status.WorldPath}");
+                        Console.WriteLine($"Base joueurs: {(status.HasDatabase ? "présente" : "absente")} — {status.DatabasePath}");
+                        Console.WriteLine($"Sauvegardes PZASM: {backups.Count}");
+                    }
+                    return 0;
+                }
+            case "backups":
+                {
+                    services.Servers.ResolveWorldDataLocation(name);
+                    var backups = services.WorldData.List(name);
+                    if (args.Has("json")) WriteJson(backups);
+                    else if (backups.Count == 0) Console.WriteLine("Aucune sauvegarde PZASM.");
+                    else foreach (var backup in backups)
+                            Console.WriteLine($"{backup.Id}  {backup.CreatedAt:O}  {backup.Reason,-12}  {ServerWorldDataStore.FormatBytes(backup.ArchiveBytes),10}  SHA-256 {backup.Sha256[..12]}…");
+                    return 0;
+                }
+            case "backup":
+                {
+                    await RequireServerOfflineAsync(services, name);
+                    var location = services.Servers.ResolveWorldDataLocation(name);
+                    var progress = args.Has("json") ? null : new CliOperationProgress();
+                    var backup = await services.WorldData.CreateBackupAsync(location, "manual", progress);
+                    if (args.Has("json")) WriteJson(backup);
+                    else Console.WriteLine($"Sauvegarde créée : {backup.Id} ({ServerWorldDataStore.FormatBytes(backup.ArchiveBytes)}, SHA-256 {backup.Sha256})");
+                    return 0;
+                }
+            case "restore":
+                {
+                    if (!args.Has("yes")) return Fail("Restauration non exécutée. Ajoutez --yes pour confirmer le remplacement du monde et de la base de joueurs.", 3);
+                    await RequireServerOfflineAsync(services, name);
+                    var location = services.Servers.ResolveWorldDataLocation(name);
+                    var progress = args.Has("json") ? null : new CliOperationProgress();
+                    var result = await services.WorldData.RestoreAsync(location, args.Require("backup"), args.Has("restore-config"), progress);
+                    if (args.Has("json")) WriteJson(result);
+                    else
+                    {
+                        Console.WriteLine($"Sauvegarde restaurée : {result.RestoredBackup.Id}");
+                        if (result.SafetyBackup is not null) Console.WriteLine($"Sauvegarde de sécurité préalable : {result.SafetyBackup.Id}");
+                        Console.WriteLine(result.ConfigurationRestored ? "Configuration restaurée sur demande." : "Configuration actuelle conservée.");
+                    }
+                    return 0;
+                }
+            case "reset-world":
+                {
+                    if (!args.Has("yes")) return Fail("Remise à zéro non exécutée. Ajoutez --yes pour confirmer le fresh start du monde et des joueurs.", 3);
+                    await RequireServerOfflineAsync(services, name);
+                    var location = services.Servers.ResolveWorldDataLocation(name);
+                    var progress = args.Has("json") ? null : new CliOperationProgress();
+                    var result = await services.WorldData.ResetAsync(location, progress);
+                    if (args.Has("json")) WriteJson(result);
+                    else Console.WriteLine($"Fresh start prêt. Sauvegarde de sécurité : {result.SafetyBackup.Id}");
+                    return 0;
+                }
+            case "delete-backup":
+                {
+                    if (!args.Has("yes")) return Fail("Suppression non exécutée. Ajoutez --yes pour confirmer la suppression définitive de l'archive.", 3);
+                    services.Servers.ResolveWorldDataLocation(name);
+                    var backupId = args.Require("backup");
+                    services.WorldData.Delete(name, backupId);
+                    Console.WriteLine($"Sauvegarde supprimée : {backupId}");
+                    return 0;
+                }
             default:
                 return Fail($"Sous-commande server inconnue : {action}");
         }
+    }
+
+    private static async Task RequireServerOfflineAsync(CliServices services, string name)
+    {
+        var authenticated = await services.Servers.IsOnlineAsync(name);
+        var rconPortReachable = authenticated || await services.Servers.IsRconPortReachableAsync(name);
+        if (authenticated || rconPortReachable)
+            throw new InvalidOperationException("Le serveur doit être arrêté avant toute opération sur le monde et la base de joueurs. Son port RCON est encore joignable.");
     }
 
     private static async Task<int> AutomationAsync(string[] raw, CliArguments args, CliServices services)
@@ -563,6 +654,12 @@ Chaque projet représente un pack global indépendant avec son propre Workshop I
   pzasm server start --name <profil>
   pzasm server stop --name <profil> --yes
   pzasm server apply --name <profil> --id <guid> --yes
+  pzasm server data-status --name <profil> [--json]
+  pzasm server backup --name <profil> [--json]
+  pzasm server backups --name <profil> [--json]
+  pzasm server restore --name <profil> --backup <id> [--restore-config] --yes [--json]
+  pzasm server reset-world --name <profil> --yes [--json]
+  pzasm server delete-backup --name <profil> --backup <id> --yes
   pzasm workshop search [--query <texte-ou-id>] [--sort trend|recent|subscribed|popular|relevance] [--tag <tag>] [--page 1] [--json]
   pzasm steamcmd status [--json]
   pzasm steamcmd install [--id <guid>] [--json]
@@ -618,6 +715,7 @@ internal sealed class CliServices
         var remoteStore = new RemoteServerConnectionStore(paths);
         var ssh = new SshRemoteServerService();
         Servers = new ServerProfileService(paths, Environment, orchestration, remoteStore, ssh);
+        WorldData = new ServerWorldDataStore(paths);
         var builder = new PackageBuildService(paths, Validator);
         SteamCmd = new SteamCmdService(Validator);
         MapPriority = new MapPriorityService();
@@ -641,4 +739,16 @@ internal sealed class CliServices
     public WorkshopCatalogService WorkshopCatalog { get; }
     public MapPriorityService MapPriority { get; }
     public ServerProfileService Servers { get; }
+    public ServerWorldDataStore WorldData { get; }
+}
+
+internal sealed class CliOperationProgress : IProgress<OperationProgress>
+{
+    public void Report(OperationProgress value)
+    {
+        var count = value.Current is not null && value.Total is not null
+            ? $" ({value.Current}/{value.Total})"
+            : string.Empty;
+        Console.Error.WriteLine($"[{value.Phase}]{count} {value.Message}");
+    }
 }

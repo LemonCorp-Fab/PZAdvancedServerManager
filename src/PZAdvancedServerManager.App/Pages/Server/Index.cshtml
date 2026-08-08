@@ -78,6 +78,81 @@
             </div>
         </section>
 
+        @if (!Model.Selected.IsRemote)
+        {
+            <section class="panel server-data-panel">
+                <div class="panel-heading">
+                    <div><span class="eyebrow">DONNÉES DU SERVEUR</span><h2>Monde, joueurs et sauvegardes</h2><p>Gérez le cycle de vie du monde sans modifier le pack, les mods ou les règles Sandbox actuelles.</p></div>
+                    <span class="server-status @(Model.WorldDataStatus?.HasData == true ? "online" : "offline")">@(Model.WorldDataStatus?.HasData == true ? "MONDE DÉTECTÉ" : "AUCUN MONDE")</span>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(Model.WorldDataError))
+                {
+                    <div class="warning-callout"><strong>Données indisponibles</strong><p>@Model.WorldDataError</p></div>
+                }
+                else if (Model.WorldDataStatus is not null)
+                {
+                    <div class="world-data-summary">
+                        <div><span class="world-data-icon">W</span><span><strong>Fichiers du monde</strong><small>@(Model.WorldDataStatus.HasWorld ? "Présents" : "Absents")</small></span></div>
+                        <div><span class="world-data-icon">DB</span><span><strong>Base des joueurs</strong><small>@(Model.WorldDataStatus.HasDatabase ? "Présente" : "Absente")</small></span></div>
+                        <div><span class="world-data-icon">B</span><span><strong>Sauvegardes manager</strong><small>@Model.WorldBackups.Count archive(s)</small></span></div>
+                        <div><span class="world-data-icon">T</span><span><strong>Dernière activité</strong><small>@(Model.WorldDataStatus.LastModifiedAt?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "Jamais")</small></span></div>
+                    </div>
+                    <details class="world-data-paths"><summary>Afficher les chemins contrôlés</summary><div><code>@Model.WorldDataStatus.WorldPath</code><code>@Model.WorldDataStatus.DatabasePath</code></div></details>
+                    @if (Model.SelectedServerOnline)
+                    {
+                        <div class="warning-callout"><strong>Arrêt propre requis</strong><p>Sauvegardez puis arrêtez Project Zomboid par RCON avant toute copie, restauration ou réinitialisation afin d’éviter un monde ou une base SQLite incohérente.</p></div>
+                    }
+                    <div class="world-data-actions">
+                        <form method="post" asp-page-handler="CreateWorldBackup" asp-route-name="@Model.Selected.Name" data-operation-progress data-loading-title="Sauvegarde des données du monde…" data-loading-detail="Inventaire, compression ZIP et vérification SHA-256 du monde, de la base des joueurs et des fichiers de configuration." data-loading-steps="Inventaire des fichiers|Compression ZIP|Empreinte SHA-256|Enregistrement de l’archive">
+                            <button class="primary-command backup-command" type="submit" disabled="@(Model.SelectedServerOnline || !Model.WorldDataStatus.HasData)"><span class="primary-command-icon">B</span><span><strong>Créer une sauvegarde</strong><small>Monde + joueurs + copie de secours de la configuration</small></span></button>
+                        </form>
+                        <form method="post" asp-page-handler="OpenWorldBackupFolder" asp-route-name="@Model.Selected.Name" data-loading-title="Ouverture du dossier…" data-loading-detail="Ouverture du stockage local des archives de ce profil."><button class="button secondary" type="submit">Ouvrir le dossier des sauvegardes</button></form>
+                        <form method="post" asp-page-handler="ResetWorld" asp-route-name="@Model.Selected.Name" data-operation-progress data-loading-title="Préparation du fresh start…" data-loading-detail="Une archive complète est créée et vérifiée avant le retrait transactionnel du monde et de la base des joueurs." data-loading-steps="Sauvegarde automatique|Empreinte SHA-256|Retrait transactionnel|Vérification du fresh start" data-confirm-title="Créer un nouveau monde ?" data-confirm-message="Le monde actuel et la base des joueurs seront retirés. Une sauvegarde de récupération complète sera obligatoirement créée avant l’opération. Le pack, les mods, l’INI et les SandboxVars resteront configurés." data-confirm-action="Sauvegarder et créer un monde neuf" data-confirm-tone="danger">
+                            <button class="button danger world-reset-button" type="submit" disabled="@(Model.SelectedServerOnline || !Model.WorldDataStatus.HasData)">Nouveau monde (fresh start)</button>
+                        </form>
+                    </div>
+
+                    <div class="world-backup-heading"><div><span class="eyebrow">HISTORIQUE RÉCUPÉRABLE</span><h3>Sauvegardes disponibles</h3></div><span class="count-pill">@Model.WorldBackups.Count</span></div>
+                    @if (Model.WorldBackups.Count == 0)
+                    {
+                        <div class="empty-state compact-empty"><h3>Aucune sauvegarde</h3><p>Créez une première archive avant une maintenance importante ou un changement de pack.</p></div>
+                    }
+                    else
+                    {
+                        <div class="world-backup-list">
+                            @foreach (var backup in Model.WorldBackups)
+                            {
+                                var reason = backup.Reason switch { "pre-reset" => "Avant fresh start", "pre-restore" => "Avant restauration", _ => "Manuelle" };
+                                <article class="world-backup-card">
+                                    <div class="world-backup-main">
+                                        <span class="backup-reason @(backup.Reason == "manual" ? "manual" : "automatic")">@reason</span>
+                                        <div><strong>@backup.CreatedAt.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)</strong><small>@backup.FileCount.ToString("N0", CultureInfo.CurrentCulture) fichiers · @ServerWorldDataStore.FormatBytes(backup.SourceBytes) → @ServerWorldDataStore.FormatBytes(backup.ArchiveBytes)</small></div>
+                                    </div>
+                                    <div class="backup-content-tags"><span class="@(backup.HasWorld ? "present" : "missing")">Monde</span><span class="@(backup.HasDatabase ? "present" : "missing")">Joueurs</span><span class="@(backup.HasConfiguration ? "present" : "missing")">Configuration</span></div>
+                                    <details class="backup-integrity"><summary>Intégrité et identifiant</summary><code>@backup.Id</code><code>SHA-256 @backup.Sha256</code></details>
+                                    <div class="world-backup-actions">
+                                        <form method="post" asp-page-handler="RestoreWorldBackup" asp-route-name="@Model.Selected.Name" data-operation-progress data-loading-title="Restauration du monde…" data-loading-detail="Vérification SHA-256, sauvegarde de sécurité de l’état actuel, extraction contrôlée et remplacement transactionnel." data-loading-steps="Intégrité SHA-256|Sauvegarde de sécurité|Extraction contrôlée|Remplacement transactionnel|Vérification finale" data-confirm-title="Restaurer cette sauvegarde ?" data-confirm-message="L’état actuel du monde sera remplacé après création automatique d’une nouvelle sauvegarde de sécurité. Le serveur doit rester arrêté pendant toute l’opération." data-confirm-action="Sauvegarder l’état actuel et restaurer">
+                                            <input type="hidden" name="backupId" value="@backup.Id" />
+                                            <label class="check-row restore-config-choice"><input type="checkbox" name="restoreConfiguration" value="true" disabled="@(!backup.HasConfiguration)" /> Restaurer aussi l’INI et les fichiers Lua archivés</label>
+                                            <button class="button primary" type="submit" disabled="@Model.SelectedServerOnline">Restaurer</button>
+                                        </form>
+                                        <form method="post" asp-page-handler="DeleteWorldBackup" asp-route-name="@Model.Selected.Name" data-confirm-title="Supprimer définitivement cette sauvegarde ?" data-confirm-message="L’archive et son manifeste seront supprimés du stockage du manager. Cette opération ne modifie pas le monde actuellement installé." data-confirm-action="Supprimer l’archive" data-confirm-tone="danger">
+                                            <input type="hidden" name="backupId" value="@backup.Id" />
+                                            <button class="button danger ghost-danger" type="submit">Supprimer</button>
+                                        </form>
+                                    </div>
+                                </article>
+                            }
+                        </div>
+                    }
+                }
+            </section>
+        }
+        else
+        {
+            <section class="panel server-data-panel remote-data-note"><div class="panel-heading"><div><span class="eyebrow">DONNÉES DU SERVEUR DISTANT</span><h2>Backups hébergeur ou accès fichiers requis</h2><p>RCON ne transporte pas les fichiers du monde. Utilisez les snapshots de votre VPS/hébergeur pour l’instant; aucune suppression distante n’est proposée sans chemin de données explicite et vérifiable.</p></div></div></section>
+        }
+
         @if (Model.Selected.IsRemote)
         {
             <section class="panel remote-connection-panel">

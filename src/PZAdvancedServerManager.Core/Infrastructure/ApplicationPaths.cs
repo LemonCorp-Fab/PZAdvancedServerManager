@@ -16,6 +16,7 @@ public sealed class ApplicationPaths
         LogsRoot = Path.Combine(DataRoot, "logs");
         LocksRoot = Path.Combine(DataRoot, "locks");
         ProfilesRoot = Path.Combine(DataRoot, "profiles");
+        ServerDataRoot = Path.Combine(DataRoot, "server-data");
         AssetsRoot = Path.Combine(DataRoot, "assets");
         ToolsRoot = Path.Combine(DataRoot, "tools");
 
@@ -25,6 +26,7 @@ public sealed class ApplicationPaths
         Directory.CreateDirectory(LogsRoot);
         Directory.CreateDirectory(LocksRoot);
         Directory.CreateDirectory(ProfilesRoot);
+        Directory.CreateDirectory(ServerDataRoot);
         Directory.CreateDirectory(AssetsRoot);
         Directory.CreateDirectory(ToolsRoot);
     }
@@ -36,6 +38,7 @@ public sealed class ApplicationPaths
     public string LogsRoot { get; }
     public string LocksRoot { get; }
     public string ProfilesRoot { get; }
+    public string ServerDataRoot { get; }
     public string AssetsRoot { get; }
     public string ToolsRoot { get; }
     public string SteamCmdRoot => Path.Combine(ToolsRoot, "steamcmd");
@@ -49,4 +52,5 @@ public sealed class ApplicationPaths
     public string ProjectLockFile(Guid id) => Path.Combine(LocksRoot, $"{id:N}.lock");
     public string AutomationLockFile => Path.Combine(LocksRoot, "automation.lock");
     public string RemoteServersFile => Path.Combine(ProfilesRoot, "remote-servers.json");
+    public string ServerBackupsRoot(string profileName) => Path.Combine(ServerDataRoot, profileName, "backups");
 }

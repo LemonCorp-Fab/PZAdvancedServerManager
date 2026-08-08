@@ -270,6 +270,26 @@ public sealed class ServerProfileService(
     public string ResolveIniPath(string name) => Get(name).Path;
     public ServerConfigDocument ReadDocument(string name) => ReadDocument(Get(name));
 
+    public ServerWorldDataLocation ResolveWorldDataLocation(string name)
+    {
+        var profile = Get(name);
+        if (profile.IsRemote)
+            throw new NotSupportedException("La gestion des données du monde nécessite actuellement un accès local au dossier Zomboid. Les profils distants restent contrôlables par RCON et SSH pour le processus et la configuration.");
+        var userRoot = Path.GetFullPath(environment.Installation.UserZomboidRoot);
+        var serverRoot = Path.Combine(userRoot, "Server");
+        return new ServerWorldDataLocation(
+            profile.Name,
+            userRoot,
+            Path.Combine(userRoot, "Saves", "Multiplayer", profile.Name),
+            Path.Combine(userRoot, "db", profile.Name + ".db"),
+            [
+                profile.Path,
+                Path.Combine(serverRoot, profile.Name + "_SandboxVars.lua"),
+                Path.Combine(serverRoot, profile.Name + "_spawnregions.lua"),
+                Path.Combine(serverRoot, profile.Name + "_spawnpoints.lua")
+            ]);
+    }
+
     public IReadOnlyList<StructuredServerSetting> ReadStructuredSettings(string name) => StructuredServerSettings.ParseIni(ReadRaw(name));
 
     public SandboxSettingsDocument ReadSandboxDocument(string name)

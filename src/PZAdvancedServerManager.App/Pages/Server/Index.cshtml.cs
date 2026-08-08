@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using System.ComponentModel.DataAnnotations;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Threading.Channels;
 using PZAdvancedServerManager.Core.Domain;
@@ -14,7 +15,8 @@ public class IndexModel(
     PackageProjectStore projectStore,
     ServerProfileService servers,
     SteamCmdInstaller steamCmdInstaller,
-    SteamCmdService steamCmd) : PageModel
+    SteamCmdService steamCmd,
+    ServerWorldDataStore worldData) : PageModel
 {
     public IReadOnlyList<ServerConfigEntry> Configs { get; private set; } = [];
     public ServerConfigEntry? Selected { get; private set; }
@@ -23,6 +25,9 @@ public class IndexModel(
     public bool SelectedServerOnline { get; private set; }
     public bool PlayerPasswordConfigured { get; private set; }
     public bool RconPasswordConfigured { get; private set; }
+    public ServerWorldDataStatus? WorldDataStatus { get; private set; }
+    public IReadOnlyList<ServerWorldBackupInfo> WorldBackups { get; private set; } = [];
+    public string WorldDataError { get; private set; } = string.Empty;
     public bool SelectedServerCanStart => Selected is not null && (!Selected.IsRemote || Selected.Remote!.HasSshConnection && !string.IsNullOrWhiteSpace(Selected.Remote.StartCommand));
     public string ConnectionError { get; private set; } = string.Empty;
     public string SandboxError { get; private set; } = string.Empty;
@@ -72,6 +77,16 @@ public class IndexModel(
         }
         try { SelectedServerOnline = await servers.IsOnlineAsync(Selected.Name, cancellationToken); }
         catch (Exception exception) { ConnectionError = string.IsNullOrWhiteSpace(ConnectionError) ? exception.Message : ConnectionError + " " + exception.Message; }
+        if (!Selected.IsRemote)
+        {
+            try
+            {
+                var location = servers.ResolveWorldDataLocation(Selected.Name);
+                WorldDataStatus = worldData.Inspect(location);
+                WorldBackups = worldData.List(Selected.Name);
+            }
+            catch (Exception exception) { WorldDataError = exception.Message; }
+        }
     }
 
     public async Task<IActionResult> OnPostSaveAsync(string name, CancellationToken cancellationToken)
@@ -288,6 +303,77 @@ public class IndexModel(
             Url.Page("/Server/Index", values: new { name }) ?? $"/Server?name={Uri.EscapeDataString(name)}",
             cancellationToken);
 
+    public async Task<IActionResult> OnPostCreateWorldBackupAsync(string name, CancellationToken cancellationToken)
+    {
+        try { TempData["Message"] = await CreateWorldBackupAsync(name, null, cancellationToken); }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
+        return RedirectToPage(new { name });
+    }
+
+    public async Task<IActionResult> OnPostCreateWorldBackupStreamAsync(string name, CancellationToken cancellationToken)
+        => await StreamOperationAsync(
+            progress => CreateWorldBackupAsync(name, progress, cancellationToken),
+            Url.Page("/Server/Index", values: new { name }) ?? $"/Server?name={Uri.EscapeDataString(name)}",
+            cancellationToken);
+
+    public async Task<IActionResult> OnPostRestoreWorldBackupAsync(string name, string backupId, bool restoreConfiguration, bool confirmationAcknowledged, CancellationToken cancellationToken)
+    {
+        try { TempData["Message"] = await RestoreWorldBackupAsync(name, backupId, restoreConfiguration, confirmationAcknowledged, null, cancellationToken); }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
+        return RedirectToPage(new { name });
+    }
+
+    public async Task<IActionResult> OnPostRestoreWorldBackupStreamAsync(string name, string backupId, bool restoreConfiguration, bool confirmationAcknowledged, CancellationToken cancellationToken)
+        => await StreamOperationAsync(
+            progress => RestoreWorldBackupAsync(name, backupId, restoreConfiguration, confirmationAcknowledged, progress, cancellationToken),
+            Url.Page("/Server/Index", values: new { name }) ?? $"/Server?name={Uri.EscapeDataString(name)}",
+            cancellationToken);
+
+    public async Task<IActionResult> OnPostResetWorldAsync(string name, bool confirmationAcknowledged, CancellationToken cancellationToken)
+    {
+        try { TempData["Message"] = await ResetWorldAsync(name, confirmationAcknowledged, null, cancellationToken); }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
+        return RedirectToPage(new { name });
+    }
+
+    public async Task<IActionResult> OnPostResetWorldStreamAsync(string name, bool confirmationAcknowledged, CancellationToken cancellationToken)
+        => await StreamOperationAsync(
+            progress => ResetWorldAsync(name, confirmationAcknowledged, progress, cancellationToken),
+            Url.Page("/Server/Index", values: new { name }) ?? $"/Server?name={Uri.EscapeDataString(name)}",
+            cancellationToken);
+
+    public IActionResult OnPostDeleteWorldBackup(string name, string backupId, bool confirmationAcknowledged)
+    {
+        try
+        {
+            if (!confirmationAcknowledged) throw new InvalidOperationException("Confirmez explicitement la suppression de cette archive dans le dialogue du manager.");
+            worldData.Delete(name, backupId);
+            TempData["Message"] = $"Sauvegarde {backupId} supprimée du stockage du manager.";
+        }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
+        return RedirectToPage(new { name });
+    }
+
+    public IActionResult OnPostOpenWorldBackupFolder(string name)
+    {
+        try
+        {
+            _ = servers.ResolveWorldDataLocation(name);
+            var root = worldData.EnsureBackupRoot(name);
+            var start = new ProcessStartInfo
+            {
+                FileName = OperatingSystem.IsWindows() ? "explorer.exe" : OperatingSystem.IsMacOS() ? "open" : "xdg-open",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            start.ArgumentList.Add(root);
+            Process.Start(start)?.Dispose();
+            TempData["Message"] = $"Dossier des sauvegardes ouvert : {root}";
+        }
+        catch (Exception exception) { TempData["Error"] = $"Impossible d'ouvrir le dossier des sauvegardes : {exception.Message}"; }
+        return RedirectToPage(new { name });
+    }
+
     public async Task<IActionResult> OnPostStopAsync(string name, CancellationToken cancellationToken)
     {
         try
@@ -358,6 +444,42 @@ public class IndexModel(
     {
         if (await servers.IsOnlineAsync(name, cancellationToken))
             throw new InvalidOperationException("Arrêtez le processus Project Zomboid avant de modifier son INI. Le jeu peut réécrire le fichier pendant son arrêt et annuler les changements enregistrés à chaud.");
+    }
+
+    private async Task<ServerWorldDataLocation> GetStoppedWorldDataLocationAsync(string name, CancellationToken cancellationToken)
+    {
+        var location = servers.ResolveWorldDataLocation(name);
+        var authenticated = await servers.IsOnlineAsync(name, cancellationToken);
+        var rconPortReachable = authenticated || await servers.IsRconPortReachableAsync(name, cancellationToken);
+        if (authenticated || rconPortReachable)
+            throw new InvalidOperationException("Arrêtez proprement Project Zomboid avant de sauvegarder, restaurer ou réinitialiser les données du monde. Le port RCON est encore joignable, même si son mot de passe n'est pas configuré ou n'a pas pu être authentifié.");
+        return location;
+    }
+
+    private async Task<string> CreateWorldBackupAsync(string name, IProgress<OperationProgress>? progress, CancellationToken cancellationToken)
+    {
+        var location = await GetStoppedWorldDataLocationAsync(name, cancellationToken);
+        var backup = await worldData.CreateBackupAsync(location, "manual", progress, cancellationToken);
+        return $"Sauvegarde du monde créée : {backup.Id} · {backup.FileCount:N0} fichiers · {ServerWorldDataStore.FormatBytes(backup.ArchiveBytes)}.";
+    }
+
+    private async Task<string> RestoreWorldBackupAsync(string name, string backupId, bool restoreConfiguration, bool confirmationAcknowledged, IProgress<OperationProgress>? progress, CancellationToken cancellationToken)
+    {
+        if (!confirmationAcknowledged)
+            throw new InvalidOperationException("Confirmez explicitement la restauration dans le dialogue du manager avant de remplacer le monde actuel.");
+        var location = await GetStoppedWorldDataLocationAsync(name, cancellationToken);
+        var result = await worldData.RestoreAsync(location, backupId, restoreConfiguration, progress, cancellationToken);
+        var safety = result.SafetyBackup is null ? "Aucune donnée précédente n'existait." : $"Sauvegarde de sécurité créée : {result.SafetyBackup.Id}.";
+        return $"Monde restauré depuis {result.RestoredBackup.Id}. {safety}" + (result.ConfigurationRestored ? " La configuration serveur archivée a également été restaurée." : string.Empty);
+    }
+
+    private async Task<string> ResetWorldAsync(string name, bool confirmationAcknowledged, IProgress<OperationProgress>? progress, CancellationToken cancellationToken)
+    {
+        if (!confirmationAcknowledged)
+            throw new InvalidOperationException("Confirmez explicitement le fresh start dans le dialogue du manager avant de retirer le monde actuel.");
+        var location = await GetStoppedWorldDataLocationAsync(name, cancellationToken);
+        var result = await worldData.ResetAsync(location, progress, cancellationToken);
+        return $"Fresh start prêt. Le monde et la base des joueurs seront recréés au prochain démarrage. Sauvegarde de récupération : {result.SafetyBackup.Id}.";
     }
 
     private async Task<string> RepairDedicatedAsync(string name, bool confirmationAcknowledged, IProgress<OperationProgress>? progress, CancellationToken cancellationToken)

@@ -99,6 +99,7 @@ public sealed class PackageProjectStore(ApplicationPaths paths)
         foreach (var mod in project.Mods)
         {
             mod.Permission ??= new PermissionEvidence();
+            mod.ForbiddenFiles ??= [];
             if (string.IsNullOrWhiteSpace(mod.Permission.RightsHolder) && !string.IsNullOrWhiteSpace(mod.Author))
                 mod.Permission.RightsHolder = mod.Author;
         }

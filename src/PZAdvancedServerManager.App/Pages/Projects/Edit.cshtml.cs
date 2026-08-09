@@ -195,9 +195,13 @@ public class EditModel(
         {
             var result = lifecycle.Build(project);
             var physicallyCopiedBytes = Math.Max(0, result.CopiedBytes - result.HardLinkedBytes);
-            TempData["Message"] = result.HardLinkedFiles > 0
-                ? $"Pack construit : {result.CopiedFiles:N0} fichiers; {result.HardLinkedFiles:N0} liés instantanément ({FormatBytes(result.HardLinkedBytes)} sans duplication), {FormatBytes(physicallyCopiedBytes)} copiés. Dossier : {result.BuildRoot}"
-                : $"Pack construit : {result.CopiedFiles:N0} fichiers, {FormatBytes(result.CopiedBytes)} copiés. Dossier : {result.BuildRoot}";
+            TempData["Message"] = result.IsNoOp
+                ? $"Pack déjà à jour : {result.ReusedComponents:N0} composants et {result.ReusedFiles:N0} fichiers réutilisés, aucune reconstruction du contenu. Dossier : {result.BuildRoot}"
+                : result.IsIncremental
+                    ? $"Pack mis à jour incrémentalement : {result.RebuiltComponents:N0} composant(s) reconstruit(s), {result.ReusedComponents:N0} réutilisé(s), {result.RemovedComponents:N0} retiré(s); {result.HardLinkedFiles:N0} fichiers liés ({FormatBytes(result.HardLinkedBytes)} sans duplication), {FormatBytes(physicallyCopiedBytes)} copiés. Dossier : {result.BuildRoot}"
+                    : result.HardLinkedFiles > 0
+                        ? $"Pack construit : {result.CopiedFiles:N0} fichiers; {result.HardLinkedFiles:N0} liés ({FormatBytes(result.HardLinkedBytes)} sans duplication), {FormatBytes(physicallyCopiedBytes)} copiés. Dossier : {result.BuildRoot}"
+                        : $"Pack construit : {result.CopiedFiles:N0} fichiers, {FormatBytes(result.CopiedBytes)} copiés. Dossier : {result.BuildRoot}";
         }
         catch (PackageBuildException exception)
         {

@@ -9,15 +9,33 @@ namespace PZAdvancedServerManager.Core.Packaging;
 
 public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator validator)
 {
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase, PropertyNameCaseInsensitive = true };
 
     public PackageBuildResult Build(PackageProject project)
     {
+        var finalRoot = EnsureScopedBuildPath(project.Id);
+        var preview = InspectPreview(project);
+        var desiredComponents = CreateDesiredComponents(project);
+        var previousState = LoadPreviousState(finalRoot, project, desiredComponents);
+        PrimeValidationCache(project, previousState);
         var validation = validator.Validate(project);
         if (!validation.CanBuild)
             throw new PackageBuildException("Le projet contient des erreurs qui empêchent sa construction.", validation);
 
-        var finalRoot = EnsureScopedBuildPath(project.Id);
+        var buildFingerprint = ComputeBuildFingerprint(project, desiredComponents, preview.Token);
+        if (CanReuseCompletedBuild(finalRoot, previousState, desiredComponents, buildFingerprint, preview.Extension))
+            return CreateResult(
+                project,
+                validation,
+                finalRoot,
+                preview.Extension,
+                new CopyStatistics(),
+                previousState!.Components,
+                rebuiltComponents: 0,
+                removedComponents: 0,
+                isIncremental: true,
+                isNoOp: true);
+
         var nextRoot = finalRoot + ".next";
         SafeFileTree.DeleteScopedDirectory(paths.BuildsRoot, nextRoot);
         Directory.CreateDirectory(nextRoot);
@@ -27,24 +45,27 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
 
         try
         {
-            var copied = project.Mode switch
+            var reusableComponents = FindReusableComponents(finalRoot, previousState, desiredComponents);
+            var rebuiltComponents = new List<IncrementalBuildComponent>();
+            var copied = new CopyStatistics();
+            foreach (var desired in desiredComponents.Where(component => !reusableComponents.ContainsKey(component.Key)))
             {
-                PackageMode.Bundle => BuildBundle(project, modsRoot),
-                PackageMode.FusionStrict => BuildFusion(project, modsRoot, validation),
-                _ => throw new ArgumentOutOfRangeException(nameof(project.Mode))
-            };
-
-            if (project.InjectConnectionNotice && project.Mode == PackageMode.Bundle)
-                NoticeModGenerator.GenerateStandalone(modsRoot, project);
-            if (project.InjectInGameControl && project.Mode == PackageMode.Bundle)
-                ControlModGenerator.GenerateStandalone(modsRoot, project);
+                var componentStats = MaterializeComponent(project, desired, modsRoot, validation);
+                copied.Add(componentStats);
+                rebuiltComponents.Add(ToBuildComponent(desired, componentStats));
+            }
 
             if (!validation.CanBuild)
                 throw new PackageBuildException("La fusion a détecté des collisions incompatibles.", validation);
 
+            var allComponents = desiredComponents
+                .Select(desired => reusableComponents.TryGetValue(desired.Key, out var reusable)
+                    ? reusable
+                    : rebuiltComponents.Single(component => component.Key.Equals(desired.Key, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
             var description = WorkshopDescriptionGenerator.Generate(project);
             WritePublicManifest(project, contentsRoot);
-            var previewPath = PreparePreview(project, nextRoot);
+            var previewPath = PreparePreview(project, nextRoot, preview.Extension);
             var finalPreviewPath = Path.Combine(finalRoot, Path.GetFileName(previewPath));
             var workshopPath = Path.Combine(nextRoot, "workshop.txt");
             File.WriteAllText(workshopPath, GenerateWorkshopTxt(project, description), new UTF8Encoding(false));
@@ -59,7 +80,7 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
             File.WriteAllText(Path.Combine(nextRoot, "README-BUILD.txt"), GenerateBuildReadme(project, validation), new UTF8Encoding(false));
 
             var lockPath = Path.Combine(nextRoot, "pack.lock.json");
-            var lockData = CreateLock(project, contentsRoot, copied.FullyHardLinkedModIds);
+            var lockData = CreateBuildState(project, buildFingerprint, allComponents);
             File.WriteAllText(lockPath, JsonSerializer.Serialize(lockData, JsonOptions), new UTF8Encoding(false));
 
             var localSnapshot = new
@@ -69,25 +90,23 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
             };
             File.WriteAllText(Path.Combine(nextRoot, "project.snapshot.json"), JsonSerializer.Serialize(localSnapshot, JsonOptions), new UTF8Encoding(false));
 
-            SafeFileTree.ReplaceDirectory(paths.BuildsRoot, nextRoot, finalRoot);
-            ProtectHardLinkedPayload(project, finalRoot, copied.HardLinkedModIds);
+            var desiredFolders = desiredComponents.Select(component => component.DestinationFolder).ToHashSet(PathComparer);
+            var changedFolders = rebuiltComponents.Select(component => component.DestinationFolder).ToHashSet(PathComparer);
+            var removedComponents = CommitIncrementalBuild(finalRoot, nextRoot, desiredFolders, changedFolders, preview.Extension);
+            ProtectHardLinkedPayload(finalRoot, rebuiltComponents.Where(component => component.HardLinkedFiles > 0).Select(component => component.DestinationFolder));
             project.LastBuiltAt = DateTimeOffset.UtcNow;
 
-            return new PackageBuildResult
-            {
-                BuildRoot = finalRoot,
-                WorkshopContentRoot = Path.Combine(finalRoot, "Contents"),
-                WorkshopDescriptorPath = Path.Combine(finalRoot, "workshop.txt"),
-                WorkshopPreviewPath = finalPreviewPath,
-                SteamCmdVdfPath = Path.Combine(finalRoot, "steamcmd-item.vdf"),
-                LockFilePath = Path.Combine(finalRoot, "pack.lock.json"),
-                ServerConfigSnippetPath = Path.Combine(finalRoot, "server-config.txt"),
-                Validation = validation,
-                CopiedFiles = copied.Files,
-                CopiedBytes = copied.Bytes,
-                HardLinkedFiles = copied.HardLinkedFiles,
-                HardLinkedBytes = copied.HardLinkedBytes
-            };
+            return CreateResult(
+                project,
+                validation,
+                finalRoot,
+                preview.Extension,
+                copied,
+                reusableComponents.Values,
+                rebuiltComponents.Count,
+                removedComponents,
+                isIncremental: previousState is not null,
+                isNoOp: false);
         }
         catch
         {
@@ -96,28 +115,37 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
         }
     }
 
-    private static CopyStatistics BuildBundle(PackageProject project, string modsRoot)
+    private static CopyStatistics MaterializeComponent(PackageProject project, DesiredBuildComponent desired, string modsRoot, PackageValidationResult validation)
     {
         var stats = new CopyStatistics();
-        foreach (var mod in project.Mods.Where(x => x.Enabled).OrderBy(x => x.Order).ThenBy(x => x.Name))
+        var destination = Path.Combine(modsRoot, desired.DestinationFolder);
+        switch (desired.Kind)
         {
-            var canLink = Directory.Exists(mod.PinnedSourceRoot) &&
-                          Path.GetFullPath(mod.BuildSourceRoot).Equals(Path.GetFullPath(mod.PinnedSourceRoot), OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal) &&
-                          !string.IsNullOrWhiteSpace(mod.PinnedContentHash);
-            var linkedFilesBefore = stats.HardLinkedFiles;
-            if (CopyTree(mod.BuildSourceRoot, Path.Combine(modsRoot, mod.EffectiveFolderName), stats, canLink))
-                stats.FullyHardLinkedModIds.Add(mod.Id);
-            if (stats.HardLinkedFiles > linkedFilesBefore)
-                stats.HardLinkedModIds.Add(mod.Id);
+            case "bundle-mod":
+                CopyTree(desired.SourceRoot, destination, stats, desired.PreferHardLinks);
+                break;
+            case "notice":
+                NoticeModGenerator.GenerateStandalone(modsRoot, project);
+                stats.Measure(destination);
+                break;
+            case "control":
+                ControlModGenerator.GenerateStandalone(modsRoot, project);
+                stats.Measure(destination);
+                break;
+            case "fusion":
+                stats = BuildFusion(project, modsRoot, validation);
+                break;
+            default:
+                throw new InvalidOperationException($"Composant de build inconnu : {desired.Kind}");
         }
         return stats;
     }
 
-    private static void ProtectHardLinkedPayload(PackageProject project, string buildRoot, IReadOnlySet<Guid> hardLinkedModIds)
+    private static void ProtectHardLinkedPayload(string buildRoot, IEnumerable<string> folders)
     {
-        foreach (var mod in project.Mods.Where(mod => hardLinkedModIds.Contains(mod.Id)))
+        foreach (var folder in folders.Distinct(PathComparer))
         {
-            var modRoot = Path.Combine(buildRoot, "Contents", "mods", mod.EffectiveFolderName);
+            var modRoot = Path.Combine(buildRoot, "Contents", "mods", folder);
             if (!Directory.Exists(modRoot)) continue;
             foreach (var file in Directory.EnumerateFiles(modRoot, "*", SearchOption.AllDirectories))
                 File.SetAttributes(file, File.GetAttributes(file) | FileAttributes.ReadOnly);
@@ -173,13 +201,20 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
         return stats;
     }
 
-    private static string PreparePreview(PackageProject project, string buildRoot)
+    private static PreviewDescriptor InspectPreview(PackageProject project)
+    {
+        if (string.IsNullOrWhiteSpace(project.PreviewImagePath))
+            return new PreviewDescriptor(".png", "default-workshop-preview-v1");
+        if (!File.Exists(project.PreviewImagePath))
+            throw new FileNotFoundException("L'image Workshop personnalisée est introuvable.", project.PreviewImagePath);
+        var extension = WorkshopPreviewFile.Validate(project.PreviewImagePath);
+        return new PreviewDescriptor(extension, ComputeHash(project.PreviewImagePath));
+    }
+
+    private static string PreparePreview(PackageProject project, string buildRoot, string extension)
     {
         if (!string.IsNullOrWhiteSpace(project.PreviewImagePath))
         {
-            if (!File.Exists(project.PreviewImagePath))
-                throw new FileNotFoundException("L'image Workshop personnalisée est introuvable.", project.PreviewImagePath);
-            var extension = WorkshopPreviewFile.Validate(project.PreviewImagePath);
             var customTarget = Path.Combine(buildRoot, "preview" + extension);
             File.Copy(project.PreviewImagePath, customTarget, true);
             return customTarget;
@@ -261,60 +296,549 @@ Mode : {project.Mode}
 Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.PublishedWorkshopId)}
 """;
 
-    private static object CreateLock(PackageProject project, string contentsRoot, IReadOnlySet<Guid> fullyHardLinkedModIds)
+    private static List<DesiredBuildComponent> CreateDesiredComponents(PackageProject project)
     {
-        var sourcePrefixes = project.Mode == PackageMode.Bundle
-            ? project.Mods
-                .Where(mod => mod.Enabled && fullyHardLinkedModIds.Contains(mod.Id) && Directory.Exists(mod.PinnedSourceRoot) && !string.IsNullOrWhiteSpace(mod.PinnedContentHash))
-                .Select(mod => new
-                {
-                    Prefix = $"mods/{mod.EffectiveFolderName.Replace('\\', '/').Trim('/')}/",
-                    mod.ModId
-                })
-                .OrderByDescending(source => source.Prefix.Length)
-                .ToArray()
-            : [];
-        var files = Directory.EnumerateFiles(contentsRoot, "*", SearchOption.AllDirectories)
-            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
-            .Select(file =>
-            {
-                var relative = Path.GetRelativePath(contentsRoot, file).Replace('\\', '/');
-                var source = sourcePrefixes.FirstOrDefault(candidate => relative.StartsWith(candidate.Prefix, StringComparison.OrdinalIgnoreCase));
-                return new
-                {
-                    path = relative,
-                    bytes = new FileInfo(file).Length,
-                    sourceModId = source?.ModId,
-                    sha256 = source is null ? ComputeHash(file) : null
-                };
-            }).ToArray();
-        return new
+        var enabled = project.Mods.Where(mod => mod.Enabled).OrderBy(mod => mod.Order).ThenBy(mod => mod.Name).ToArray();
+        var components = new List<DesiredBuildComponent>();
+        if (project.Mode == PackageMode.Bundle)
         {
-            schemaVersion = 2,
-            projectId = project.Id,
-            projectName = project.Name,
-            mode = project.Mode.ToString(),
-            targetPzVersion = project.TargetPzVersion,
-            workshopId = project.PublishedWorkshopId,
-            builtAt = DateTimeOffset.UtcNow,
-            sources = project.Mods.Where(x => x.Enabled).OrderBy(x => x.Order).Select(x => new
+            foreach (var mod in enabled)
             {
-                x.WorkshopId,
-                x.ModId,
-                x.Name,
-                x.Author,
-                x.Version,
-                x.SelectedVersionFolder,
-                x.SourceUrl,
-                x.PinnedAt,
-                x.PinnedContentHash,
-                x.PinnedMetadataStamp,
-                x.IncludeInGlobalUpdates,
-                permissionStatus = x.Permission.Status.ToString()
-            }),
-            files
+                var sourceHash = ResolveContentHash(mod);
+                var canLink = Directory.Exists(mod.PinnedSourceRoot) &&
+                              Path.GetFullPath(mod.BuildSourceRoot).Equals(Path.GetFullPath(mod.PinnedSourceRoot), PathComparison) &&
+                              !string.IsNullOrWhiteSpace(mod.PinnedContentHash);
+                components.Add(new DesiredBuildComponent(
+                    $"mod:{mod.Id:N}",
+                    "bundle-mod",
+                    mod.Id,
+                    mod.ModId,
+                    mod.EffectiveFolderName,
+                    Fingerprint(new { engine = "bundle-mod-v2", sourceHash }),
+                    sourceHash,
+                    mod.BuildSourceRoot,
+                    canLink));
+            }
+            if (project.InjectConnectionNotice)
+                components.Add(new DesiredBuildComponent(
+                    "generated:notice",
+                    "notice",
+                    null,
+                    project.NoticeModId,
+                    project.NoticeModId,
+                    Fingerprint(new { engine = "notice-v3", metadata = GeneratedMetadata(project) }),
+                    string.Empty,
+                    string.Empty,
+                    false));
+            if (project.InjectInGameControl)
+                components.Add(new DesiredBuildComponent(
+                    "generated:control",
+                    "control",
+                    null,
+                    project.ControlModId,
+                    project.ControlModId,
+                    Fingerprint(new { engine = "control-v3", metadata = GeneratedMetadata(project) }),
+                    string.Empty,
+                    string.Empty,
+                    false));
+        }
+        else
+        {
+            var sourceHash = Fingerprint(enabled.Select(mod => new
+            {
+                mod.Id,
+                mod.ModId,
+                hash = ResolveContentHash(mod),
+                mod.SelectedVersionFolder
+            }).ToArray());
+            components.Add(new DesiredBuildComponent(
+                "generated:fusion",
+                "fusion",
+                null,
+                project.FusionModId,
+                project.FusionModId,
+                Fingerprint(new { engine = "fusion-v3", sourceHash, metadata = GeneratedMetadata(project) }),
+                sourceHash,
+                string.Empty,
+                false));
+        }
+
+        var duplicate = components.GroupBy(component => component.DestinationFolder, PathComparer).FirstOrDefault(group => group.Count() > 1);
+        if (duplicate is not null)
+            throw new InvalidOperationException($"Plusieurs composants produiraient le dossier « {duplicate.Key} ».");
+        return components;
+    }
+
+    private static object GeneratedMetadata(PackageProject project) => new
+    {
+        project.Name,
+        project.Description,
+        project.NoticeTitle,
+        project.PublishedWorkshopId,
+        project.InjectConnectionNotice,
+        project.InjectInGameControl,
+        mods = project.Mods.Where(mod => mod.Enabled).OrderBy(mod => mod.Order).ThenBy(mod => mod.Name).Select(mod => new
+        {
+            mod.ModId,
+            mod.Name,
+            mod.Author,
+            mod.Version,
+            mod.SelectedVersionFolder,
+            mod.PinnedContentHash,
+            mod.WorkshopId
+        }).ToArray()
+    };
+
+    private static string ResolveContentHash(PackageModReference mod) =>
+        !string.IsNullOrWhiteSpace(mod.PinnedContentHash)
+            ? mod.PinnedContentHash
+            : Directory.Exists(mod.BuildSourceRoot)
+                ? SafeFileTree.ComputeDirectoryHash(mod.BuildSourceRoot)
+                : string.Empty;
+
+    private static string ComputeBuildFingerprint(PackageProject project, IReadOnlyCollection<DesiredBuildComponent> components, string previewToken) => Fingerprint(new
+    {
+        engine = "incremental-build-v3",
+        project.Id,
+        project.Name,
+        project.Description,
+        project.Mode,
+        project.TargetPzVersion,
+        project.NoticeTitle,
+        project.PublishedWorkshopId,
+        project.Visibility,
+        project.Tags,
+        project.MapOrder,
+        project.InjectConnectionNotice,
+        project.InjectInGameControl,
+        project.LegalWarningAccepted,
+        project.LegalWarningAcceptedAt,
+        previewToken,
+        components = components.Select(component => new { component.Key, component.Kind, component.DestinationFolder, component.Fingerprint }).ToArray(),
+        mods = project.Mods.Where(mod => mod.Enabled).OrderBy(mod => mod.Order).ThenBy(mod => mod.Name).Select(mod => new
+        {
+            mod.Id,
+            mod.WorkshopId,
+            mod.ModId,
+            mod.Name,
+            mod.Author,
+            mod.Version,
+            mod.SelectedVersionFolder,
+            mod.SourceUrl,
+            mod.Order,
+            mod.IncludeInGlobalUpdates,
+            mod.RequiredModIds,
+            mod.MapFolders,
+            permission = new
+            {
+                mod.Permission.Status,
+                mod.Permission.RightsHolder,
+                mod.Permission.PublicEvidenceUrl,
+                mod.Permission.PrivateAttachmentPath,
+                mod.Permission.Notes,
+                mod.Permission.GrantedOn
+            }
+        }).ToArray()
+    });
+
+    private static IncrementalBuildState CreateBuildState(PackageProject project, string buildFingerprint, List<IncrementalBuildComponent> components) => new()
+    {
+        ProjectId = project.Id,
+        ProjectName = project.Name,
+        Mode = project.Mode.ToString(),
+        TargetPzVersion = project.TargetPzVersion,
+        WorkshopId = project.PublishedWorkshopId,
+        BuiltAt = DateTimeOffset.UtcNow,
+        BuildFingerprint = buildFingerprint,
+        Components = components,
+        Sources = project.Mods.Where(mod => mod.Enabled).OrderBy(mod => mod.Order).Select(mod => new IncrementalBuildSource
+        {
+            WorkshopId = mod.WorkshopId,
+            ModId = mod.ModId,
+            Name = mod.Name,
+            Author = mod.Author,
+            Version = mod.Version,
+            SelectedVersionFolder = mod.SelectedVersionFolder,
+            SourceUrl = mod.SourceUrl,
+            PinnedAt = mod.PinnedAt,
+            PinnedContentHash = mod.PinnedContentHash,
+            PinnedMetadataStamp = mod.PinnedMetadataStamp,
+            IncludeInGlobalUpdates = mod.IncludeInGlobalUpdates,
+            PermissionStatus = mod.Permission.Status.ToString()
+        }).ToList(),
+        Totals = new IncrementalBuildTotals
+        {
+            Files = components.Sum(component => component.Files),
+            Bytes = components.Sum(component => component.Bytes),
+            HardLinkedFiles = components.Sum(component => component.HardLinkedFiles),
+            HardLinkedBytes = components.Sum(component => component.HardLinkedBytes)
+        }
+    };
+
+    private static IncrementalBuildComponent ToBuildComponent(DesiredBuildComponent desired, CopyStatistics stats) => new()
+    {
+        Key = desired.Key,
+        Kind = desired.Kind,
+        ModReferenceId = desired.ModReferenceId,
+        ModId = desired.ModId,
+        DestinationFolder = desired.DestinationFolder,
+        Fingerprint = desired.Fingerprint,
+        SourceContentHash = desired.SourceContentHash,
+        Files = stats.Files,
+        Bytes = stats.Bytes,
+        HardLinkedFiles = stats.HardLinkedFiles,
+        HardLinkedBytes = stats.HardLinkedBytes,
+        StatisticsComplete = true
+    };
+
+    private static IncrementalBuildState? LoadPreviousState(string finalRoot, PackageProject project, IReadOnlyCollection<DesiredBuildComponent> desiredComponents)
+    {
+        var lockPath = Path.Combine(finalRoot, "pack.lock.json");
+        if (!File.Exists(lockPath)) return null;
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(lockPath));
+            if (!document.RootElement.TryGetProperty("schemaVersion", out var schemaElement)) return null;
+            var schemaVersion = schemaElement.GetInt32();
+            if (schemaVersion >= 3)
+            {
+                var state = document.RootElement.Deserialize<IncrementalBuildState>(JsonOptions);
+                if (state?.ProjectId != project.Id) return null;
+                var repairedStatistics = false;
+                foreach (var component in state.Components.Where(component => !component.StatisticsComplete))
+                {
+                    var componentRoot = Path.Combine(finalRoot, "Contents", "mods", component.DestinationFolder);
+                    if (!Directory.Exists(componentRoot)) continue;
+                    var statistics = MeasureDirectory(componentRoot);
+                    component.Files = statistics.Files;
+                    component.Bytes = statistics.Bytes;
+                    component.StatisticsComplete = true;
+                    repairedStatistics = true;
+                }
+                if (repairedStatistics) state.BuildFingerprint = string.Empty;
+                return state;
+            }
+            if (schemaVersion != 2 || project.Mode != PackageMode.Bundle) return null;
+            return MigrateVersionTwoState(document.RootElement, finalRoot, project, desiredComponents);
+        }
+        catch (Exception exception) when (exception is IOException or JsonException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    private static IncrementalBuildState MigrateVersionTwoState(JsonElement root, string finalRoot, PackageProject project, IReadOnlyCollection<DesiredBuildComponent> desiredComponents)
+    {
+        var sourceHashes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var sources = new List<IncrementalBuildSource>();
+        if (root.TryGetProperty("sources", out var sourceElements))
+        {
+            foreach (var source in sourceElements.EnumerateArray())
+            {
+                var modId = ReadString(source, "modId");
+                var pinnedHash = ReadString(source, "pinnedContentHash");
+                if (!string.IsNullOrWhiteSpace(modId)) sourceHashes[modId] = pinnedHash;
+                sources.Add(new IncrementalBuildSource
+                {
+                    WorkshopId = source.TryGetProperty("workshopId", out var workshopId) && workshopId.TryGetUInt64(out var parsedWorkshopId) ? parsedWorkshopId : 0,
+                    ModId = modId,
+                    Name = ReadString(source, "name"),
+                    Author = ReadString(source, "author"),
+                    Version = ReadString(source, "version"),
+                    SelectedVersionFolder = ReadString(source, "selectedVersionFolder"),
+                    SourceUrl = ReadString(source, "sourceUrl"),
+                    PinnedContentHash = pinnedHash,
+                    PinnedMetadataStamp = ReadString(source, "pinnedMetadataStamp"),
+                    IncludeInGlobalUpdates = !source.TryGetProperty("includeInGlobalUpdates", out var includeUpdates) || includeUpdates.GetBoolean(),
+                    PermissionStatus = ReadString(source, "permissionStatus")
+                });
+            }
+        }
+
+        var fileTotals = new Dictionary<string, (int Files, long Bytes)>(StringComparer.OrdinalIgnoreCase);
+        var folderTotals = new Dictionary<string, (int Files, long Bytes)>(PathComparer);
+        if (root.TryGetProperty("files", out var fileElements))
+        {
+            foreach (var file in fileElements.EnumerateArray())
+            {
+                var bytes = file.TryGetProperty("bytes", out var byteElement) ? byteElement.GetInt64() : 0;
+                var path = ReadString(file, "path");
+                if (path.StartsWith("mods/", StringComparison.OrdinalIgnoreCase))
+                {
+                    var remainder = path[5..];
+                    var separator = remainder.IndexOf('/');
+                    if (separator > 0)
+                    {
+                        var folder = remainder[..separator];
+                        var folderCurrent = folderTotals.GetValueOrDefault(folder);
+                        folderTotals[folder] = (folderCurrent.Files + 1, folderCurrent.Bytes + bytes);
+                    }
+                }
+                var sourceModId = ReadString(file, "sourceModId");
+                if (string.IsNullOrWhiteSpace(sourceModId)) continue;
+                var current = fileTotals.GetValueOrDefault(sourceModId);
+                fileTotals[sourceModId] = (current.Files + 1, current.Bytes + bytes);
+            }
+        }
+
+        var components = new List<IncrementalBuildComponent>();
+        foreach (var desired in desiredComponents.Where(component => component.Kind == "bundle-mod"))
+        {
+            if (!sourceHashes.TryGetValue(desired.ModId, out var sourceHash) ||
+                !sourceHash.Equals(desired.SourceContentHash, StringComparison.OrdinalIgnoreCase) ||
+                !Directory.Exists(Path.Combine(finalRoot, "Contents", "mods", desired.DestinationFolder)))
+                continue;
+            var totals = folderTotals.GetValueOrDefault(desired.DestinationFolder);
+            var hardLinkedTotals = fileTotals.GetValueOrDefault(desired.ModId);
+            components.Add(new IncrementalBuildComponent
+            {
+                Key = desired.Key,
+                Kind = desired.Kind,
+                ModReferenceId = desired.ModReferenceId,
+                ModId = desired.ModId,
+                DestinationFolder = desired.DestinationFolder,
+                Fingerprint = desired.Fingerprint,
+                SourceContentHash = desired.SourceContentHash,
+                Files = totals.Files,
+                Bytes = totals.Bytes,
+                HardLinkedFiles = hardLinkedTotals.Files,
+                HardLinkedBytes = hardLinkedTotals.Bytes,
+                StatisticsComplete = true
+            });
+        }
+
+        return new IncrementalBuildState
+        {
+            SchemaVersion = 2,
+            ProjectId = project.Id,
+            ProjectName = project.Name,
+            Mode = project.Mode.ToString(),
+            TargetPzVersion = project.TargetPzVersion,
+            WorkshopId = project.PublishedWorkshopId,
+            Components = components,
+            Sources = sources,
+            Totals = new IncrementalBuildTotals
+            {
+                Files = components.Sum(component => component.Files),
+                Bytes = components.Sum(component => component.Bytes),
+                HardLinkedFiles = components.Sum(component => component.HardLinkedFiles),
+                HardLinkedBytes = components.Sum(component => component.HardLinkedBytes)
+            }
         };
     }
+
+    private static void PrimeValidationCache(PackageProject project, IncrementalBuildState? previousState)
+    {
+        if (previousState is null) return;
+        foreach (var mod in project.Mods.Where(mod => mod.Enabled && !string.IsNullOrWhiteSpace(mod.PinnedContentHash)))
+        {
+            var source = previousState.Sources.FirstOrDefault(candidate => candidate.ModId.Equals(mod.ModId, StringComparison.OrdinalIgnoreCase));
+            if (source is null || !source.PinnedContentHash.Equals(mod.PinnedContentHash, StringComparison.OrdinalIgnoreCase)) continue;
+            mod.ValidatedContentHash = mod.PinnedContentHash;
+            mod.ForbiddenFiles = [];
+        }
+    }
+
+    private static Dictionary<string, IncrementalBuildComponent> FindReusableComponents(
+        string finalRoot,
+        IncrementalBuildState? previousState,
+        IEnumerable<DesiredBuildComponent> desiredComponents)
+    {
+        var reusable = new Dictionary<string, IncrementalBuildComponent>(StringComparer.OrdinalIgnoreCase);
+        if (previousState is null) return reusable;
+        var previousByKey = previousState.Components.ToDictionary(component => component.Key, StringComparer.OrdinalIgnoreCase);
+        foreach (var desired in desiredComponents)
+        {
+            if (!previousByKey.TryGetValue(desired.Key, out var previous) ||
+                !previous.Fingerprint.Equals(desired.Fingerprint, StringComparison.OrdinalIgnoreCase) ||
+                !previous.DestinationFolder.Equals(desired.DestinationFolder, PathComparison) ||
+                !Directory.Exists(Path.Combine(finalRoot, "Contents", "mods", desired.DestinationFolder)))
+                continue;
+            reusable[desired.Key] = previous;
+        }
+        return reusable;
+    }
+
+    private static bool CanReuseCompletedBuild(
+        string finalRoot,
+        IncrementalBuildState? previousState,
+        IReadOnlyCollection<DesiredBuildComponent> desiredComponents,
+        string buildFingerprint,
+        string previewExtension)
+    {
+        if (previousState is null || previousState.SchemaVersion < 3 ||
+            !previousState.BuildFingerprint.Equals(buildFingerprint, StringComparison.OrdinalIgnoreCase))
+            return false;
+        var reusable = FindReusableComponents(finalRoot, previousState, desiredComponents);
+        if (reusable.Count != desiredComponents.Count) return false;
+        var modsRoot = Path.Combine(finalRoot, "Contents", "mods");
+        if (!Directory.Exists(modsRoot)) return false;
+        var actualFolders = Directory.EnumerateDirectories(modsRoot).Select(Path.GetFileName).Where(name => name is not null).Cast<string>().ToHashSet(PathComparer);
+        var desiredFolders = desiredComponents.Select(component => component.DestinationFolder).ToHashSet(PathComparer);
+        if (!actualFolders.SetEquals(desiredFolders)) return false;
+        return RequiredBuildFiles(previewExtension).All(relative => File.Exists(Path.Combine(finalRoot, relative)));
+    }
+
+    private static PackageBuildResult CreateResult(
+        PackageProject project,
+        PackageValidationResult validation,
+        string finalRoot,
+        string previewExtension,
+        CopyStatistics copied,
+        IEnumerable<IncrementalBuildComponent> reusedComponents,
+        int rebuiltComponents,
+        int removedComponents,
+        bool isIncremental,
+        bool isNoOp)
+    {
+        var reused = reusedComponents.ToArray();
+        return new PackageBuildResult
+        {
+            BuildRoot = finalRoot,
+            WorkshopContentRoot = Path.Combine(finalRoot, "Contents"),
+            WorkshopDescriptorPath = Path.Combine(finalRoot, "workshop.txt"),
+            WorkshopPreviewPath = Path.Combine(finalRoot, "preview" + previewExtension),
+            SteamCmdVdfPath = Path.Combine(finalRoot, "steamcmd-item.vdf"),
+            LockFilePath = Path.Combine(finalRoot, "pack.lock.json"),
+            ServerConfigSnippetPath = Path.Combine(finalRoot, "server-config.txt"),
+            Validation = validation,
+            CopiedFiles = copied.Files,
+            CopiedBytes = copied.Bytes,
+            HardLinkedFiles = copied.HardLinkedFiles,
+            HardLinkedBytes = copied.HardLinkedBytes,
+            ReusedFiles = reused.Sum(component => component.Files),
+            ReusedBytes = reused.Sum(component => component.Bytes),
+            RebuiltComponents = rebuiltComponents,
+            ReusedComponents = reused.Length,
+            RemovedComponents = removedComponents,
+            IsIncremental = isIncremental,
+            IsNoOp = isNoOp
+        };
+    }
+
+    private int CommitIncrementalBuild(
+        string finalRoot,
+        string stagedRoot,
+        IReadOnlySet<string> desiredFolders,
+        IReadOnlySet<string> changedFolders,
+        string previewExtension)
+    {
+        var backupRoot = finalRoot + $".previous-{Guid.NewGuid():N}";
+        Directory.CreateDirectory(finalRoot);
+        Directory.CreateDirectory(Path.Combine(finalRoot, "Contents", "mods"));
+        Directory.CreateDirectory(backupRoot);
+        var backups = new List<(string Destination, string Backup)>();
+        var installed = new List<(string Staged, string Destination)>();
+        var removedComponents = 0;
+        try
+        {
+            var finalModsRoot = Path.Combine(finalRoot, "Contents", "mods");
+            foreach (var directory in Directory.EnumerateDirectories(finalModsRoot).ToArray())
+            {
+                var folder = Path.GetFileName(directory);
+                if (desiredFolders.Contains(folder) && !changedFolders.Contains(folder)) continue;
+                if (!desiredFolders.Contains(folder)) removedComponents++;
+                BackupEntry(finalRoot, backupRoot, directory, backups);
+            }
+
+            var stagedModsRoot = Path.Combine(stagedRoot, "Contents", "mods");
+            foreach (var folder in changedFolders)
+            {
+                var staged = Path.Combine(stagedModsRoot, folder);
+                if (!Directory.Exists(staged)) throw new DirectoryNotFoundException($"Composant préparé introuvable : {staged}");
+                var destination = Path.Combine(finalModsRoot, folder);
+                MoveEntry(staged, destination);
+                installed.Add((staged, destination));
+            }
+
+            foreach (var oldPreview in Directory.EnumerateFiles(finalRoot, "preview.*", SearchOption.TopDirectoryOnly)
+                         .Where(path => !Path.GetFileName(path).Equals("preview" + previewExtension, PathComparison)).ToArray())
+                BackupEntry(finalRoot, backupRoot, oldPreview, backups);
+
+            foreach (var relative in RequiredBuildFiles(previewExtension))
+            {
+                var staged = Path.Combine(stagedRoot, relative);
+                var destination = Path.Combine(finalRoot, relative);
+                if (!File.Exists(staged)) throw new FileNotFoundException("Fichier de build préparé introuvable.", staged);
+                if (File.Exists(destination) && FilesEqual(staged, destination))
+                {
+                    File.Delete(staged);
+                    continue;
+                }
+                if (File.Exists(destination)) BackupEntry(finalRoot, backupRoot, destination, backups);
+                Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                MoveEntry(staged, destination);
+                installed.Add((staged, destination));
+            }
+
+            SafeFileTree.DeleteScopedDirectory(paths.BuildsRoot, backupRoot);
+            SafeFileTree.DeleteScopedDirectory(paths.BuildsRoot, stagedRoot);
+            return removedComponents;
+        }
+        catch
+        {
+            foreach (var entry in installed.AsEnumerable().Reverse())
+            {
+                if (!File.Exists(entry.Destination) && !Directory.Exists(entry.Destination)) continue;
+                Directory.CreateDirectory(Path.GetDirectoryName(entry.Staged)!);
+                MoveEntry(entry.Destination, entry.Staged);
+            }
+            foreach (var entry in backups.AsEnumerable().Reverse())
+            {
+                if (!File.Exists(entry.Backup) && !Directory.Exists(entry.Backup)) continue;
+                Directory.CreateDirectory(Path.GetDirectoryName(entry.Destination)!);
+                MoveEntry(entry.Backup, entry.Destination);
+            }
+            if (Directory.Exists(backupRoot)) SafeFileTree.DeleteScopedDirectory(paths.BuildsRoot, backupRoot);
+            throw;
+        }
+    }
+
+    private static void BackupEntry(string finalRoot, string backupRoot, string destination, ICollection<(string Destination, string Backup)> backups)
+    {
+        var backup = Path.Combine(backupRoot, Path.GetRelativePath(finalRoot, destination));
+        Directory.CreateDirectory(Path.GetDirectoryName(backup)!);
+        MoveEntry(destination, backup);
+        backups.Add((destination, backup));
+    }
+
+    private static void MoveEntry(string source, string destination)
+    {
+        if (Directory.Exists(source)) Directory.Move(source, destination);
+        else File.Move(source, destination);
+    }
+
+    private static bool FilesEqual(string left, string right)
+    {
+        var leftInfo = new FileInfo(left);
+        var rightInfo = new FileInfo(right);
+        return leftInfo.Length == rightInfo.Length && ComputeHash(left).Equals(ComputeHash(right), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static CopyStatistics MeasureDirectory(string root)
+    {
+        var statistics = new CopyStatistics();
+        statistics.Measure(root);
+        return statistics;
+    }
+
+    private static string[] RequiredBuildFiles(string previewExtension) =>
+    [
+        Path.Combine("Contents", "pzasm-pack-manifest.json"),
+        "workshop.txt",
+        "steamcmd-item.vdf",
+        "server-config.txt",
+        "README-BUILD.txt",
+        "pack.lock.json",
+        "project.snapshot.json",
+        "preview" + previewExtension
+    ];
+
+    private static string ReadString(JsonElement element, string property) =>
+        element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? string.Empty : string.Empty;
+
+    private static string Fingerprint(object value) =>
+        Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(value, JsonOptions))).ToLowerInvariant();
 
     private static void WritePublicManifest(PackageProject project, string contentsRoot)
     {
@@ -412,9 +936,27 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
         public long Bytes;
         public int HardLinkedFiles;
         public long HardLinkedBytes;
-        public HashSet<Guid> HardLinkedModIds { get; } = [];
-        public HashSet<Guid> FullyHardLinkedModIds { get; } = [];
+
+        public void Add(CopyStatistics other)
+        {
+            Files += other.Files;
+            Bytes += other.Bytes;
+            HardLinkedFiles += other.HardLinkedFiles;
+            HardLinkedBytes += other.HardLinkedBytes;
+        }
+
+        public void Measure(string root)
+        {
+            foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+            {
+                Files++;
+                Bytes += new FileInfo(file).Length;
+            }
+        }
     }
+    private static StringComparer PathComparer => OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+    private static StringComparison PathComparison => OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+    private sealed record PreviewDescriptor(string Extension, string Token);
     private sealed record FusionCandidate(Guid ModReferenceId, string ModName, string SourceFile, string Hash);
 }
 

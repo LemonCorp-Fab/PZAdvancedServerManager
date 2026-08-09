@@ -186,7 +186,7 @@ internal sealed class PzasmCli
             case "build":
                 {
                     var result = services.Lifecycle.Build(current);
-                    WriteJson(new { result.BuildRoot, result.CopiedFiles, result.CopiedBytes, result.HardLinkedFiles, result.HardLinkedBytes, result.ServerConfigSnippetPath, canPublish = result.Validation.CanPublish });
+                    WriteJson(new { result.BuildRoot, result.CopiedFiles, result.CopiedBytes, result.HardLinkedFiles, result.HardLinkedBytes, result.ReusedFiles, result.ReusedBytes, result.RebuiltComponents, result.ReusedComponents, result.RemovedComponents, result.IsIncremental, result.IsNoOp, result.ServerConfigSnippetPath, canPublish = result.Validation.CanPublish });
                     return 0;
                 }
             case "publish":

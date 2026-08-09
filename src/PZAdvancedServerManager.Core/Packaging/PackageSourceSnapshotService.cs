@@ -5,11 +5,15 @@ namespace PZAdvancedServerManager.Core.Packaging;
 
 public sealed class PackageSourceSnapshotService(ApplicationPaths paths)
 {
-    public void EnsurePinned(PackageProject project)
+    public void EnsurePinned(PackageProject project, bool verifyIntegrity = true)
     {
         foreach (var mod in project.Mods.Where(x => x.Enabled))
         {
             if (!Directory.Exists(mod.PinnedSourceRoot)) Pin(project, mod, replace: false);
+            if (!verifyIntegrity &&
+                !string.IsNullOrWhiteSpace(mod.PinnedContentHash) &&
+                !string.IsNullOrWhiteSpace(mod.PinnedMetadataStamp))
+                continue;
             var metadataStamp = SafeFileTree.ComputeDirectoryMetadataStamp(mod.PinnedSourceRoot);
             if (string.IsNullOrWhiteSpace(mod.PinnedMetadataStamp))
             {

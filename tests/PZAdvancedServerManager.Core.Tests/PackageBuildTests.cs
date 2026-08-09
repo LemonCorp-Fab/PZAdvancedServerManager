@@ -151,8 +151,9 @@ public sealed class PackageBuildTests : IDisposable
         Assert.True(File.GetAttributes(firstBuildLua).HasFlag(FileAttributes.ReadOnly));
         snapshots.EnsurePinned(project);
         var lockFile = File.ReadAllText(firstBuild.LockFilePath);
-        Assert.Contains("\"schemaVersion\": 2", lockFile);
-        Assert.Contains("\"sourceModId\": \"pinned-id\"", lockFile);
+        Assert.Contains("\"schemaVersion\": 3", lockFile);
+        Assert.Contains("\"kind\": \"bundle-mod\"", lockFile);
+        Assert.DoesNotContain("\"path\":", lockFile);
 
         snapshots.UpdateAll(project);
         Assert.Equal("return 'v1'", File.ReadAllText(firstBuildLua));
@@ -253,6 +254,223 @@ public sealed class PackageBuildTests : IDisposable
         project.PreviewImagePath = null;
         var recoveredBuild = builder.Build(project);
         Assert.Equal("return 'v2'", File.ReadAllText(Path.Combine(recoveredBuild.WorkshopContentRoot, "mods", "AtomicLinks", "common", "media", "lua", "client", "test.lua")));
+    }
+
+    [Fact]
+    public void RepeatedBuildWithNoChangesPerformsNoContentWrites()
+    {
+        var source = CreateMod("NoOp", "no-op", "return true");
+        var project = ValidProject(PackageMode.Bundle, Ref("no-op", "No Op", source));
+        project.InjectConnectionNotice = false;
+        project.InjectInGameControl = false;
+        var paths = new ApplicationPaths(Path.Combine(_root, "no-op-data"));
+        new PackageSourceSnapshotService(paths).UpdateAll(project);
+        var builder = new PackageBuildService(paths, new PackageValidator());
+        var first = builder.Build(project);
+        var output = Path.Combine(first.WorkshopContentRoot, "mods", "NoOp", "common", "media", "lua", "client", "test.lua");
+        var outputWriteTime = File.GetLastWriteTimeUtc(output);
+        var lockWriteTime = File.GetLastWriteTimeUtc(first.LockFilePath);
+
+        var second = builder.Build(project);
+
+        Assert.True(second.IsNoOp);
+        Assert.True(second.IsIncremental);
+        Assert.Equal(0, second.CopiedFiles);
+        Assert.Equal(0, second.HardLinkedFiles);
+        Assert.Equal(1, second.ReusedComponents);
+        Assert.True(second.ReusedFiles > 0);
+        Assert.Equal(outputWriteTime, File.GetLastWriteTimeUtc(output));
+        Assert.Equal(lockWriteTime, File.GetLastWriteTimeUtc(first.LockFilePath));
+    }
+
+    [Fact]
+    public void IncrementalBuildReconstructsOnlyTheChangedMod()
+    {
+        var firstSource = CreateMod("IncrementalFirst", "incremental-first", "return 'first-v1'");
+        var secondSource = CreateMod("IncrementalSecond", "incremental-second", "return 'second-v1'");
+        var project = ValidProject(PackageMode.Bundle,
+            Ref("incremental-first", "Incremental First", firstSource),
+            Ref("incremental-second", "Incremental Second", secondSource));
+        project.InjectConnectionNotice = false;
+        project.InjectInGameControl = false;
+        var paths = new ApplicationPaths(Path.Combine(_root, "incremental-data"));
+        var snapshots = new PackageSourceSnapshotService(paths);
+        snapshots.UpdateAll(project);
+        var builder = new PackageBuildService(paths, new PackageValidator());
+        var initial = builder.Build(project);
+        var secondOutput = Path.Combine(initial.WorkshopContentRoot, "mods", "IncrementalSecond", "common", "media", "lua", "client", "test.lua");
+        var secondWriteTime = File.GetLastWriteTimeUtc(secondOutput);
+
+        File.WriteAllText(Path.Combine(firstSource, "common", "media", "lua", "client", "test.lua"), "return 'first-v2'");
+        snapshots.Update(project, [project.Mods[0]]);
+        var incremental = builder.Build(project);
+
+        Assert.True(incremental.IsIncremental);
+        Assert.False(incremental.IsNoOp);
+        Assert.Equal(1, incremental.RebuiltComponents);
+        Assert.Equal(1, incremental.ReusedComponents);
+        Assert.Equal(0, incremental.RemovedComponents);
+        Assert.True(incremental.HardLinkedFiles > 0);
+        Assert.Equal("return 'first-v2'", File.ReadAllText(Path.Combine(incremental.WorkshopContentRoot, "mods", "IncrementalFirst", "common", "media", "lua", "client", "test.lua")));
+        Assert.Equal("return 'second-v1'", File.ReadAllText(secondOutput));
+        Assert.Equal(secondWriteTime, File.GetLastWriteTimeUtc(secondOutput));
+    }
+
+    [Fact]
+    public void MetadataOnlyBuildReusesEveryModPayload()
+    {
+        var source = CreateMod("MetadataOnly", "metadata-only", "return true");
+        var project = ValidProject(PackageMode.Bundle, Ref("metadata-only", "Metadata Only", source));
+        project.InjectConnectionNotice = false;
+        project.InjectInGameControl = false;
+        var paths = new ApplicationPaths(Path.Combine(_root, "metadata-only-data"));
+        new PackageSourceSnapshotService(paths).UpdateAll(project);
+        var builder = new PackageBuildService(paths, new PackageValidator());
+        var initial = builder.Build(project);
+        var output = Path.Combine(initial.WorkshopContentRoot, "mods", "MetadataOnly", "common", "media", "lua", "client", "test.lua");
+        var writeTime = File.GetLastWriteTimeUtc(output);
+
+        project.Description = "Updated public description";
+        var updated = builder.Build(project);
+
+        Assert.True(updated.IsIncremental);
+        Assert.False(updated.IsNoOp);
+        Assert.Equal(0, updated.RebuiltComponents);
+        Assert.Equal(1, updated.ReusedComponents);
+        Assert.Equal(0, updated.CopiedFiles);
+        Assert.Equal(writeTime, File.GetLastWriteTimeUtc(output));
+        Assert.Contains("Updated public description", File.ReadAllText(Path.Combine(updated.WorkshopContentRoot, "pzasm-pack-manifest.json")));
+    }
+
+    [Fact]
+    public void DisablingAndRenamingModsOnlyTouchesAffectedFolders()
+    {
+        var firstSource = CreateMod("LifecycleFirst", "lifecycle-first", "return 1");
+        var secondSource = CreateMod("LifecycleSecond", "lifecycle-second", "return 2");
+        var project = ValidProject(PackageMode.Bundle,
+            Ref("lifecycle-first", "Lifecycle First", firstSource),
+            Ref("lifecycle-second", "Lifecycle Second", secondSource));
+        project.InjectConnectionNotice = false;
+        project.InjectInGameControl = false;
+        var paths = new ApplicationPaths(Path.Combine(_root, "folder-lifecycle-data"));
+        new PackageSourceSnapshotService(paths).UpdateAll(project);
+        var builder = new PackageBuildService(paths, new PackageValidator());
+        var initial = builder.Build(project);
+
+        project.Mods[0].Enabled = false;
+        var disabled = builder.Build(project);
+        Assert.Equal(0, disabled.RebuiltComponents);
+        Assert.Equal(1, disabled.ReusedComponents);
+        Assert.Equal(1, disabled.RemovedComponents);
+        Assert.False(Directory.Exists(Path.Combine(initial.WorkshopContentRoot, "mods", "LifecycleFirst")));
+
+        project.Mods[1].SourceFolderName = "LifecycleSecondRenamed";
+        var renamed = builder.Build(project);
+        Assert.Equal(1, renamed.RebuiltComponents);
+        Assert.Equal(1, renamed.RemovedComponents);
+        Assert.False(Directory.Exists(Path.Combine(initial.WorkshopContentRoot, "mods", "LifecycleSecond")));
+        Assert.True(Directory.Exists(Path.Combine(initial.WorkshopContentRoot, "mods", "LifecycleSecondRenamed")));
+    }
+
+    [Fact]
+    public void VersionTwoLockMigratesWithoutRebuildingExistingModPayload()
+    {
+        var source = CreateMod("LegacyLock", "legacy-lock", "return true");
+        var project = ValidProject(PackageMode.Bundle, Ref("legacy-lock", "Legacy Lock", source));
+        project.InjectConnectionNotice = false;
+        project.InjectInGameControl = false;
+        var paths = new ApplicationPaths(Path.Combine(_root, "legacy-lock-data"));
+        new PackageSourceSnapshotService(paths).UpdateAll(project);
+        var builder = new PackageBuildService(paths, new PackageValidator());
+        var initial = builder.Build(project);
+        var output = Path.Combine(initial.WorkshopContentRoot, "mods", "LegacyLock", "common", "media", "lua", "client", "test.lua");
+        var outputWriteTime = File.GetLastWriteTimeUtc(output);
+        var relativeFiles = Directory.EnumerateFiles(Path.Combine(initial.WorkshopContentRoot, "mods", "LegacyLock"), "*", SearchOption.AllDirectories)
+            .Select(file => new { path = Path.GetRelativePath(initial.WorkshopContentRoot, file).Replace('\\', '/'), bytes = new FileInfo(file).Length, sourceModId = "legacy-lock", sha256 = (string?)null })
+            .ToArray();
+        var legacyLock = new
+        {
+            schemaVersion = 2,
+            projectId = project.Id,
+            sources = new[] { new { workshopId = 0UL, modId = "legacy-lock", name = "Legacy Lock", author = "", version = "", selectedVersionFolder = "common", sourceUrl = "", pinnedContentHash = project.Mods[0].PinnedContentHash, pinnedMetadataStamp = project.Mods[0].PinnedMetadataStamp, includeInGlobalUpdates = true, permissionStatus = "AuthorOwned" } },
+            files = relativeFiles
+        };
+        File.WriteAllText(initial.LockFilePath, System.Text.Json.JsonSerializer.Serialize(legacyLock, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+
+        var migrated = builder.Build(project);
+
+        Assert.True(migrated.IsIncremental);
+        Assert.Equal(0, migrated.RebuiltComponents);
+        Assert.Equal(1, migrated.ReusedComponents);
+        Assert.Equal(outputWriteTime, File.GetLastWriteTimeUtc(output));
+        Assert.Contains("\"schemaVersion\": 3", File.ReadAllText(migrated.LockFilePath));
+    }
+
+    [Fact]
+    public void ChangedSnapshotInvalidatesTheCachedSafetyValidation()
+    {
+        var source = CreateMod("SafetyCache", "safety-cache", "return true");
+        var project = ValidProject(PackageMode.Bundle, Ref("safety-cache", "Safety Cache", source));
+        var paths = new ApplicationPaths(Path.Combine(_root, "safety-cache-data"));
+        var snapshots = new PackageSourceSnapshotService(paths);
+        snapshots.UpdateAll(project);
+        var builder = new PackageBuildService(paths, new PackageValidator());
+        builder.Build(project);
+        Assert.Equal(project.Mods[0].PinnedContentHash, project.Mods[0].ValidatedContentHash);
+
+        File.WriteAllText(Path.Combine(source, "forbidden.exe"), "not executable");
+        snapshots.UpdateAll(project);
+        var exception = Assert.Throws<PackageBuildException>(() => builder.Build(project));
+
+        Assert.Contains(exception.Validation.Issues, issue => issue.Code == "FORBIDDEN_FILE");
+        Assert.Equal(project.Mods[0].PinnedContentHash, project.Mods[0].ValidatedContentHash);
+        Assert.Contains("forbidden.exe", project.Mods[0].ForbiddenFiles);
+    }
+
+    [Fact]
+    public void ModMetadataChangeOnlyRegeneratesInjectedComponents()
+    {
+        var source = CreateMod("InjectedMetadata", "injected-metadata", "return true");
+        var project = ValidProject(PackageMode.Bundle, Ref("injected-metadata", "Injected Metadata", source));
+        var paths = new ApplicationPaths(Path.Combine(_root, "injected-metadata-data"));
+        new PackageSourceSnapshotService(paths).UpdateAll(project);
+        var builder = new PackageBuildService(paths, new PackageValidator());
+        builder.Build(project);
+
+        project.Mods[0].Version = "9.9.9";
+        var updated = builder.Build(project);
+
+        Assert.Equal(2, updated.RebuiltComponents);
+        Assert.Equal(1, updated.ReusedComponents);
+        Assert.Contains("Version: 9.9.9", File.ReadAllText(Path.Combine(updated.WorkshopContentRoot, "mods", project.NoticeModId, "common", "media", "lua", "client", "PZASM_PackNotice.lua")));
+        Assert.Contains("version = \"9.9.9\"", File.ReadAllText(Path.Combine(updated.WorkshopContentRoot, "mods", project.ControlModId, "common", "media", "lua", "client", "PZASM_ControlClient.lua")));
+    }
+
+    [Fact]
+    public void SwitchingPackagingModeReplacesOnlyTheModeComponent()
+    {
+        var source = CreateMod("ModeSwitch", "mode-switch", "return true");
+        var project = ValidProject(PackageMode.Bundle, Ref("mode-switch", "Mode Switch", source));
+        project.InjectConnectionNotice = false;
+        project.InjectInGameControl = false;
+        var paths = new ApplicationPaths(Path.Combine(_root, "mode-switch-data"));
+        new PackageSourceSnapshotService(paths).UpdateAll(project);
+        var builder = new PackageBuildService(paths, new PackageValidator());
+        var bundle = builder.Build(project);
+
+        project.Mode = PackageMode.FusionStrict;
+        var fusion = builder.Build(project);
+        Assert.Equal(1, fusion.RebuiltComponents);
+        Assert.Equal(1, fusion.RemovedComponents);
+        Assert.False(Directory.Exists(Path.Combine(bundle.WorkshopContentRoot, "mods", "ModeSwitch")));
+        Assert.True(Directory.Exists(Path.Combine(bundle.WorkshopContentRoot, "mods", project.FusionModId)));
+
+        project.Mode = PackageMode.Bundle;
+        var restored = builder.Build(project);
+        Assert.Equal(1, restored.RebuiltComponents);
+        Assert.Equal(1, restored.RemovedComponents);
+        Assert.True(Directory.Exists(Path.Combine(restored.WorkshopContentRoot, "mods", "ModeSwitch")));
+        Assert.False(Directory.Exists(Path.Combine(restored.WorkshopContentRoot, "mods", project.FusionModId)));
     }
 
     [Fact]

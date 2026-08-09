@@ -1,3 +1,4 @@
+using System.Text.Json;
 using PZAdvancedServerManager.Core.Domain;
 using PZAdvancedServerManager.Core.Infrastructure;
 using PZAdvancedServerManager.Core.Publishing;
@@ -127,10 +128,11 @@ public sealed class PackageLifecycleService(
 
     private PackageBuildResult BuildCore(PackageProject project)
     {
-        snapshots.EnsurePinned(project);
-        store.Save(project);
+        var stateBeforeBuild = JsonSerializer.Serialize(project);
+        snapshots.EnsurePinned(project, verifyIntegrity: false);
         var build = builder.Build(project);
-        store.Save(project);
+        if (!build.IsNoOp || !stateBeforeBuild.Equals(JsonSerializer.Serialize(project), StringComparison.Ordinal))
+            store.Save(project);
         return build;
     }
 

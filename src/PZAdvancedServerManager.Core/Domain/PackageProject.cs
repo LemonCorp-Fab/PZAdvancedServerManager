@@ -95,6 +95,8 @@ public sealed class PackageModReference
     public DateTimeOffset? PinnedAt { get; set; }
     public string PinnedContentHash { get; set; } = string.Empty;
     public string PinnedMetadataStamp { get; set; } = string.Empty;
+    public string ValidatedContentHash { get; set; } = string.Empty;
+    public string[] ForbiddenFiles { get; set; } = [];
     public string SourceUpdateToken { get; set; } = string.Empty;
     public string Version { get; set; } = string.Empty;
     public string SelectedVersionFolder { get; set; } = string.Empty;
@@ -169,6 +171,13 @@ public sealed class PackageBuildResult
     public long CopiedBytes { get; init; }
     public int HardLinkedFiles { get; init; }
     public long HardLinkedBytes { get; init; }
+    public int ReusedFiles { get; init; }
+    public long ReusedBytes { get; init; }
+    public int RebuiltComponents { get; init; }
+    public int ReusedComponents { get; init; }
+    public int RemovedComponents { get; init; }
+    public bool IsIncremental { get; init; }
+    public bool IsNoOp { get; init; }
 }
 
 public sealed record PackageOperationResult(

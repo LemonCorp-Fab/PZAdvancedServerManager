@@ -46,6 +46,7 @@ public sealed class PackageValidator
                 result.Issues.Add(new("DUPLICATE_FOLDER", $"Deux mods produiraient le même dossier « {duplicate.Key} » dans le bundle.", true));
         }
 
+        var includedIds = project.Mods.Where(x => x.Enabled).Select(x => ModInfoParser.NormalizeDependencyId(x.ModId)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var mod in project.Mods.Where(x => x.Enabled))
         {
             if (string.IsNullOrWhiteSpace(mod.ModId))
@@ -59,13 +60,20 @@ public sealed class PackageValidator
             if (!Directory.Exists(mod.PinnedSourceRoot))
                 result.Issues.Add(new("SOURCE_NOT_PINNED", $"La source de « {mod.Name} » sera figée dans le cache PZASM avant le prochain build.", false, mod.Id, ValidationScope.Warning));
 
-            foreach (var file in Directory.EnumerateFiles(buildSource, "*", SearchOption.AllDirectories))
+            var pinnedValidationToken = Directory.Exists(mod.PinnedSourceRoot) ? mod.PinnedContentHash : string.Empty;
+            if (string.IsNullOrWhiteSpace(pinnedValidationToken) ||
+                !pinnedValidationToken.Equals(mod.ValidatedContentHash, StringComparison.OrdinalIgnoreCase))
             {
-                if (ForbiddenExtensions.Contains(Path.GetExtension(file)))
-                    result.Issues.Add(new("FORBIDDEN_FILE", $"Fichier refusé par le Workshop PZ dans « {mod.Name} » : {Path.GetFileName(file)}", true, mod.Id));
+                mod.ForbiddenFiles = Directory.EnumerateFiles(buildSource, "*", SearchOption.AllDirectories)
+                    .Where(file => ForbiddenExtensions.Contains(Path.GetExtension(file)))
+                    .Select(file => Path.GetRelativePath(buildSource, file).Replace('\\', '/'))
+                    .OrderBy(file => file, StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                mod.ValidatedContentHash = pinnedValidationToken;
             }
+            foreach (var file in mod.ForbiddenFiles)
+                result.Issues.Add(new("FORBIDDEN_FILE", $"Fichier refusé par le Workshop PZ dans « {mod.Name} » : {Path.GetFileName(file)}", true, mod.Id));
 
-            var includedIds = project.Mods.Where(x => x.Enabled).Select(x => ModInfoParser.NormalizeDependencyId(x.ModId)).ToHashSet(StringComparer.OrdinalIgnoreCase);
             foreach (var required in mod.RequiredModIds.Select(ModInfoParser.NormalizeDependencyId).Where(x => !includedIds.Contains(x)))
                 result.Issues.Add(new("MISSING_DEPENDENCY", $"« {mod.Name} » requiert le Mod ID « {required} », absent du pack.", true, mod.Id));
 

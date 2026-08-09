@@ -51,6 +51,12 @@ steamapps/workshop/content/108600/<WorkshopId>/
 
 [Steamworks Workshop 指南](https://partner.steamgames.com/doc/features/workshop/implementation)说明了如何通过 `workshop_build_item` 创建和更新条目。
 
+发布在两个层面采用增量方式。PZASM 分别计算已交付内容、元数据和预览图的指纹，并从 VDF 中省略未更改的部分。随后 SteamCMD 和 Steam 会将提交的清单与上一个清单比较，只传输缺失的分块。上传后，PZASM 绝不会再次下载整个包。
+
+只有三个本地指纹，以及通过公共 API 重新读取的远程内容句柄、预览句柄、文件大小、更新时间、标题、描述和可见性都与上次确认的发布一致时，才会判定“无更改”。任何证据缺失或过期都会触发保守发布。强制模式会把所有部分交给 SteamCMD，但 Steam 仍会复用相同的远程分块。仅有进程退出码 `0` 不代表成功：当前 SteamCMD 活动必须明确包含 `Upload finished ... : OK`，任何明确的 Workshop 错误都优先判定为失败。
+
+协调服务器在构建和整个上传期间保持在线。如果已交付内容发生变化，管理器会在确认后等待已配置的延迟（最少五分钟），然后发送 `save` 和 `quit`，并执行已配置的重启策略。经过验证的无更改，或仅元数据、预览图发生变化，都不会重启服务器。
+
 计划任务会记录权限、验证依赖、按需刷新来源、构建、发布，并在需要时通过 RCON 协调服务器。受监督的登录只通过标准输入把密码交给 SteamCMD，不会保存密码。未启用 Steam Guard 的账户会直接继续。对于受保护的账户，SteamCMD 会向 Steam 手机应用发送批准请求并自动轮询结果，界面同时显示活动等待状态。只有手机批准过期或用户主动选择备用方式时，才会请求当前验证码；随后 PZASM 通过标准输入使用 SteamCMD 文档中的 `set_steam_guard_code` 命令重试。Steam 客户端和网页支持二维码登录，但 SteamCMD 没有公开文档化的二维码数据或二维码登录命令，因此单独的网页二维码无法建立发布会话。SteamCMD 随后在便携目录中保留自己的令牌；手动和计划发布仅使用此会话。管理器仅记录上次验证成功的时间。会话过期时会要求重新连接，不会停在不可见的输入提示上。界面会实时显示进度、执行超时限制，并可取消外部进程。
 
 SteamCMD 会打开独立的 Steam 会话，因此自动化应使用拥有 Project Zomboid 的专用发布账户，而不是桌面客户端中正在使用的账户。首次登录会创建便携令牌；之后的检查使用 `steamcmd verify`，无需密码，也不会创建新令牌。PZASM 绝不会导入 Steam 客户端的 Cookie 或登录文件。若要通过桌面会话发布，必须使用获授权的 Steamworks 应用：Project Zomboid 发行方需要把工具 AppID 加入 Workshop 的 App Publish Permissions 以使用 `ISteamUGC`；OAuth 还要求 Valve 分配客户端 ID，并授予限定到该 AppID 的 `write_cloud` 权限。外部工具无法自行获得这些权限。
@@ -72,7 +78,7 @@ SteamCMD 会打开独立的 Steam 会话，因此自动化应使用拥有 Projec
 - 未声明依赖与需要手动调整的地图顺序；
 - 静态分析无法发现的逻辑冲突；
 - SteamCMD 偶尔需要人工操作；
-- 发布后必须重启服务器。
+- 仅当已交付内容发生变化时才需要重启服务器，并且只会在确认上传成功且等待配置的延迟后执行。
 
 ## 本地与远程服务器编排
 

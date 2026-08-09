@@ -106,6 +106,10 @@ The public lockfile records every delivered source and file hash. It identifies 
 
 Steam documents that `workshop_build_item` creates an item when `publishedfileid=0` and updates that field for later submissions to the same item. See the [Steamworks Workshop implementation guide](https://partner.steamgames.com/doc/features/workshop/implementation).
 
+Publication is incremental on two levels. PZASM fingerprints the delivered content, metadata, and preview separately and omits unchanged dimensions from the generated VDF. SteamCMD/Steam then compares the submitted content manifest with its previous manifest and transfers only missing chunks. PZASM never downloads the package again after an upload.
+
+A no-change result requires all three local fingerprints plus a fresh public API reread of the remote content handle, preview handle, file size, update time, title, description, and visibility to match the last confirmed publication. If any proof is unavailable or stale, PZASM submits conservatively. A forced publication always sends every dimension to SteamCMD, while Steam still reuses identical remote chunks. Process exit code `0` alone is not treated as success: the current SteamCMD activity must explicitly contain `Upload finished ... : OK`, and any explicit Workshop failure wins.
+
 The PZASM scheduler:
 
 1. determines whether a configured time is due;
@@ -114,10 +118,10 @@ The PZASM scheduler:
 4. resolves every source to the matching Mod ID in the SteamCMD cache;
 5. atomically replaces private snapshots and recalculates SHA-256 hashes;
 6. builds exclusively from snapshots in a temporary directory;
-7. for a local or SSH-startable profile, coordinates `save` and `quit` before the upload;
-8. publishes the VDF to the same Workshop ID;
-9. either starts the game process PZASM stopped or, for an RCON-only profile, sends `save` and `quit` after a successful upload so its supervisor reloads the pack;
-10. records timestamps and results in the project.
+7. leaves the coordinated server online throughout build and upload;
+8. publishes the minimal VDF to the same Workshop ID and waits for explicit SteamCMD upload completion;
+9. when delivered content changed and the server was online, waits the configured post-confirmation delay (five minutes minimum), then sends `save` and `quit` and applies the configured restart strategy;
+10. records the locally and remotely proven state; verified no-change, metadata-only, and preview-only operations do not restart the server.
 
 Passwords and Steam Guard codes are never persisted. A supervised login sends the password through SteamCMD standard input. Accounts without Steam Guard continue directly. For protected accounts, SteamCMD sends a Steam Mobile approval request and polls it while the UI shows an active waiting state. The current code is requested only when mobile approval expires or the user explicitly chooses the fallback, then PZASM retries with SteamCMD's documented `set_steam_guard_code` command through standard input. Steam supports QR sign-in in its client and web pages, but SteamCMD exposes no documented QR payload or QR login command, so a separate web QR cannot establish this publishing session. SteamCMD then keeps its own portable refresh token. Manual publishing and the scheduler use only that cached session; an expired session fails with a reconnect-required result instead of waiting on a hidden prompt. PZASM records only the last successful verification time. Production automation should use a limited account and a staging server.
 
@@ -204,7 +208,7 @@ Steam may keep a new item hidden until its contributor accepts the [Workshop leg
 - Two sources can declare the same logical Mod ID.
 - Client and server scripts remain subject to `DoLuaChecksum`.
 - SteamCMD can require interactive account intervention.
-- The server must restart after publication to load the new pack; forced process termination remains intentionally unsupported.
+- A server restart is required only after delivered pack content changes; it happens after confirmed upload and the configured grace period, while forced process termination remains intentionally unsupported.
 
 ## Local and remote server orchestration
 

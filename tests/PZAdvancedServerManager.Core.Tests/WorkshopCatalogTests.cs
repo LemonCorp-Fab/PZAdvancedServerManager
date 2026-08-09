@@ -51,6 +51,22 @@ public sealed class WorkshopCatalogTests
         Assert.Equal(3, handler.Requests);
     }
 
+    [Fact]
+    public async Task RemoteStateIncludesManifestAndPreviewHandles()
+    {
+        var handler = new RemoteStateHandler();
+        var service = new WorkshopCatalogService(new HttpClient(handler));
+
+        var state = await service.GetRemoteStateAsync(2335368829);
+
+        Assert.NotNull(state);
+        Assert.Equal("987654321", state.ContentHandle);
+        Assert.Equal("123456789", state.PreviewHandle);
+        Assert.Equal(10_585_073_778, state.FileSize);
+        Assert.Equal(3, state.Visibility);
+        Assert.False(state.Banned);
+    }
+
     private sealed class CatalogHandler : HttpMessageHandler
     {
         public int Requests { get; private set; }
@@ -100,6 +116,24 @@ public sealed class WorkshopCatalogTests
             {
                 Content = new StringContent($"{{\"response\":{{\"publishedfiledetails\":[{items}]}}}}", Encoding.UTF8, "application/json")
             };
+        }
+    }
+
+    private sealed class RemoteStateHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            const string json = """
+                {"response":{"publishedfiledetails":[{
+                  "publishedfileid":"2335368829","result":1,"consumer_app_id":108600,"creator_app_id":108600,
+                  "hcontent_file":"987654321","hcontent_preview":"123456789","file_size":"10585073778",
+                  "time_updated":1780000000,"title":"Pack","description":"Description","visibility":3,"banned":0
+                }]}}
+                """;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            });
         }
     }
 }

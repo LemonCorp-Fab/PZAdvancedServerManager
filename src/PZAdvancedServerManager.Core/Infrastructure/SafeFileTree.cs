@@ -66,17 +66,13 @@ public static class SafeFileTree
         RejectReparsePoint(resolvedRoot);
         using var aggregate = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         var length = new byte[8];
-        foreach (var entry in Directory.EnumerateFileSystemEntries(resolvedRoot, "*", SearchOption.AllDirectories))
-            RejectReparsePoint(entry);
-        foreach (var file in Directory.EnumerateFiles(resolvedRoot, "*", SearchOption.AllDirectories)
-                     .OrderBy(x => Path.GetRelativePath(resolvedRoot, x), StringComparer.Ordinal))
+        foreach (var file in EnumerateSafeFiles(resolvedRoot))
         {
-            var relative = Path.GetRelativePath(resolvedRoot, file).Replace('\\', '/');
-            aggregate.AppendData(Encoding.UTF8.GetBytes(relative));
+            aggregate.AppendData(Encoding.UTF8.GetBytes(file.RelativePath));
             aggregate.AppendData([0]);
-            BinaryPrimitives.WriteInt64LittleEndian(length, new FileInfo(file).Length);
+            BinaryPrimitives.WriteInt64LittleEndian(length, file.Length);
             aggregate.AppendData(length);
-            using var stream = File.OpenRead(file);
+            using var stream = File.OpenRead(file.Path);
             aggregate.AppendData(SHA256.HashData(stream));
         }
         return Convert.ToHexString(aggregate.GetHashAndReset()).ToLowerInvariant();
@@ -89,18 +85,13 @@ public static class SafeFileTree
         RejectReparsePoint(resolvedRoot);
         using var aggregate = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         var number = new byte[8];
-        foreach (var entry in Directory.EnumerateFileSystemEntries(resolvedRoot, "*", SearchOption.AllDirectories))
-            RejectReparsePoint(entry);
-        foreach (var file in Directory.EnumerateFiles(resolvedRoot, "*", SearchOption.AllDirectories)
-                     .OrderBy(path => Path.GetRelativePath(resolvedRoot, path), StringComparer.Ordinal))
+        foreach (var file in EnumerateSafeFiles(resolvedRoot))
         {
-            var info = new FileInfo(file);
-            var relative = Path.GetRelativePath(resolvedRoot, file).Replace('\\', '/');
-            aggregate.AppendData(Encoding.UTF8.GetBytes(relative));
+            aggregate.AppendData(Encoding.UTF8.GetBytes(file.RelativePath));
             aggregate.AppendData([0]);
-            BinaryPrimitives.WriteInt64LittleEndian(number, info.Length);
+            BinaryPrimitives.WriteInt64LittleEndian(number, file.Length);
             aggregate.AppendData(number);
-            BinaryPrimitives.WriteInt64LittleEndian(number, info.LastWriteTimeUtc.Ticks);
+            BinaryPrimitives.WriteInt64LittleEndian(number, file.LastWriteTimeUtcTicks);
             aggregate.AppendData(number);
         }
         return Convert.ToHexString(aggregate.GetHashAndReset()).ToLowerInvariant();
@@ -276,6 +267,28 @@ public static class SafeFileTree
         if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
             throw new IOException($"Lien symbolique ou point de jonction refusé dans une source de mod : {path}");
     }
+
+    private static List<SafeFileEntry> EnumerateSafeFiles(string root)
+    {
+        var files = new List<SafeFileEntry>();
+        foreach (var entry in Directory.EnumerateFileSystemEntries(root, "*", SearchOption.AllDirectories))
+        {
+            var attributes = File.GetAttributes(entry);
+            if ((attributes & FileAttributes.ReparsePoint) != 0)
+                throw new IOException($"Lien symbolique ou point de jonction refusé dans une source de mod : {entry}");
+            if ((attributes & FileAttributes.Directory) != 0) continue;
+            var info = new FileInfo(entry);
+            files.Add(new SafeFileEntry(
+                entry,
+                Path.GetRelativePath(root, entry).Replace('\\', '/'),
+                info.Length,
+                info.LastWriteTimeUtc.Ticks));
+        }
+        files.Sort((left, right) => StringComparer.Ordinal.Compare(left.RelativePath, right.RelativePath));
+        return files;
+    }
+
+    private sealed record SafeFileEntry(string Path, string RelativePath, long Length, long LastWriteTimeUtcTicks);
 
     private static bool TryCreateHardLink(string destination, string source)
     {

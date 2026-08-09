@@ -97,7 +97,7 @@ PZASM never modifies Steam sources during a build. It builds from private pinned
 
 ## Headless CLI
 
-The CLI uses the same projects as the UI. Every `project create` command creates an independent global pack with its own future Workshop ID. Later `project publish` operations update that same item.
+The CLI uses the same projects as the UI. Every `project create` command creates an independent global pack with its own future Workshop ID. Later `project publish` operations update that same item. Incremental publication skips only after both local fingerprints and a fresh remote Workshop read prove that nothing changed. `--force` submits every publication dimension again while Steam still reuses identical chunks. A coordinated server remains online through the upload; after changed content is confirmed, the configured grace period defaults to five minutes before `save`, `quit`, and restart.
 
 ```bash
 # Local inventory
@@ -114,10 +114,11 @@ dotnet run --project src/PZAdvancedServerManager.Cli -- project validate --id <g
 dotnet run --project src/PZAdvancedServerManager.Cli -- project build --id <guid>
 
 # Schedule the same pack from an SSH session
-dotnet run --project src/PZAdvancedServerManager.Cli -- project configure --id <guid> --server servertest --automation true --schedule "04:00,16:00"
+dotnet run --project src/PZAdvancedServerManager.Cli -- project configure --id <guid> --server servertest --automation true --schedule "04:00,16:00" --restart-delay-minutes 5
 
 # Explicit publication
 dotnet run --project src/PZAdvancedServerManager.Cli -- project publish --id <guid> --yes
+dotnet run --project src/PZAdvancedServerManager.Cli -- project publish --id <guid> --yes --force
 
 # Windows/Linux server management
 dotnet run --project src/PZAdvancedServerManager.Cli -- server status --name servertest

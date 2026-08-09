@@ -51,6 +51,12 @@ Al añadir una fuente, PZASM crea una instantánea privada y calcula su SHA-256.
 
 La [guía Steamworks Workshop](https://partner.steamgames.com/doc/features/workshop/implementation) documenta la creación y actualización mediante `workshop_build_item`.
 
+La publicación es incremental en dos niveles. PZASM calcula por separado las huellas del contenido entregado, los metadatos y la vista previa, y omite del VDF las dimensiones sin cambios. SteamCMD y Steam comparan después el manifiesto enviado con el anterior y solo transfieren los chunks ausentes. PZASM nunca vuelve a descargar el paquete tras la subida.
+
+Un resultado «sin cambios» exige las tres huellas locales y una nueva lectura por la API pública de los identificadores remotos de contenido y vista previa, el tamaño, la hora de actualización, el título, la descripción y la visibilidad. Si falta alguna prueba o está obsoleta, se realiza una publicación conservadora. El modo forzado envía todas las dimensiones a SteamCMD, pero Steam reutiliza los chunks idénticos. El código de proceso `0` no basta: la actividad actual debe confirmar explícitamente `Upload finished ... : OK`, y cualquier error explícito del Workshop prevalece.
+
+El servidor coordinado permanece en línea durante la compilación y toda la subida. Si cambió el contenido entregado, el gestor espera tras la confirmación el plazo configurado — cinco minutos como mínimo —, envía `save` y `quit` y aplica la estrategia de reinicio. Un no-change verificado o un cambio solo de metadatos o vista previa no reinicia el servidor.
+
 El planificador informa de los permisos, valida las dependencias, actualiza opcionalmente las fuentes, construye, publica y coordina el servidor por RCON cuando procede. Un inicio de sesión supervisado envía la contraseña por la entrada estándar de SteamCMD sin guardarla. Una cuenta sin Steam Guard continúa directamente. Para una cuenta protegida, SteamCMD envía una solicitud de aprobación a Steam Mobile y la comprueba automáticamente mientras la interfaz muestra la espera activa. El código actual solo se solicita si la aprobación caduca o si el usuario elige esta alternativa; PZASM reintenta entonces con el comando documentado `set_steam_guard_code`, también por la entrada estándar. Steam ofrece el QR en su cliente y páginas web, pero SteamCMD no expone ninguna carga QR ni comando de inicio de sesión QR documentado, por lo que un QR web separado no puede establecer la sesión de publicación. SteamCMD conserva su propio token en la carpeta portátil; las publicaciones manuales y programadas usan únicamente esa sesión. El gestor solo registra la hora de la última verificación. Una sesión caducada solicita reconexión sin quedar esperando una entrada invisible. La interfaz transmite el progreso en directo, impone un tiempo máximo y puede cancelar el proceso externo.
 
 SteamCMD abre una sesión de Steam independiente, por lo que la automatización debe usar una cuenta de publicación dedicada que posea Project Zomboid y no la cuenta activa en el cliente de escritorio. El primer acceso crea el token portátil; las comprobaciones posteriores usan `steamcmd verify`, sin contraseña ni token nuevo. PZASM nunca importa cookies ni archivos de acceso del cliente Steam. Publicar mediante la sesión del cliente exigiría una aplicación Steamworks autorizada: el editor de Project Zomboid debe añadir el AppID de la herramienta a los App Publish Permissions del Workshop para `ISteamUGC`, mientras OAuth requiere un cliente asignado por Valve con acceso `write_cloud` limitado al AppID. Una herramienta externa no puede concederse ninguno de esos permisos.
@@ -72,7 +78,7 @@ Steam puede ocultar un elemento nuevo hasta aceptar el [acuerdo de Workshop](htt
 - dependencias no declaradas y orden manual de mapas;
 - conflictos lógicos que no pueden detectarse estáticamente;
 - intervención ocasional de SteamCMD;
-- reinicio obligatorio del servidor después de publicar.
+- reinicio necesario solo cuando cambia el contenido entregado, después de confirmar la subida y esperar el plazo configurado.
 
 ## Orquestación local y remota
 

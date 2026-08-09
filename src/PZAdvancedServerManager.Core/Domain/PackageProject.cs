@@ -51,6 +51,7 @@ public sealed class PackageProject
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? LastBuiltAt { get; set; }
     public DateTimeOffset? LastPublishedAt { get; set; }
+    public WorkshopPublicationState Publication { get; set; } = new();
     public PackageAutomationSettings Automation { get; set; } = new();
 
     [JsonIgnore]
@@ -77,9 +78,23 @@ public sealed class PackageAutomationSettings
     public bool RefreshWorkshopSourcesBeforeBuild { get; set; } = true;
     public bool PublishAfterBuild { get; set; } = true;
     public string CoordinatedServerName { get; set; } = string.Empty;
+    public int PostPublishRestartDelayMinutes { get; set; } = 5;
     public DateTimeOffset? LastAttemptAt { get; set; }
     public DateTimeOffset? LastSuccessAt { get; set; }
     public string LastResult { get; set; } = string.Empty;
+}
+
+public sealed class WorkshopPublicationState
+{
+    public ulong WorkshopId { get; set; }
+    public string ContentFingerprint { get; set; } = string.Empty;
+    public string MetadataFingerprint { get; set; } = string.Empty;
+    public string PreviewFingerprint { get; set; } = string.Empty;
+    public string RemoteContentHandle { get; set; } = string.Empty;
+    public string RemotePreviewHandle { get; set; } = string.Empty;
+    public long RemoteFileSize { get; set; }
+    public DateTimeOffset? RemoteUpdatedAt { get; set; }
+    public DateTimeOffset? RemoteVerifiedAt { get; set; }
 }
 
 public sealed class PackageModReference
@@ -167,6 +182,7 @@ public sealed class PackageBuildResult
     public required string LockFilePath { get; init; }
     public required string ServerConfigSnippetPath { get; init; }
     public required PackageValidationResult Validation { get; init; }
+    public required string ContentFingerprint { get; init; }
     public int CopiedFiles { get; init; }
     public long CopiedBytes { get; init; }
     public int HardLinkedFiles { get; init; }
@@ -184,6 +200,9 @@ public sealed record PackageOperationResult(
     PackageBuildResult Build,
     string Output,
     bool Published,
+    bool PublicationSubmitted,
+    bool PublicationSkipped,
+    string PublicationMode,
     bool ServerWasRunning,
     bool ServerRestarted);
 

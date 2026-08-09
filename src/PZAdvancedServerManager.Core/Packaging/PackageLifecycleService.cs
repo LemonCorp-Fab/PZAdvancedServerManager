@@ -40,7 +40,8 @@ public sealed class PackageLifecycleService(
         bool refreshSources,
         bool requireCoordinatedServer,
         CancellationToken cancellationToken = default,
-        IProgress<OperationProgress>? progress = null)
+        IProgress<OperationProgress>? progress = null,
+        bool force = false)
     {
         await using var operationLock = Acquire(project.Id);
         if (requireCoordinatedServer && string.IsNullOrWhiteSpace(project.Automation.CoordinatedServerName))
@@ -58,72 +59,143 @@ public sealed class PackageLifecycleService(
 
         progress?.Report(new OperationProgress("build", "Validation des snapshots et construction atomique du pack."));
         var build = BuildCore(project);
+        var plan = await steamCmd.PlanPublicationAsync(project, build, force, cancellationToken, progress);
+        if (plan.IsNoOp)
+        {
+            output.Add(plan.Summary);
+            return new PackageOperationResult(
+                build,
+                string.Join(Environment.NewLine, output.Where(x => !string.IsNullOrWhiteSpace(x))),
+                true,
+                false,
+                true,
+                plan.Mode.ToString(),
+                false,
+                false);
+        }
+
         var serverName = project.Automation.CoordinatedServerName;
         var serverWasRunning = false;
-        var serverStopped = false;
         var serverRestarted = false;
-        var restartViaRconAfterPublish = false;
+        if (plan.RequiresServerRestart && !string.IsNullOrWhiteSpace(serverName))
+        {
+            serverWasRunning = await servers.IsOnlineAsync(serverName, cancellationToken);
+            if (!serverWasRunning && await servers.IsRconServiceAsync(serverName, cancellationToken))
+                throw new InvalidOperationException("Un service RCON Project Zomboid répond, mais son authentification a échoué. Vérifiez l'hôte, le port et le mot de passe avant la publication coordonnée.");
+            if (serverWasRunning && !servers.CanCoordinateRestart(serverName))
+                throw new InvalidOperationException("Ce profil distant ne peut pas redémarrer Project Zomboid. Configurez une relance automatique après RCON quit ou une commande SSH de démarrage.");
+            if (serverWasRunning)
+                progress?.Report(new OperationProgress("server", "Serveur coordonné détecté : il restera actif pendant toute la préparation et tout l'upload."));
+        }
+
+        progress?.Report(new OperationProgress("publish", "Connexion au compte éditeur et envoi incrémental vers Steam Workshop. Le serveur reste en ligne."));
+        var workshopIdBeforePublish = project.PublishedWorkshopId;
+        var publish = await steamCmd.PublishAsync(project, build, plan, cancellationToken, progress);
+        var newWorkshopIdAssigned = project.PublishedWorkshopId != workshopIdBeforePublish;
+        if (newWorkshopIdAssigned)
+        {
+            store.Save(project);
+            progress?.Report(new OperationProgress("workshopid", $"Steam a attribué le Workshop ID {project.PublishedWorkshopId}; il a été enregistré immédiatement."));
+        }
+        output.Add(publish.SteamCmd.CombinedOutput);
+        ThrowIfPublishFailed(publish.SteamCmd, project, newWorkshopIdAssigned);
+
+        store.Save(project);
+        var finalPlan = plan;
+        if (newWorkshopIdAssigned)
+        {
+            progress?.Report(new OperationProgress("workshopid", "Reconstruction des petits manifestes injectés avec le nouvel ID, puis synchronisation différentielle finale."));
+            build = BuildCore(project);
+            finalPlan = await steamCmd.PlanPublicationAsync(project, build, false, cancellationToken, progress);
+            if (!finalPlan.IsNoOp)
+            {
+                var finalPublish = await steamCmd.PublishAsync(project, build, finalPlan, cancellationToken, progress);
+                output.Add(finalPublish.SteamCmd.CombinedOutput);
+                ThrowIfPublishFailed(finalPublish.SteamCmd, project, false, finalSynchronization: true);
+                store.Save(project);
+            }
+        }
+
+        if (serverWasRunning && (plan.RequiresServerRestart || finalPlan.RequiresServerRestart))
+        {
+            var delayMinutes = Math.Clamp(project.Automation.PostPublishRestartDelayMinutes, 5, 60);
+            await WaitBeforeServerRestartAsync(delayMinutes, cancellationToken, progress);
+            try
+            {
+                serverRestarted = await RestartCoordinatedServerAsync(serverName, cancellationToken, progress);
+            }
+            catch (Exception exception)
+            {
+                throw new InvalidOperationException($"La publication Workshop est confirmée, mais le redémarrage coordonné du serveur a échoué : {exception.Message}", exception);
+            }
+        }
+
+        progress?.Report(new OperationProgress("finalize", "État de publication enregistré; aucun téléchargement de contrôle du package n'a été effectué."));
+        build = BuildCore(project);
+        return new PackageOperationResult(
+            build,
+            string.Join(Environment.NewLine, output.Where(x => !string.IsNullOrWhiteSpace(x))),
+            true,
+            true,
+            false,
+            finalPlan.Mode.ToString(),
+            serverWasRunning,
+            serverRestarted);
+    }
+
+    private static void ThrowIfPublishFailed(SteamCmdResult result, PackageProject project, bool newWorkshopIdAssigned, bool finalSynchronization = false)
+    {
+        if (result.Interaction != SteamCmdInteraction.None) throw SteamCmdInteractionRequiredException.FromResult(result);
+        if (result.Success) return;
+        if (finalSynchronization)
+            throw new InvalidOperationException($"L'item Workshop {project.PublishedWorkshopId} existe, mais la synchronisation finale du nouvel ID a échoué : {Tail(result.CombinedOutput)}");
+        throw new InvalidOperationException(newWorkshopIdAssigned
+            ? $"L'item Workshop {project.PublishedWorkshopId} a été créé et son ID a été enregistré, mais l'envoi du contenu a échoué. Relancez Publier après correction; le même item sera mis à jour. Détail SteamCMD : {Tail(result.CombinedOutput)}"
+            : "Publication SteamCMD échouée : " + Tail(result.CombinedOutput));
+    }
+
+    private static async Task WaitBeforeServerRestartAsync(int delayMinutes, CancellationToken cancellationToken, IProgress<OperationProgress>? progress)
+    {
+        for (var remaining = delayMinutes; remaining > 0; remaining--)
+        {
+            progress?.Report(new OperationProgress("restart-delay", $"Publication confirmée. Le serveur reste actif encore {remaining} minute(s) avant save/quit et redémarrage.", delayMinutes - remaining, delayMinutes));
+            await Task.Delay(TimeSpan.FromMinutes(1), cancellationToken);
+        }
+    }
+
+    private async Task<bool> RestartCoordinatedServerAsync(string serverName, CancellationToken cancellationToken, IProgress<OperationProgress>? progress)
+    {
+        if (!await servers.IsOnlineAsync(serverName, cancellationToken))
+        {
+            progress?.Report(new OperationProgress("server", "Le serveur coordonné n'est plus en ligne; aucun processus n'a été arrêté."));
+            return false;
+        }
+        if (!servers.CanStart(serverName))
+        {
+            progress?.Report(new OperationProgress("server", "Envoi de save puis quit par RCON; le superviseur distant assurera la relance."));
+            await servers.RestartViaRconAsync(serverName, cancellationToken);
+            return true;
+        }
+
+        var stopped = false;
         try
         {
-            if (!string.IsNullOrWhiteSpace(serverName))
-            {
-                serverWasRunning = await servers.IsOnlineAsync(serverName, cancellationToken);
-                if (!serverWasRunning && await servers.IsRconServiceAsync(serverName, cancellationToken))
-                    throw new InvalidOperationException("Un service RCON Project Zomboid répond, mais son authentification a échoué. Vérifiez l'hôte, le port et le mot de passe avant la publication coordonnée.");
-                if (serverWasRunning)
-                {
-                    if (!servers.CanCoordinateRestart(serverName))
-                        throw new InvalidOperationException("Ce profil distant ne peut pas redémarrer Project Zomboid. Configurez une relance automatique après RCON quit ou une commande SSH de démarrage.");
-                    if (servers.CanStart(serverName))
-                    {
-                        progress?.Report(new OperationProgress("server", "Sauvegarde et arrêt du processus Project Zomboid par RCON avant publication."));
-                        await servers.StopAsync(serverName, cancellationToken);
-                        serverStopped = true;
-                    }
-                    else
-                    {
-                        restartViaRconAfterPublish = true;
-                        progress?.Report(new OperationProgress("server", "Profil RCON-only détecté : le jeu restera actif pendant l’envoi puis recevra save/quit après publication."));
-                    }
-                }
-            }
-
-            progress?.Report(new OperationProgress("publish", "Connexion au compte éditeur et envoi vers Steam Workshop."));
-            var workshopIdBeforePublish = project.PublishedWorkshopId;
-            var publish = await steamCmd.PublishAsync(project, build, cancellationToken, progress);
-            var newWorkshopIdAssigned = project.PublishedWorkshopId != workshopIdBeforePublish;
-            if (newWorkshopIdAssigned)
-            {
-                store.Save(project);
-                progress?.Report(new OperationProgress("workshopid", $"Steam a attribué le Workshop ID {project.PublishedWorkshopId}; il a été enregistré même si l’envoi du contenu devait ensuite échouer."));
-            }
-            output.Add(publish.CombinedOutput);
-            if (publish.Interaction != SteamCmdInteraction.None) throw SteamCmdInteractionRequiredException.FromResult(publish);
-            if (!publish.Success)
-                throw new InvalidOperationException(newWorkshopIdAssigned
-                    ? $"L’item Workshop {project.PublishedWorkshopId} a été créé et son ID a été enregistré, mais l’envoi du contenu a échoué. Relancez Publier après correction; le même item sera mis à jour. Détail SteamCMD : {Tail(publish.CombinedOutput)}"
-                    : "Publication SteamCMD échouée : " + Tail(publish.CombinedOutput));
-
-            store.Save(project);
-            if (restartViaRconAfterPublish)
-            {
-                progress?.Report(new OperationProgress("server", "Publication confirmée : envoi de save puis quit par RCON. Le superviseur distant relancera le jeu."));
-                await servers.RestartViaRconAsync(serverName, cancellationToken);
-                serverRestarted = true;
-            }
-            progress?.Report(new OperationProgress("finalize", "Workshop ID enregistré et configuration serveur régénérée."));
-            build = BuildCore(project); // Rebuilds server-config.txt with the ID created by the first publish operation.
+            progress?.Report(new OperationProgress("server", "Envoi de save puis quit au processus Project Zomboid après le délai de propagation."));
+            await servers.StopAsync(serverName, cancellationToken);
+            stopped = true;
+            progress?.Report(new OperationProgress("server", "Relance du processus Project Zomboid avec la version Workshop confirmée."));
+            await servers.StartAsync(serverName, cancellationToken);
+            return true;
         }
-        finally
+        catch
         {
-            if (serverStopped)
+            if (stopped)
             {
-                await servers.StartAsync(serverName, CancellationToken.None);
-                serverRestarted = true;
+                try { await servers.StartAsync(serverName, CancellationToken.None); }
+                catch { }
             }
+            throw;
         }
-
-        return new PackageOperationResult(build, string.Join(Environment.NewLine, output.Where(x => !string.IsNullOrWhiteSpace(x))), true, serverWasRunning, serverRestarted);
     }
 
     private PackageBuildResult BuildCore(PackageProject project)
@@ -139,7 +211,7 @@ public sealed class PackageLifecycleService(
     private async Task<SteamCmdResult> RefreshSourcesCoreAsync(PackageProject project, IReadOnlyCollection<PackageModReference> targets, CancellationToken cancellationToken, IProgress<OperationProgress>? progress = null)
     {
         if (targets.Count == 0)
-            return new SteamCmdResult(0, "Aucun mod n’est configuré pour la mise à jour globale.", string.Empty);
+            return new SteamCmdResult(0, "Aucun mod n'est configuré pour la mise à jour globale.", string.Empty);
         var refresh = await steamCmd.RefreshSourcesIncrementalAsync(project, targets, cancellationToken, progress);
         if (refresh.SteamCmd.Success)
         {

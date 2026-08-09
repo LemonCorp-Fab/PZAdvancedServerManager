@@ -69,6 +69,39 @@ public sealed partial class WorkshopCatalogService
         return ids.Where(byId.ContainsKey).Select(id => byId[id]).ToArray();
     }
 
+    public async Task<WorkshopRemoteState?> GetRemoteStateAsync(ulong workshopId, CancellationToken cancellationToken = default)
+    {
+        if (workshopId == 0) return null;
+        var values = new List<KeyValuePair<string, string>>
+        {
+            new("itemcount", "1"),
+            new("publishedfileids[0]", workshopId.ToString(CultureInfo.InvariantCulture))
+        };
+        using var content = new FormUrlEncodedContent(values);
+        using var response = await _httpClient.PostAsync("https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/", content, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        if (!document.RootElement.TryGetProperty("response", out var responseNode) ||
+            !responseNode.TryGetProperty("publishedfiledetails", out var details) ||
+            details.GetArrayLength() == 0) return null;
+
+        var detail = details[0];
+        if (ReadLong(detail, "result") != 1 || ReadUlong(detail, "publishedfileid") != workshopId) return null;
+        return new WorkshopRemoteState(
+            workshopId,
+            ReadString(detail, "hcontent_file"),
+            ReadString(detail, "hcontent_preview"),
+            ReadLong(detail, "file_size"),
+            FromUnixTime(ReadLong(detail, "time_updated")),
+            ReadString(detail, "title"),
+            ReadString(detail, "description"),
+            (int)ReadLong(detail, "visibility"),
+            ReadLong(detail, "consumer_app_id"),
+            ReadLong(detail, "creator_app_id"),
+            ReadLong(detail, "banned") != 0);
+    }
+
     private async Task<IReadOnlyList<WorkshopCatalogItem>> GetDetailsBatchAsync(IReadOnlyList<ulong> ids, CancellationToken cancellationToken)
     {
         if (ids.Count == 0) return [];
@@ -221,3 +254,16 @@ public sealed record WorkshopCatalogItem(
 {
     public string WorkshopUrl => $"https://steamcommunity.com/sharedfiles/filedetails/?id={WorkshopId}";
 }
+
+public sealed record WorkshopRemoteState(
+    ulong WorkshopId,
+    string ContentHandle,
+    string PreviewHandle,
+    long FileSize,
+    DateTimeOffset? UpdatedAt,
+    string Title,
+    string Description,
+    int Visibility,
+    long ConsumerAppId,
+    long CreatorAppId,
+    bool Banned);

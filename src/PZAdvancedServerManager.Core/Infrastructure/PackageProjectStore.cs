@@ -103,6 +103,9 @@ public sealed class PackageProjectStore(ApplicationPaths paths)
             if (string.IsNullOrWhiteSpace(mod.Permission.RightsHolder) && !string.IsNullOrWhiteSpace(mod.Author))
                 mod.Permission.RightsHolder = mod.Author;
         }
+        project.Publication ??= new WorkshopPublicationState();
+        project.Automation ??= new PackageAutomationSettings();
+        project.Automation.PostPublishRestartDelayMinutes = Math.Clamp(project.Automation.PostPublishRestartDelayMinutes, 5, 60);
         project.SchemaVersion = PzasmConstants.CurrentProjectSchemaVersion;
     }
 }

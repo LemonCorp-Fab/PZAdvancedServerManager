@@ -64,6 +64,7 @@ public sealed class PackageProjectService(
         clone.Id = Guid.NewGuid();
         clone.Name = string.IsNullOrWhiteSpace(name) ? source.Name + " — copie" : name.Trim();
         clone.PublishedWorkshopId = 0;
+        clone.Publication = new WorkshopPublicationState();
         clone.CreatedAt = clone.UpdatedAt = DateTimeOffset.UtcNow;
         clone.LastBuiltAt = clone.LastPublishedAt = null;
         clone.Automation.Enabled = false;

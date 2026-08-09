@@ -51,6 +51,12 @@ Ao adicionar uma origem, o PZASM cria um snapshot privado e calcula seu SHA-256.
 
 O [guia do Steamworks Workshop](https://partner.steamgames.com/doc/features/workshop/implementation) documenta criação e atualização com `workshop_build_item`.
 
+A publicação é incremental em dois níveis. O PZASM calcula separadamente as impressões digitais do conteúdo entregue, dos metadados e da preview, omitindo do VDF as dimensões inalteradas. Em seguida, SteamCMD e Steam comparam o manifesto enviado ao anterior e transferem somente os chunks ausentes. O PZASM nunca baixa novamente o pacote depois do upload.
+
+Um resultado “sem alterações” exige as três impressões digitais locais e uma nova leitura pela API pública dos handles remotos de conteúdo e preview, tamanho, horário de atualização, título, descrição e visibilidade. Se qualquer prova estiver indisponível ou desatualizada, ocorre uma publicação conservadora. O modo forçado envia todas as dimensões ao SteamCMD, mas a Steam ainda reutiliza chunks idênticos. O código de processo `0` sozinho não basta: a atividade atual do SteamCMD deve confirmar explicitamente `Upload finished ... : OK`, e qualquer falha explícita do Workshop prevalece.
+
+O servidor coordenado permanece online durante o build e todo o upload. Se o conteúdo entregue mudou, o gerenciador aguarda após a confirmação o atraso configurado — no mínimo cinco minutos —, envia `save` e `quit` e aplica a estratégia de reinício. Um no-change verificado ou uma alteração somente de metadados ou preview não reinicia o servidor.
+
 O agendador informa as permissões, valida as dependências, atualiza opcionalmente as origens, constrói, publica e coordena o servidor via RCON quando necessário. Um login supervisionado envia a senha apenas pela entrada padrão do SteamCMD. Uma conta sem Steam Guard continua diretamente. Para uma conta protegida, o SteamCMD envia uma solicitação de aprovação ao Steam Mobile e verifica a resposta automaticamente enquanto a interface mostra a espera ativa. O código atual só é solicitado quando a aprovação expira ou o usuário escolhe essa alternativa; então o PZASM repete o login com o comando documentado `set_steam_guard_code`, também pela entrada padrão. A Steam oferece QR no cliente e nas páginas web, mas o SteamCMD não fornece carga QR nem comando de login por QR documentado; portanto, um QR web separado não pode estabelecer a sessão de publicação. O SteamCMD mantém seu próprio token na pasta portátil; publicações manuais e agendadas usam somente essa sessão. O gerenciador registra apenas o horário da última verificação. Uma sessão expirada solicita nova conexão sem aguardar uma entrada invisível. A interface transmite o progresso ao vivo, aplica um limite de tempo e pode cancelar o processo externo.
 
 O SteamCMD abre uma sessão Steam separada; portanto, a automação deve usar uma conta dedicada de publicação que possua Project Zomboid, e não a conta ativa no cliente desktop. O primeiro login cria o token portátil; verificações posteriores usam `steamcmd verify`, sem senha e sem novo token. O PZASM nunca importa cookies ou arquivos de login do cliente Steam. Publicar pela sessão do cliente exigiria um aplicativo Steamworks autorizado: a publicadora de Project Zomboid deve adicionar o AppID da ferramenta às App Publish Permissions do Workshop para `ISteamUGC`, enquanto OAuth exige um cliente atribuído pela Valve com acesso `write_cloud` limitado ao AppID. Uma ferramenta externa não pode conceder essas permissões a si mesma.
@@ -72,7 +78,7 @@ O Steam pode ocultar um item novo até o aceite do [acordo do Workshop](https://
 - dependências não declaradas e ordem manual de mapas;
 - conflitos lógicos impossíveis de detectar estaticamente;
 - intervenção ocasional no SteamCMD;
-- reinício obrigatório do servidor após a publicação.
+- reinício necessário apenas quando o conteúdo entregue muda, após a confirmação do upload e o atraso configurado.
 
 ## Orquestração local e remota
 

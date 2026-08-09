@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using PZAdvancedServerManager.Core.Domain;
 using PZAdvancedServerManager.Core.Packaging;
@@ -200,32 +201,87 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
         return new SteamWorkshopRefreshResult(commandResult, changedReferenceIds, workshopIds.Length, pendingIds.Length, reusedCount, indexedItems);
     }
 
-    public async Task<SteamCmdResult> PublishAsync(PackageProject project, PackageBuildResult build, CancellationToken cancellationToken = default, IProgress<OperationProgress>? progress = null)
+    public async Task<WorkshopPublicationPlan> PlanPublicationAsync(
+        PackageProject project,
+        PackageBuildResult build,
+        bool force,
+        CancellationToken cancellationToken = default,
+        IProgress<OperationProgress>? progress = null)
     {
         var validation = validator.Validate(project);
         if (!validation.CanPublish)
             throw new InvalidOperationException("Publication bloquée par une erreur technique dans la configuration ou le contenu du pack.");
+        var snapshot = WorkshopPublicationPlanner.CreateSnapshot(project, build);
+        WorkshopRemoteState? remote = null;
+        if (project.PublishedWorkshopId != 0)
+        {
+            progress?.Report(new OperationProgress("remote-check", "Vérification légère du manifeste Workshop distant avant toute décision de no-change."));
+            try
+            {
+                remote = await catalog.GetRemoteStateAsync(project.PublishedWorkshopId, cancellationToken);
+            }
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested &&
+                                              exception is (HttpRequestException or IOException or TimeoutException or OperationCanceledException or JsonException or InvalidOperationException))
+            {
+                progress?.Report(new OperationProgress("remote-check", $"État distant non vérifiable ({exception.Message}); la publication ne sera pas ignorée."));
+            }
+        }
+        var plan = WorkshopPublicationPlanner.CreatePlan(project, snapshot, remote, force);
+        progress?.Report(new OperationProgress("publish-plan", plan.Summary));
+        return plan;
+    }
+
+    public async Task<WorkshopPublishResult> PublishAsync(
+        PackageProject project,
+        PackageBuildResult build,
+        WorkshopPublicationPlan plan,
+        CancellationToken cancellationToken = default,
+        IProgress<OperationProgress>? progress = null)
+    {
+        if (plan.IsNoOp)
+        {
+            var noOp = new SteamCmdResult(0, plan.Summary, string.Empty);
+            return new WorkshopPublishResult(noOp, plan, plan.RemoteBefore, project.Publication.RemoteContentHandle);
+        }
+
         ValidateExecutable(project.Automation.SteamCmdPath);
         if (string.IsNullOrWhiteSpace(project.Automation.SteamUsername))
             throw new InvalidOperationException("Le nom de compte Steam est requis. Le mot de passe n'est jamais conservé par PZASM.");
-        ValidatePublishPayload(build);
 
+        var publishVdfPath = Path.Combine(build.BuildRoot, "steamcmd-publish.vdf");
+        var temporaryVdfPath = publishVdfPath + $".{Guid.NewGuid():N}.tmp";
+        try
+        {
+            File.WriteAllText(temporaryVdfPath, WorkshopPublicationPlanner.GenerateVdf(project, build, plan), new UTF8Encoding(false));
+            File.Move(temporaryVdfPath, publishVdfPath, true);
+        }
+        finally
+        {
+            if (File.Exists(temporaryVdfPath)) File.Delete(temporaryVdfPath);
+        }
+        ValidatePublishPayload(build, publishVdfPath, plan.IncludeContent, plan.IncludePreview);
+
+        var workshopLogPath = GetWorkshopLogPath(project.Automation.SteamCmdPath);
+        var workshopLogOffset = GetFileLength(workshopLogPath);
+        var submittedAt = DateTimeOffset.UtcNow;
         var result = await RunAsync(project.Automation.SteamCmdPath,
-            ["+login", project.Automation.SteamUsername, "+workshop_build_item", build.SteamCmdVdfPath, "+quit"], cancellationToken, progress: progress, timeout: TimeSpan.FromMinutes(45));
-        var id = ApplyPublishedFileId(project, build.SteamCmdVdfPath);
+            ["+login", project.Automation.SteamUsername, "+workshop_build_item", publishVdfPath, "+quit"], cancellationToken, progress: progress, timeout: TimeSpan.FromHours(12));
+        var id = ApplyPublishedFileId(project, publishVdfPath);
+        result = ValidateWorkshopSubmissionResult(result, id, ReadAppendedLog(workshopLogPath, workshopLogOffset));
+        WorkshopRemoteState? confirmedRemote = null;
+        var publishedContentHandle = ReadPublishedContentHandle(project.Automation.SteamCmdPath);
         if (result.ExitCode == 0)
         {
             if (id == 0)
-                return new SteamCmdResult(-1, result.StandardOutput, string.Join(Environment.NewLine, result.StandardError, "SteamCMD n’a renvoyé aucun Workshop ID. La publication ne peut pas être confirmée."));
-            var available = await VerifyWorkshopItemAvailableAsync(project, id, 4, cancellationToken, progress);
-            if (!available.SteamCmd.Success || !Directory.Exists(available.ContentRoot) || !Directory.EnumerateFiles(available.ContentRoot, "*", SearchOption.AllDirectories).Any())
-                return new SteamCmdResult(-2, result.StandardOutput, string.Join(Environment.NewLine,
-                    result.StandardError,
-                    available.SteamCmd.CombinedOutput,
-                    $"L’envoi de l’item {id} a été accepté, mais son contenu n’est pas encore téléchargeable avec l’identité configurée après quatre contrôles. L’ID a été conservé; relancez Publier lorsque Steam a terminé sa propagation."));
+            {
+                var missingId = new SteamCmdResult(-1, result.StandardOutput, string.Join(Environment.NewLine, result.StandardError, "SteamCMD n’a renvoyé aucun Workshop ID. La publication ne peut pas être confirmée."));
+                return new WorkshopPublishResult(missingId, plan, null, publishedContentHandle);
+            }
+            confirmedRemote = await WaitForRemoteConfirmationAsync(project, plan, submittedAt, publishedContentHandle, cancellationToken, progress);
+            WorkshopPublicationPlanner.ApplyConfirmedState(project, plan.Snapshot, confirmedRemote, publishedContentHandle);
             project.LastPublishedAt = DateTimeOffset.UtcNow;
         }
-        return result;
+        return new WorkshopPublishResult(result, plan, confirmedRemote, publishedContentHandle);
     }
 
     public async Task<SteamCmdResult> AuthenticateAsync(PackageProject project, SteamCredentials credentials, CancellationToken cancellationToken = default, IProgress<OperationProgress>? progress = null)
@@ -287,26 +343,125 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
 
     public static void ValidatePublishPayload(PackageBuildResult build)
     {
-        if (!File.Exists(build.SteamCmdVdfPath))
-            throw new FileNotFoundException("Le manifeste SteamCMD du build est introuvable. Reconstruisez le pack avant de publier.", build.SteamCmdVdfPath);
+        ValidatePublishPayload(build, build.SteamCmdVdfPath, requireContent: true, requirePreview: true);
+    }
 
-        var vdf = File.ReadAllText(build.SteamCmdVdfPath);
+    public static void ValidatePublishPayload(PackageBuildResult build, string vdfPath, bool requireContent, bool requirePreview)
+    {
+        if (!File.Exists(vdfPath))
+            throw new FileNotFoundException("Le manifeste SteamCMD du build est introuvable. Reconstruisez le pack avant de publier.", vdfPath);
+
+        var vdf = File.ReadAllText(vdfPath);
         var mappedContent = ReadVdfString(vdf, "contentfolder");
         var mappedPreview = ReadVdfString(vdf, "previewfile");
         var expectedContent = Path.GetFullPath(build.WorkshopContentRoot);
         var expectedPreview = Path.GetFullPath(build.WorkshopPreviewPath);
         var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
-        if (string.IsNullOrWhiteSpace(mappedContent) ||
-            !Path.GetFullPath(mappedContent).Equals(expectedContent, comparison) ||
-            !Directory.Exists(mappedContent))
-            throw new InvalidOperationException($"Le contentfolder du manifeste SteamCMD ne correspond pas au build actuel ou n’existe plus : {mappedContent ?? "non renseigné"}. Reconstruisez le pack avant de publier.");
-        if (!Directory.EnumerateFiles(mappedContent, "*", SearchOption.AllDirectories).Any())
-            throw new InvalidOperationException("Le contenu Workshop du build est vide. La publication n’a pas été lancée.");
-        if (string.IsNullOrWhiteSpace(mappedPreview) ||
-            !Path.GetFullPath(mappedPreview).Equals(expectedPreview, comparison) ||
-            !File.Exists(mappedPreview))
-            throw new InvalidOperationException($"Le previewfile du manifeste SteamCMD ne correspond pas au build actuel ou n’existe plus : {mappedPreview ?? "non renseigné"}. Reconstruisez le pack avant de publier.");
+        if (requireContent)
+        {
+            if (string.IsNullOrWhiteSpace(mappedContent) ||
+                !Path.GetFullPath(mappedContent).Equals(expectedContent, comparison) ||
+                !Directory.Exists(mappedContent))
+                throw new InvalidOperationException($"Le contentfolder du manifeste SteamCMD ne correspond pas au build actuel ou n’existe plus : {mappedContent ?? "non renseigné"}. Reconstruisez le pack avant de publier.");
+            if (!Directory.EnumerateFiles(mappedContent, "*", SearchOption.AllDirectories).Any())
+                throw new InvalidOperationException("Le contenu Workshop du build est vide. La publication n’a pas été lancée.");
+        }
+        else if (!string.IsNullOrWhiteSpace(mappedContent))
+            throw new InvalidOperationException("Le manifeste différentiel contient un contentfolder alors que le contenu n'a pas changé.");
+        if (requirePreview)
+        {
+            if (string.IsNullOrWhiteSpace(mappedPreview) ||
+                !Path.GetFullPath(mappedPreview).Equals(expectedPreview, comparison) ||
+                !File.Exists(mappedPreview))
+                throw new InvalidOperationException($"Le previewfile du manifeste SteamCMD ne correspond pas au build actuel ou n’existe plus : {mappedPreview ?? "non renseigné"}. Reconstruisez le pack avant de publier.");
+        }
+        else if (!string.IsNullOrWhiteSpace(mappedPreview))
+            throw new InvalidOperationException("Le manifeste différentiel contient une preview alors que son empreinte n'a pas changé.");
+    }
+
+    private async Task<WorkshopRemoteState?> WaitForRemoteConfirmationAsync(
+        PackageProject project,
+        WorkshopPublicationPlan plan,
+        DateTimeOffset submittedAt,
+        string publishedContentHandle,
+        CancellationToken cancellationToken,
+        IProgress<OperationProgress>? progress)
+    {
+        var delays = new[] { TimeSpan.Zero, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(4), TimeSpan.FromSeconds(8) };
+        for (var attempt = 0; attempt < delays.Length; attempt++)
+        {
+            if (delays[attempt] > TimeSpan.Zero) await Task.Delay(delays[attempt], cancellationToken);
+            try
+            {
+                var remote = await catalog.GetRemoteStateAsync(project.PublishedWorkshopId, cancellationToken);
+                if (remote is not null && WorkshopPublicationPlanner.IsRemoteConfirmation(project, plan, remote, submittedAt, publishedContentHandle))
+                {
+                    progress?.Report(new OperationProgress("remote-confirmed", $"Manifeste Workshop {remote.ContentHandle} confirmé par l'API Steam."));
+                    return remote;
+                }
+            }
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested &&
+                                              exception is (HttpRequestException or IOException or TimeoutException or OperationCanceledException or JsonException or InvalidOperationException))
+            {
+                progress?.Report(new OperationProgress("remote-confirmation", $"Propagation distante encore non vérifiable ({exception.Message}).", attempt + 1, delays.Length));
+            }
+        }
+        progress?.Report(new OperationProgress("remote-confirmation", "SteamCMD a confirmé l'envoi. L'API publique ne permet pas encore de relire cet item; aucun futur no-change ne sera accepté sans vérification distante."));
+        return null;
+    }
+
+    public static SteamCmdResult ValidateWorkshopSubmissionResult(SteamCmdResult result, ulong workshopId, string workshopActivityLog)
+    {
+        if (!result.Success) return result;
+        var combined = string.Join('\n', result.StandardOutput, result.StandardError, workshopActivityLog);
+        var escapedId = workshopId == 0 ? "\\d+" : Regex.Escape(workshopId.ToString());
+        var explicitFailure = Regex.IsMatch(combined, $"Upload workshop item\\s+{escapedId}\\s+failed", RegexOptions.IgnoreCase) ||
+                              Regex.IsMatch(combined, "(?:ERROR!.*Failed to update workshop item|Update canceled:.*workshop|Build for workshop item has no content)", RegexOptions.IgnoreCase);
+        var explicitSuccess = workshopId != 0 &&
+                              (Regex.IsMatch(combined, $"Upload finished for workshop item\\s+{escapedId}\\s*:\\s*OK", RegexOptions.IgnoreCase) ||
+                               Regex.IsMatch(combined, $"Success\\.\\s*(?:Published new Workshop item|Updated item)\\D*{escapedId}", RegexOptions.IgnoreCase));
+        if (explicitSuccess && !explicitFailure) return result;
+
+        var reason = explicitFailure
+            ? "SteamCMD a signalé explicitement l'échec de l'envoi Workshop."
+            : "SteamCMD s'est fermé sans confirmation explicite de fin d'upload Workshop; l'opération reste non confirmée.";
+        return new SteamCmdResult(-4, result.StandardOutput, string.Join(Environment.NewLine, result.StandardError, reason), result.Interaction);
+    }
+
+    private static string GetWorkshopLogPath(string steamCmdPath) =>
+        Path.Combine(Path.GetDirectoryName(steamCmdPath) ?? string.Empty, "logs", "workshop_log.txt");
+
+    private static long GetFileLength(string path)
+    {
+        try { return File.Exists(path) ? new FileInfo(path).Length : 0; }
+        catch (IOException) { return 0; }
+    }
+
+    private static string ReadAppendedLog(string path, long offset)
+    {
+        try
+        {
+            if (!File.Exists(path)) return string.Empty;
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            stream.Position = Math.Min(Math.Max(0, offset), stream.Length);
+            using var reader = new StreamReader(stream, Encoding.UTF8, true);
+            return reader.ReadToEnd();
+        }
+        catch (IOException)
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string ReadPublishedContentHandle(string steamCmdPath)
+    {
+        var root = Path.GetDirectoryName(steamCmdPath);
+        if (string.IsNullOrWhiteSpace(root)) return string.Empty;
+        var statePath = Path.Combine(root, "workshopbuilds", $"depot_build_{PzasmConstants.ProjectZomboidSteamAppId}.vdf");
+        if (!File.Exists(statePath)) return string.Empty;
+        var match = Regex.Match(File.ReadAllText(statePath), "\\\"manifest\\\"\\s+\\\"(\\d+)\\\"", RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups[1].Value : string.Empty;
     }
 
     private static string? ReadVdfString(string vdf, string key)

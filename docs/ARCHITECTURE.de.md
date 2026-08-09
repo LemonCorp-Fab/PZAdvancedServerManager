@@ -51,6 +51,12 @@ Beim Hinzufügen einer Quelle erstellt PZASM einen privaten Snapshot und berechn
 
 Der [Steamworks-Workshop-Leitfaden](https://partner.steamgames.com/doc/features/workshop/implementation) beschreibt Erstellung und Aktualisierung mit `workshop_build_item`.
 
+Die Veröffentlichung arbeitet auf zwei Ebenen inkrementell. PZASM berechnet getrennte Fingerabdrücke für ausgelieferten Inhalt, Metadaten und Vorschaubild und lässt unveränderte Bereiche im VDF weg. SteamCMD und Steam vergleichen anschließend das eingereichte Manifest mit dem vorherigen und übertragen nur fehlende Chunks. PZASM lädt das Paket nach dem Upload niemals erneut herunter.
+
+„Keine Änderung“ setzt alle drei lokalen Fingerabdrücke und eine neue öffentliche API-Abfrage der Remote-Handles für Inhalt und Vorschau, Dateigröße, Aktualisierungszeit, Titel, Beschreibung und Sichtbarkeit voraus. Fehlt ein Nachweis oder ist er veraltet, wird konservativ veröffentlicht. Der erzwungene Modus übergibt alle Bereiche an SteamCMD; Steam verwendet identische Remote-Chunks weiterhin wieder. Prozesscode `0` allein genügt nicht: Die aktuelle SteamCMD-Aktivität muss ausdrücklich `Upload finished ... : OK` bestätigen, und ein expliziter Workshop-Fehler hat Vorrang.
+
+Der koordinierte Server bleibt während Build und Upload online. Wenn sich der ausgelieferte Inhalt geändert hat, wartet der Manager nach der Bestätigung die konfigurierte Frist — mindestens fünf Minuten —, sendet dann `save` und `quit` und führt die konfigurierte Neustartstrategie aus. Ein verifiziertes No-change sowie reine Metadaten- oder Vorschauänderungen starten den Server nicht neu.
+
 Der Scheduler prüft Rechte und Abhängigkeiten, aktualisiert optional Quellen, baut, veröffentlicht und koordiniert den Server bei Bedarf über RCON. Eine überwachte Anmeldung übergibt das Passwort nur über die Standardeingabe an SteamCMD. Ein Konto ohne Steam Guard wird direkt angemeldet. Bei einem geschützten Konto sendet SteamCMD eine Bestätigungsanfrage an Steam Mobile und fragt deren Status automatisch ab, während die Oberfläche den aktiven Wartezustand zeigt. Der aktuelle Code wird nur angefordert, wenn die mobile Bestätigung abläuft oder der Benutzer die Ausweichmethode wählt; PZASM wiederholt die Anmeldung dann mit dem dokumentierten Befehl `set_steam_guard_code`, ebenfalls über die Standardeingabe. Steam bietet QR-Anmeldung im Client und im Web, SteamCMD stellt jedoch weder eine dokumentierte QR-Nutzlast noch einen QR-Anmeldebefehl bereit. Ein separater Web-QR kann diese Veröffentlichungssitzung daher nicht herstellen. SteamCMD behält sein eigenes Token im portablen Verzeichnis; manuelle und geplante Veröffentlichungen verwenden ausschließlich diese Sitzung. Der Manager speichert nur den Zeitpunkt der letzten erfolgreichen Prüfung. Eine abgelaufene Sitzung fordert zur erneuten Anmeldung auf, statt an einer unsichtbaren Eingabe zu warten. Die Oberfläche zeigt den Fortschritt live, erzwingt ein Zeitlimit und kann den externen Prozess abbrechen.
 
 SteamCMD öffnet eine eigene Steam-Sitzung. Für die Automatisierung sollte deshalb ein dediziertes Veröffentlichungskonto mit Project Zomboid verwendet werden und nicht das im Desktop-Client aktive Konto. Die erste Anmeldung erzeugt das portable Token; spätere Prüfungen verwenden `steamcmd verify` ohne Passwort und ohne neues Token. PZASM importiert niemals Cookies oder Anmeldedateien des Steam-Clients. Eine Veröffentlichung über die Desktop-Sitzung würde eine autorisierte Steamworks-Anwendung erfordern: Der Herausgeber von Project Zomboid muss die AppID des Werkzeugs für `ISteamUGC` zu den Workshop App Publish Permissions hinzufügen; OAuth benötigt zusätzlich eine von Valve vergebene Client-ID mit AppID-begrenztem `write_cloud`-Zugriff. Ein externes Werkzeug kann sich diese Rechte nicht selbst erteilen.
@@ -72,7 +78,7 @@ Steam kann ein neues Item verbergen, bis die [Workshop-Vereinbarung](https://ste
 - nicht deklarierte Abhängigkeiten und manuelle Kartenreihenfolge;
 - statisch nicht erkennbare logische Konflikte;
 - gelegentliche interaktive SteamCMD-Schritte;
-- erforderlicher Serverneustart nach der Veröffentlichung.
+- Serverneustart nur bei geändertem ausgeliefertem Inhalt, nach bestätigtem Upload und der konfigurierten Wartezeit.
 
 ## Lokale und entfernte Orchestrierung
 

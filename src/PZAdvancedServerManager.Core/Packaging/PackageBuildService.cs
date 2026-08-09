@@ -22,13 +22,15 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
         if (!validation.CanBuild)
             throw new PackageBuildException("Le projet contient des erreurs qui empêchent sa construction.", validation);
 
-        var buildFingerprint = ComputeBuildFingerprint(project, desiredComponents, preview.Token);
+        var contentFingerprint = ComputeContentFingerprint(project, desiredComponents);
+        var buildFingerprint = ComputeBuildFingerprint(project, desiredComponents, contentFingerprint, preview.Token);
         if (CanReuseCompletedBuild(finalRoot, previousState, desiredComponents, buildFingerprint, preview.Extension))
             return CreateResult(
                 project,
                 validation,
                 finalRoot,
                 preview.Extension,
+                contentFingerprint,
                 new CopyStatistics(),
                 previousState!.Components,
                 rebuiltComponents: 0,
@@ -52,7 +54,10 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
             {
                 var componentStats = MaterializeComponent(project, desired, modsRoot, validation);
                 copied.Add(componentStats);
-                rebuiltComponents.Add(ToBuildComponent(desired, componentStats));
+                rebuiltComponents.Add(ToBuildComponent(
+                    desired,
+                    componentStats,
+                    SafeFileTree.ComputeDirectoryMetadataStamp(Path.Combine(modsRoot, desired.DestinationFolder))));
             }
 
             if (!validation.CanBuild)
@@ -65,6 +70,7 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
                 .ToList();
             var description = WorkshopDescriptionGenerator.Generate(project);
             WritePublicManifest(project, contentsRoot);
+            var publicManifestHash = ComputeHash(Path.Combine(contentsRoot, "pzasm-pack-manifest.json"));
             var previewPath = PreparePreview(project, nextRoot, preview.Extension);
             var finalPreviewPath = Path.Combine(finalRoot, Path.GetFileName(previewPath));
             var workshopPath = Path.Combine(nextRoot, "workshop.txt");
@@ -80,7 +86,7 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
             File.WriteAllText(Path.Combine(nextRoot, "README-BUILD.txt"), GenerateBuildReadme(project, validation), new UTF8Encoding(false));
 
             var lockPath = Path.Combine(nextRoot, "pack.lock.json");
-            var lockData = CreateBuildState(project, buildFingerprint, allComponents);
+            var lockData = CreateBuildState(project, buildFingerprint, publicManifestHash, allComponents);
             File.WriteAllText(lockPath, JsonSerializer.Serialize(lockData, JsonOptions), new UTF8Encoding(false));
 
             var localSnapshot = new
@@ -101,6 +107,7 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
                 validation,
                 finalRoot,
                 preview.Extension,
+                contentFingerprint,
                 copied,
                 reusableComponents.Values,
                 rebuiltComponents.Count,
@@ -396,36 +403,29 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
                 ? SafeFileTree.ComputeDirectoryHash(mod.BuildSourceRoot)
                 : string.Empty;
 
-    private static string ComputeBuildFingerprint(PackageProject project, IReadOnlyCollection<DesiredBuildComponent> components, string previewToken) => Fingerprint(new
+    private static string ComputeContentFingerprint(PackageProject project, IReadOnlyCollection<DesiredBuildComponent> components) => Fingerprint(new
     {
-        engine = "incremental-build-v3",
+        engine = "workshop-content-v1",
         project.Id,
         project.Name,
         project.Description,
         project.Mode,
         project.TargetPzVersion,
-        project.NoticeTitle,
-        project.PublishedWorkshopId,
-        project.Visibility,
-        project.Tags,
-        project.MapOrder,
         project.InjectConnectionNotice,
         project.InjectInGameControl,
-        project.LegalWarningAccepted,
-        project.LegalWarningAcceptedAt,
-        previewToken,
         components = components.Select(component => new { component.Key, component.Kind, component.DestinationFolder, component.Fingerprint }).ToArray(),
         mods = project.Mods.Where(mod => mod.Enabled).OrderBy(mod => mod.Order).ThenBy(mod => mod.Name).Select(mod => new
         {
-            mod.Id,
             mod.WorkshopId,
             mod.ModId,
             mod.Name,
             mod.Author,
             mod.Version,
             mod.SelectedVersionFolder,
+            mod.PinnedAt,
+            mod.PinnedContentHash,
+            mod.PinnedMetadataStamp,
             mod.SourceUrl,
-            mod.Order,
             mod.IncludeInGlobalUpdates,
             mod.RequiredModIds,
             mod.MapFolders,
@@ -433,49 +433,85 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
             {
                 mod.Permission.Status,
                 mod.Permission.RightsHolder,
-                mod.Permission.PublicEvidenceUrl,
-                mod.Permission.PrivateAttachmentPath,
-                mod.Permission.Notes,
-                mod.Permission.GrantedOn
+                mod.Permission.PublicEvidenceUrl
             }
         }).ToArray()
     });
 
-    private static IncrementalBuildState CreateBuildState(PackageProject project, string buildFingerprint, List<IncrementalBuildComponent> components) => new()
-    {
-        ProjectId = project.Id,
-        ProjectName = project.Name,
-        Mode = project.Mode.ToString(),
-        TargetPzVersion = project.TargetPzVersion,
-        WorkshopId = project.PublishedWorkshopId,
-        BuiltAt = DateTimeOffset.UtcNow,
-        BuildFingerprint = buildFingerprint,
-        Components = components,
-        Sources = project.Mods.Where(mod => mod.Enabled).OrderBy(mod => mod.Order).Select(mod => new IncrementalBuildSource
+    private static string ComputeBuildFingerprint(
+        PackageProject project,
+        IReadOnlyCollection<DesiredBuildComponent> components,
+        string contentFingerprint,
+        string previewToken) => Fingerprint(new
         {
-            WorkshopId = mod.WorkshopId,
-            ModId = mod.ModId,
-            Name = mod.Name,
-            Author = mod.Author,
-            Version = mod.Version,
-            SelectedVersionFolder = mod.SelectedVersionFolder,
-            SourceUrl = mod.SourceUrl,
-            PinnedAt = mod.PinnedAt,
-            PinnedContentHash = mod.PinnedContentHash,
-            PinnedMetadataStamp = mod.PinnedMetadataStamp,
-            IncludeInGlobalUpdates = mod.IncludeInGlobalUpdates,
-            PermissionStatus = mod.Permission.Status.ToString()
-        }).ToList(),
-        Totals = new IncrementalBuildTotals
-        {
-            Files = components.Sum(component => component.Files),
-            Bytes = components.Sum(component => component.Bytes),
-            HardLinkedFiles = components.Sum(component => component.HardLinkedFiles),
-            HardLinkedBytes = components.Sum(component => component.HardLinkedBytes)
-        }
-    };
+            engine = "incremental-build-v4",
+            contentFingerprint,
+            previewToken,
+            project.PublishedWorkshopId,
+            project.Visibility,
+            project.Tags,
+            project.MapOrder,
+            project.LegalWarningAccepted,
+            project.LegalWarningAcceptedAt,
+            components = components.Select(component => new { component.Key, component.DestinationFolder, component.Fingerprint }).ToArray(),
+            mods = project.Mods.Where(mod => mod.Enabled).OrderBy(mod => mod.Order).ThenBy(mod => mod.Name).Select(mod => new
+            {
+                mod.Id,
+                mod.Order,
+                mod.SourceUrl,
+                mod.IncludeInGlobalUpdates,
+                permission = new
+                {
+                    mod.Permission.Status,
+                    mod.Permission.RightsHolder,
+                    mod.Permission.PublicEvidenceUrl,
+                    mod.Permission.PrivateAttachmentPath,
+                    mod.Permission.Notes,
+                    mod.Permission.GrantedOn
+                }
+            }).ToArray()
+        });
 
-    private static IncrementalBuildComponent ToBuildComponent(DesiredBuildComponent desired, CopyStatistics stats) => new()
+    private static IncrementalBuildState CreateBuildState(
+        PackageProject project,
+        string buildFingerprint,
+        string publicManifestHash,
+        List<IncrementalBuildComponent> components) => new()
+        {
+            ProjectId = project.Id,
+            ProjectName = project.Name,
+            Mode = project.Mode.ToString(),
+            TargetPzVersion = project.TargetPzVersion,
+            WorkshopId = project.PublishedWorkshopId,
+            BuiltAt = DateTimeOffset.UtcNow,
+            BuildFingerprint = buildFingerprint,
+            PublicManifestHash = publicManifestHash,
+            Components = components,
+            Sources = project.Mods.Where(mod => mod.Enabled).OrderBy(mod => mod.Order).Select(mod => new IncrementalBuildSource
+            {
+                WorkshopId = mod.WorkshopId,
+                ModId = mod.ModId,
+                Name = mod.Name,
+                Author = mod.Author,
+                Version = mod.Version,
+                SelectedVersionFolder = mod.SelectedVersionFolder,
+                SourceUrl = mod.SourceUrl,
+                PinnedAt = mod.PinnedAt,
+                PinnedContentHash = mod.PinnedContentHash,
+                PinnedMetadataStamp = mod.PinnedMetadataStamp,
+                IncludeInGlobalUpdates = mod.IncludeInGlobalUpdates,
+                PermissionStatus = mod.Permission.Status.ToString()
+            }).ToList(),
+            Totals = new IncrementalBuildTotals
+            {
+                Files = components.Sum(component => component.Files),
+                Bytes = components.Sum(component => component.Bytes),
+                HardLinkedFiles = components.Sum(component => component.HardLinkedFiles),
+                HardLinkedBytes = components.Sum(component => component.HardLinkedBytes)
+            }
+        };
+
+    private static IncrementalBuildComponent ToBuildComponent(DesiredBuildComponent desired, CopyStatistics stats, string metadataStamp) => new()
     {
         Key = desired.Key,
         Kind = desired.Kind,
@@ -484,6 +520,7 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
         DestinationFolder = desired.DestinationFolder,
         Fingerprint = desired.Fingerprint,
         SourceContentHash = desired.SourceContentHash,
+        MetadataStamp = metadataStamp,
         Files = stats.Files,
         Bytes = stats.Bytes,
         HardLinkedFiles = stats.HardLinkedFiles,
@@ -504,18 +541,26 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
             {
                 var state = document.RootElement.Deserialize<IncrementalBuildState>(JsonOptions);
                 if (state?.ProjectId != project.Id) return null;
-                var repairedStatistics = false;
-                foreach (var component in state.Components.Where(component => !component.StatisticsComplete))
+                var repairedState = false;
+                foreach (var component in state.Components)
                 {
                     var componentRoot = Path.Combine(finalRoot, "Contents", "mods", component.DestinationFolder);
                     if (!Directory.Exists(componentRoot)) continue;
-                    var statistics = MeasureDirectory(componentRoot);
-                    component.Files = statistics.Files;
-                    component.Bytes = statistics.Bytes;
-                    component.StatisticsComplete = true;
-                    repairedStatistics = true;
+                    if (!component.StatisticsComplete)
+                    {
+                        var statistics = MeasureDirectory(componentRoot);
+                        component.Files = statistics.Files;
+                        component.Bytes = statistics.Bytes;
+                        component.StatisticsComplete = true;
+                        repairedState = true;
+                    }
+                    if (string.IsNullOrWhiteSpace(component.MetadataStamp))
+                    {
+                        component.MetadataStamp = SafeFileTree.ComputeDirectoryMetadataStamp(componentRoot);
+                        repairedState = true;
+                    }
                 }
-                if (repairedStatistics) state.BuildFingerprint = string.Empty;
+                if (repairedState) state.BuildFingerprint = string.Empty;
                 return state;
             }
             if (schemaVersion != 2 || project.Mode != PackageMode.Bundle) return null;
@@ -584,9 +629,10 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
         var components = new List<IncrementalBuildComponent>();
         foreach (var desired in desiredComponents.Where(component => component.Kind == "bundle-mod"))
         {
+            var componentRoot = Path.Combine(finalRoot, "Contents", "mods", desired.DestinationFolder);
             if (!sourceHashes.TryGetValue(desired.ModId, out var sourceHash) ||
                 !sourceHash.Equals(desired.SourceContentHash, StringComparison.OrdinalIgnoreCase) ||
-                !Directory.Exists(Path.Combine(finalRoot, "Contents", "mods", desired.DestinationFolder)))
+                !Directory.Exists(componentRoot))
                 continue;
             var totals = folderTotals.GetValueOrDefault(desired.DestinationFolder);
             var hardLinkedTotals = fileTotals.GetValueOrDefault(desired.ModId);
@@ -599,6 +645,7 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
                 DestinationFolder = desired.DestinationFolder,
                 Fingerprint = desired.Fingerprint,
                 SourceContentHash = desired.SourceContentHash,
+                MetadataStamp = SafeFileTree.ComputeDirectoryMetadataStamp(componentRoot),
                 Files = totals.Files,
                 Bytes = totals.Bytes,
                 HardLinkedFiles = hardLinkedTotals.Files,
@@ -609,7 +656,7 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
 
         return new IncrementalBuildState
         {
-            SchemaVersion = 2,
+            SchemaVersion = 5,
             ProjectId = project.Id,
             ProjectName = project.Name,
             Mode = project.Mode.ToString(),
@@ -652,8 +699,18 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
             if (!previousByKey.TryGetValue(desired.Key, out var previous) ||
                 !previous.Fingerprint.Equals(desired.Fingerprint, StringComparison.OrdinalIgnoreCase) ||
                 !previous.DestinationFolder.Equals(desired.DestinationFolder, PathComparison) ||
-                !Directory.Exists(Path.Combine(finalRoot, "Contents", "mods", desired.DestinationFolder)))
+                string.IsNullOrWhiteSpace(previous.MetadataStamp))
                 continue;
+            var componentRoot = Path.Combine(finalRoot, "Contents", "mods", desired.DestinationFolder);
+            if (!Directory.Exists(componentRoot))
+                continue;
+            if (!SafeFileTree.ComputeDirectoryMetadataStamp(componentRoot).Equals(previous.MetadataStamp, StringComparison.OrdinalIgnoreCase))
+            {
+                if (!string.IsNullOrWhiteSpace(desired.SourceRoot) && Directory.Exists(desired.SourceRoot) &&
+                    !SafeFileTree.ComputeDirectoryHash(desired.SourceRoot).Equals(desired.SourceContentHash, StringComparison.OrdinalIgnoreCase))
+                    throw new IOException($"Le snapshot figé du composant « {desired.ModId} » a été modifié hors de PZASM. Actualisez explicitement les sources avant de reconstruire ou publier.");
+                continue;
+            }
             reusable[desired.Key] = previous;
         }
         return reusable;
@@ -668,6 +725,11 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
     {
         if (previousState is null || previousState.SchemaVersion < 3 ||
             !previousState.BuildFingerprint.Equals(buildFingerprint, StringComparison.OrdinalIgnoreCase))
+            return false;
+        var publicManifestPath = Path.Combine(finalRoot, "Contents", "pzasm-pack-manifest.json");
+        if (string.IsNullOrWhiteSpace(previousState.PublicManifestHash) ||
+            !File.Exists(publicManifestPath) ||
+            !ComputeHash(publicManifestPath).Equals(previousState.PublicManifestHash, StringComparison.OrdinalIgnoreCase))
             return false;
         var reusable = FindReusableComponents(finalRoot, previousState, desiredComponents);
         if (reusable.Count != desiredComponents.Count) return false;
@@ -684,6 +746,7 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
         PackageValidationResult validation,
         string finalRoot,
         string previewExtension,
+        string contentFingerprint,
         CopyStatistics copied,
         IEnumerable<IncrementalBuildComponent> reusedComponents,
         int rebuiltComponents,
@@ -702,6 +765,7 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
             LockFilePath = Path.Combine(finalRoot, "pack.lock.json"),
             ServerConfigSnippetPath = Path.Combine(finalRoot, "server-config.txt"),
             Validation = validation,
+            ContentFingerprint = contentFingerprint,
             CopiedFiles = copied.Files,
             CopiedBytes = copied.Bytes,
             HardLinkedFiles = copied.HardLinkedFiles,

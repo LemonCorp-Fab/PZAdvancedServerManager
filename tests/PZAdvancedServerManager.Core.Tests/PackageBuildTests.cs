@@ -151,7 +151,7 @@ public sealed class PackageBuildTests : IDisposable
         Assert.True(File.GetAttributes(firstBuildLua).HasFlag(FileAttributes.ReadOnly));
         snapshots.EnsurePinned(project);
         var lockFile = File.ReadAllText(firstBuild.LockFilePath);
-        Assert.Contains("\"schemaVersion\": 3", lockFile);
+        Assert.Contains("\"schemaVersion\": 5", lockFile);
         Assert.Contains("\"kind\": \"bundle-mod\"", lockFile);
         Assert.DoesNotContain("\"path\":", lockFile);
 
@@ -343,6 +343,31 @@ public sealed class PackageBuildTests : IDisposable
     }
 
     [Fact]
+    public void ContentFingerprintTracksOnlyPublishedContents()
+    {
+        var source = CreateMod("FingerprintScope", "fingerprint-scope", "return true");
+        var project = ValidProject(PackageMode.Bundle, Ref("fingerprint-scope", "Fingerprint Scope", source));
+        project.InjectConnectionNotice = false;
+        project.InjectInGameControl = false;
+        var paths = new ApplicationPaths(Path.Combine(_root, "fingerprint-scope-data"));
+        new PackageSourceSnapshotService(paths).UpdateAll(project);
+        var builder = new PackageBuildService(paths, new PackageValidator());
+        var initial = builder.Build(project);
+
+        project.Visibility = WorkshopVisibility.Private;
+        project.Mods[0].Permission.PrivateAttachmentPath = Path.Combine(_root, "private-proof.txt");
+        project.Mods[0].Permission.Notes = "Local note only";
+        var privateMetadataUpdate = builder.Build(project);
+
+        Assert.Equal(initial.ContentFingerprint, privateMetadataUpdate.ContentFingerprint);
+
+        project.Mods[0].Permission.PublicEvidenceUrl = "https://example.test/public-proof";
+        var publicMetadataUpdate = builder.Build(project);
+
+        Assert.NotEqual(initial.ContentFingerprint, publicMetadataUpdate.ContentFingerprint);
+    }
+
+    [Fact]
     public void DisablingAndRenamingModsOnlyTouchesAffectedFolders()
     {
         var firstSource = CreateMod("LifecycleFirst", "lifecycle-first", "return 1");
@@ -403,7 +428,45 @@ public sealed class PackageBuildTests : IDisposable
         Assert.Equal(0, migrated.RebuiltComponents);
         Assert.Equal(1, migrated.ReusedComponents);
         Assert.Equal(outputWriteTime, File.GetLastWriteTimeUtc(output));
-        Assert.Contains("\"schemaVersion\": 3", File.ReadAllText(migrated.LockFilePath));
+        Assert.Contains("\"schemaVersion\": 5", File.ReadAllText(migrated.LockFilePath));
+    }
+
+    [Fact]
+    public void ExternalPayloadMutationCannotBeReportedAsNoOp()
+    {
+        var source = CreateMod("TamperGuard", "tamper-guard", "return 'trusted'");
+        var project = ValidProject(PackageMode.Bundle, Ref("tamper-guard", "Tamper Guard", source));
+        project.InjectConnectionNotice = false;
+        project.InjectInGameControl = false;
+        var paths = new ApplicationPaths(Path.Combine(_root, "tamper-guard-data"));
+        new PackageSourceSnapshotService(paths).UpdateAll(project);
+        var builder = new PackageBuildService(paths, new PackageValidator());
+        var initial = builder.Build(project);
+        var output = Path.Combine(initial.WorkshopContentRoot, "mods", "TamperGuard", "common", "media", "lua", "client", "test.lua");
+        File.SetAttributes(output, FileAttributes.Normal);
+        File.WriteAllText(output, "return 'tampered'");
+
+        var exception = Assert.Throws<IOException>(() => builder.Build(project));
+
+        Assert.Contains("modifié hors de PZASM", exception.Message);
+    }
+
+    [Fact]
+    public void ExternalPublicManifestMutationIsRebuiltInsteadOfReportedAsNoOp()
+    {
+        var source = CreateMod("ManifestGuard", "manifest-guard", "return 'trusted'");
+        var project = ValidProject(PackageMode.Bundle, Ref("manifest-guard", "Manifest Guard", source));
+        var paths = new ApplicationPaths(Path.Combine(_root, "manifest-guard-data"));
+        new PackageSourceSnapshotService(paths).UpdateAll(project);
+        var builder = new PackageBuildService(paths, new PackageValidator());
+        var initial = builder.Build(project);
+        var manifest = Path.Combine(initial.WorkshopContentRoot, "pzasm-pack-manifest.json");
+        File.WriteAllText(manifest, "{\"tampered\":true}");
+
+        var repaired = builder.Build(project);
+
+        Assert.False(repaired.IsNoOp);
+        Assert.Contains("Manifest Guard", File.ReadAllText(manifest));
     }
 
     [Fact]

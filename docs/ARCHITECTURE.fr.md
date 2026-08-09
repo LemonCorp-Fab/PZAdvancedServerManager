@@ -70,6 +70,12 @@ Lors de l’ajout d’une source, PZASM crée un snapshot privé et calcule son 
 
 Le [guide Steamworks Workshop](https://partner.steamgames.com/doc/features/workshop/implementation) documente la création avec `publishedfileid=0` puis la mise à jour du même item.
 
+La publication est incrémentale à deux niveaux. PZASM calcule séparément les empreintes du contenu livré, des métadonnées et de la preview, puis omet du VDF les dimensions inchangées. SteamCMD et Steam comparent ensuite le manifeste soumis au précédent et ne transmettent que les chunks absents. PZASM ne retélécharge jamais le package après l’upload.
+
+Un résultat « aucun changement » exige les trois empreintes locales ainsi qu’une nouvelle lecture par l’API publique des handles de contenu et de preview, de la taille, de l’heure de mise à jour, du titre, de la description et de la visibilité distants. Tout élément invérifiable ou périmé déclenche une publication conservatrice. Le mode forcé envoie toutes les dimensions à SteamCMD, tout en laissant Steam réutiliser les chunks identiques. Un code processus `0` ne suffit pas : l’activité SteamCMD courante doit confirmer explicitement `Upload finished ... : OK`, et toute erreur Workshop explicite l’emporte.
+
+Le serveur coordonné reste actif pendant la construction et tout l’upload. Si le contenu livré a changé, le manager attend après la confirmation le délai configuré — cinq minutes au minimum — puis envoie `save` et `quit` et applique la stratégie de redémarrage. Un no-change vérifié ou une modification limitée aux métadonnées ou à la preview ne redémarre pas le serveur.
+
 Le planificateur valide les droits et dépendances, actualise éventuellement les sources, remplace les snapshots, construit, publie et coordonne éventuellement le serveur par RCON. Une connexion supervisée transmet le mot de passe à SteamCMD par son entrée standard, sans l’enregistrer. Un compte sans Steam Guard continue directement. Pour un compte protégé, SteamCMD envoie une demande d’approbation dans Steam Mobile et la vérifie automatiquement pendant que l’UI affiche l’attente active. Le code actuel n’est demandé que si l’approbation expire ou si l’utilisateur choisit ce recours ; PZASM relance alors la connexion avec la commande documentée `set_steam_guard_code`, toujours par l’entrée standard. Steam propose le QR dans son client et sur ses pages web, mais SteamCMD n’expose ni charge utile QR ni commande de connexion QR documentée : un QR web séparé ne peut donc pas établir la session de publication. SteamCMD conserve ensuite son propre jeton dans son dossier portable ; les publications manuelles et planifiées utilisent uniquement cette session. Le manager ne mémorise que l’heure de la dernière vérification. Une session expirée demande une reconnexion au lieu d’attendre sur une invite invisible. L’UI diffuse la progression en direct, applique un délai maximal et peut annuler le processus externe.
 
 SteamCMD ouvre une session Steam distincte : l’automatisation doit donc utiliser un compte de publication dédié qui possède Project Zomboid, et non le compte actif dans le client Steam de bureau. La première connexion crée le jeton portable ; les contrôles suivants utilisent `steamcmd verify`, sans mot de passe ni nouveau jeton. PZASM n’importe jamais les cookies ou fichiers de connexion du client Steam. Une publication via la session du client nécessiterait une application Steamworks autorisée : l’éditeur de Project Zomboid doit ajouter l’AppID de l’outil aux App Publish Permissions du Workshop pour `ISteamUGC`, tandis qu’OAuth exige un client attribué par Valve avec l’accès `write_cloud` limité à l’AppID. Un outil externe ne peut s’accorder lui-même aucun de ces droits.
@@ -91,7 +97,7 @@ Steam peut conserver un nouvel item masqué tant que l’[accord Workshop](https
 - dépendances non déclarées et ordre manuel des cartes ;
 - conflits logiques impossibles à détecter statiquement ;
 - intervention SteamCMD parfois nécessaire ;
-- redémarrage serveur obligatoire après publication.
+- redémarrage requis uniquement lorsque le contenu livré change, après confirmation de l’upload et expiration du délai configuré.
 
 ## Orchestration locale et distante
 

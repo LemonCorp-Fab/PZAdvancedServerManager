@@ -51,6 +51,19 @@ public sealed class ProjectStoreTests : IDisposable
         Assert.True(project.Mods[0].IncludeInGlobalUpdates);
     }
 
+    [Fact]
+    public void CoordinatedRestartDelayIsNeverNormalizedBelowFiveMinutes()
+    {
+        var paths = new ApplicationPaths(_root);
+        var store = new PackageProjectStore(paths);
+        var project = store.Create("Scheduled pack");
+        project.Automation.PostPublishRestartDelayMinutes = 0;
+
+        store.Save(project);
+
+        Assert.Equal(5, store.Get(project.Id)!.Automation.PostPublishRestartDelayMinutes);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root)) Directory.Delete(_root, true);

@@ -261,8 +261,10 @@ public class EditModel(
             project.Automation.LastResult = Limit(result.Output, 4000);
             project.Automation.SteamSessionVerifiedAt = DateTimeOffset.UtcNow;
             store.Save(project);
-            TempData["Message"] = (createsWorkshopItem ? "Nouvel item Workshop créé" : "Item Workshop mis à jour") + $". Workshop ID : {project.PublishedWorkshopId}." +
-                (result.ServerWasRunning ? " Le serveur coordonné a été sauvegardé, arrêté puis redémarré." : string.Empty);
+            TempData["Message"] = result.PublicationSkipped
+                ? "Aucun changement local ou distant : SteamCMD n'a pas été lancé et le serveur n'a pas été interrompu."
+                : (createsWorkshopItem ? "Nouvel item Workshop créé" : "Item Workshop mis à jour") + $". Workshop ID : {project.PublishedWorkshopId}." +
+                  (result.ServerWasRunning ? " Le serveur est resté actif pendant l'upload, puis a été sauvegardé et redémarré après le délai de propagation." : string.Empty);
         }
         catch (Exception exception)
         {
@@ -290,7 +292,54 @@ public class EditModel(
             project.Automation.LastResult = Limit(result.Output, 4000);
             project.Automation.SteamSessionVerifiedAt = DateTimeOffset.UtcNow;
             store.Save(project);
-            return (createsWorkshopItem ? "Nouvel item Workshop créé" : "Item Workshop mis à jour") + $" · ID {project.PublishedWorkshopId}";
+            return result.PublicationSkipped
+                ? "Aucun changement confirmé · SteamCMD non lancé"
+                : (createsWorkshopItem ? "Nouvel item Workshop créé" : "Item Workshop mis à jour") + $" · ID {project.PublishedWorkshopId} · {result.PublicationMode}";
+        }, Url.Page("/Projects/Edit", null, new { id, tab = "distribution" })!, cancellationToken);
+    }
+
+    public async Task<IActionResult> OnPostForcePublishAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+        var validation = validator.Validate(project);
+        if (!validation.CanPublish)
+        {
+            var blockers = validation.Issues.Where(x => x.IsError && x.Scope != ValidationScope.AutomationOnly).Take(5).Select(x => x.Message);
+            TempData["Error"] = "Republication forcée non lancée : " + string.Join(" ", blockers);
+            return RedirectToPage(new { id, tab = "distribution" });
+        }
+        try
+        {
+            var result = await lifecycle.PublishAsync(project, false, false, cancellationToken, force: true);
+            project.Automation.LastResult = Limit(result.Output, 4000);
+            project.Automation.SteamSessionVerifiedAt = DateTimeOffset.UtcNow;
+            store.Save(project);
+            TempData["Message"] = $"Republication forcée confirmée. Workshop ID : {project.PublishedWorkshopId}.";
+        }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
+        return RedirectToPage(new { id, tab = "distribution" });
+    }
+
+    public async Task<IActionResult> OnPostForcePublishStreamAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+        var validation = validator.Validate(project);
+        if (!validation.CanPublish)
+        {
+            await PrepareProgressResponseAsync();
+            var blockers = validation.Issues.Where(x => x.IsError && x.Scope != ValidationScope.AutomationOnly).Take(5).Select(x => x.Message);
+            await WriteProgressAsync(new { type = "error", message = "Republication forcée non lancée : " + string.Join(" ", blockers) }, cancellationToken);
+            return new EmptyResult();
+        }
+        return await StreamOperationAsync(async progress =>
+        {
+            var result = await lifecycle.PublishAsync(project, false, false, cancellationToken, progress, force: true);
+            project.Automation.LastResult = Limit(result.Output, 4000);
+            project.Automation.SteamSessionVerifiedAt = DateTimeOffset.UtcNow;
+            store.Save(project);
+            return $"Republication forcée confirmée · ID {project.PublishedWorkshopId} · {result.PublicationMode}";
         }, Url.Page("/Projects/Edit", null, new { id, tab = "distribution" })!, cancellationToken);
     }
 
@@ -701,7 +750,11 @@ public class EditModel(
         project.InjectConnectionNotice = Form.InjectConnectionNotice;
         project.InjectInGameControl = Form.InjectInGameControl;
         project.NoticeTitle = string.IsNullOrWhiteSpace(Form.NoticeTitle) ? "PZ Advanced Server Manager" : Form.NoticeTitle.Trim();
-        project.PublishedWorkshopId = Form.PublishedWorkshopId;
+        if (project.PublishedWorkshopId != Form.PublishedWorkshopId)
+        {
+            project.PublishedWorkshopId = Form.PublishedWorkshopId;
+            project.Publication = new WorkshopPublicationState();
+        }
         project.Visibility = Form.Visibility;
         project.PreviewImagePath = Form.PreviewImagePath?.Trim();
         project.MapOrder = (Form.MapOrder ?? string.Empty).Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
@@ -715,6 +768,7 @@ public class EditModel(
         project.Automation.RefreshWorkshopSourcesBeforeBuild = Form.RefreshSources;
         project.Automation.PublishAfterBuild = Form.PublishAfterBuild;
         project.Automation.CoordinatedServerName = Form.CoordinatedServerName?.Trim() ?? string.Empty;
+        project.Automation.PostPublishRestartDelayMinutes = Math.Clamp(Form.PostPublishRestartDelayMinutes, 5, 60);
         project.Automation.DailyTimes = (Form.DailyTimes ?? string.Empty).Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     }
 
@@ -815,6 +869,7 @@ public class EditModel(
         public bool RefreshSources { get; set; }
         public bool PublishAfterBuild { get; set; }
         public string? CoordinatedServerName { get; set; }
+        [Range(5, 60)] public int PostPublishRestartDelayMinutes { get; set; } = 5;
         public string? DailyTimes { get; set; }
 
         public static ProjectForm From(PackageProject project) => new()
@@ -839,7 +894,8 @@ public class EditModel(
             RefreshSources = project.Automation.RefreshWorkshopSourcesBeforeBuild,
             PublishAfterBuild = project.Automation.PublishAfterBuild,
             DailyTimes = string.Join(", ", project.Automation.DailyTimes),
-            CoordinatedServerName = project.Automation.CoordinatedServerName
+            CoordinatedServerName = project.Automation.CoordinatedServerName,
+            PostPublishRestartDelayMinutes = project.Automation.PostPublishRestartDelayMinutes
         };
     }
 }

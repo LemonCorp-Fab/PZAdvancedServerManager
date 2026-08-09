@@ -10,6 +10,6 @@ public static class PzasmConstants
     public const string ProjectZomboidSteamAppId = "108600";
     public const string ProjectZomboidDedicatedServerSteamAppId = "380870";
     public const string DefaultTargetVersion = "42.20.2";
-    public const int CurrentProjectSchemaVersion = 4;
+    public const int CurrentProjectSchemaVersion = 5;
     public static readonly TimeSpan AutomationPollInterval = TimeSpan.FromSeconds(30);
 }

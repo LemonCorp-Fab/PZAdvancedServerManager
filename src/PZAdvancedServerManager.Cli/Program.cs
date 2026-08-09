@@ -194,11 +194,14 @@ internal sealed class PzasmCli
                     if (!args.Has("yes")) return Fail("Publication non exécutée. Ajoutez --yes pour confirmer l'envoi vers Steam Workshop.", 3);
                     if (string.IsNullOrWhiteSpace(current.Automation.CoordinatedServerName))
                         Console.Error.WriteLine("ATTENTION: aucun serveur coordonné; --yes confirme que l'administrateur gère lui-même le redémarrage.");
-                    var result = await services.Lifecycle.PublishAsync(current, refreshSources: false, requireCoordinatedServer: false);
+                    var result = await services.Lifecycle.PublishAsync(current, refreshSources: false, requireCoordinatedServer: false, force: args.Has("force"));
                     current.Automation.LastResult = result.Output;
                     services.Store.Save(current);
                     Console.WriteLine(result.Output);
                     Console.WriteLine($"Workshop ID: {current.PublishedWorkshopId}");
+                    Console.WriteLine(result.PublicationSkipped
+                        ? "Publication: aucun changement local ou distant, SteamCMD non lancé."
+                        : $"Publication: {result.PublicationMode}.");
                     return 0;
                 }
             default:
@@ -607,6 +610,7 @@ internal sealed class PzasmCli
         if (args.Get("steam-user") is { } user) project.Automation.SteamUsername = user;
         if (args.Get("anonymous-downloads") is { } anonymousDownloads) project.Automation.AnonymousWorkshopDownloads = bool.Parse(anonymousDownloads);
         if (args.Get("server") is { } server) project.Automation.CoordinatedServerName = server;
+        if (args.GetInt("restart-delay-minutes") is { } restartDelay) project.Automation.PostPublishRestartDelayMinutes = Math.Clamp(restartDelay, 5, 60);
         if (args.Get("automation") is { } automation) project.Automation.Enabled = bool.Parse(automation);
         if (args.Get("schedule") is { } schedule) project.Automation.DailyTimes = schedule.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (args.Get("refresh-sources") is { } refreshSources) project.Automation.RefreshWorkshopSourcesBeforeBuild = bool.Parse(refreshSources);
@@ -686,7 +690,7 @@ Chaque projet représente un pack global indépendant avec son propre Workshop I
   pzasm project refresh --id <guid> [--mod-id <id>]
   pzasm project validate --id <guid>
   pzasm project build --id <guid>
-  pzasm project publish --id <guid> --yes
+  pzasm project publish --id <guid> --yes [--force]
   pzasm server list [--json]
   pzasm server create --name <profil> [--local-mode dedicated|hosted]
   pzasm server set-local-mode --name <profil> --local-mode dedicated|hosted

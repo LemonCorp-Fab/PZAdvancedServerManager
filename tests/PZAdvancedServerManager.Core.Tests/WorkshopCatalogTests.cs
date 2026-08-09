@@ -38,6 +38,58 @@ public sealed class WorkshopCatalogTests
     }
 
     [Fact]
+    public async Task AdvancedFiltersUseMultipleSteamTagsAndPublicMetadata()
+    {
+        var handler = new AdvancedCatalogHandler();
+        var service = new WorkshopCatalogService(new HttpClient(handler));
+        var query = new WorkshopCatalogQuery(
+            SearchText: "vehicle",
+            Sort: "updated",
+            RequiredTags: "Build 42; Map",
+            ExcludedTags: "Translation",
+            MatchAllTags: true,
+            SearchFields: "title",
+            CreatorSteamId: "76561198109202798",
+            MinSubscriptions: 1000,
+            MinLifetimeSubscriptions: 2000,
+            MinFavorites: 50,
+            MinViews: 500,
+            MinFileSizeBytes: 100 * 1024 * 1024,
+            MaxFileSizeBytes: 2L * 1024 * 1024 * 1024,
+            Content: "complete");
+
+        var page = await service.SearchAsync(query);
+
+        var item = Assert.Single(page.Items);
+        Assert.Equal(100UL, item.WorkshopId);
+        Assert.Equal("76561198109202798", item.CreatorSteamId);
+        Assert.Equal(2, item.Tags.Count);
+        Assert.Contains("browsesort=lastupdated", handler.LastBrowseUrl);
+        Assert.Contains("requiredtags%5B%5D=Build%2042", handler.LastBrowseUrl);
+        Assert.Contains("requiredtags%5B%5D=Map", handler.LastBrowseUrl);
+        Assert.Contains("excludedtags%5B%5D=Translation", handler.LastBrowseUrl);
+    }
+
+    [Fact]
+    public void QueryNormalizationDeduplicatesTagsAndRepairsSizeRange()
+    {
+        var query = new WorkshopCatalogQuery(
+            RequiredTags: "Map, Build 42; map",
+            ExcludedTags: "Translation, translation",
+            SearchFields: "invalid",
+            MinFileSizeBytes: 500,
+            MaxFileSizeBytes: 100,
+            ScanPages: 99).Normalize();
+
+        Assert.Equal(["Map", "Build 42"], query.RequiredTagList);
+        Assert.Equal(["Translation"], query.ExcludedTagList);
+        Assert.Equal("all", query.SearchFields);
+        Assert.Equal(100, query.MinFileSizeBytes);
+        Assert.Equal(500, query.MaxFileSizeBytes);
+        Assert.Equal(1, query.ScanPages);
+    }
+
+    [Fact]
     public async Task DetailLookupBatchesLargePackWithoutDroppingWorkshopIds()
     {
         var handler = new BatchCatalogHandler();
@@ -133,6 +185,46 @@ public sealed class WorkshopCatalogTests
                 Content = new StringContent($"{{\"response\":{{\"publishedfiledetails\":[{items}]}}}}", Encoding.UTF8, "application/json")
             };
         }
+    }
+
+    private sealed class AdvancedCatalogHandler : HttpMessageHandler
+    {
+        public string LastBrowseUrl { get; private set; } = string.Empty;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                LastBrowseUrl = request.RequestUri?.AbsoluteUri ?? string.Empty;
+                const string html = """
+                    <a href="https://steamcommunity.com/sharedfiles/filedetails/?id=100"><img src="one.jpg"></a>
+                    <a href="https://steamcommunity.com/sharedfiles/filedetails/?id=200"><img src="two.jpg"></a>
+                    """;
+                return Task.FromResult(Response(html));
+            }
+
+            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            var json = $$$"""
+                {"response":{"publishedfiledetails":[
+                  {"publishedfileid":"100","result":1,"title":"Vehicle overhaul","creator":"76561198109202798",
+                   "file_description":"Complete public description","preview_url":"https://images.steamusercontent.com/ugc/one/preview/",
+                   "time_created":{{{timestamp - 86400}}},"time_updated":{{{timestamp}}},"file_size":"524288000","subscriptions":5000,
+                   "lifetime_subscriptions":9000,"favorited":150,"lifetime_favorited":250,"views":12000,
+                   "tags":[{"tag":"Build 42"},{"tag":"Map"}]},
+                  {"publishedfileid":"200","result":1,"title":"Vehicle translation","creator":"76561198109202798",
+                   "file_description":"Translation","preview_url":"https://images.steamusercontent.com/ugc/two/preview/",
+                   "time_created":{{{timestamp - 86400}}},"time_updated":{{{timestamp}}},"file_size":"524288000","subscriptions":5000,
+                   "lifetime_subscriptions":9000,"favorited":150,"lifetime_favorited":250,"views":12000,
+                   "tags":[{"tag":"Build 42"},{"tag":"Translation"}]}
+                ]}}
+                """;
+            return Task.FromResult(Response(json, "application/json"));
+        }
+
+        private static HttpResponseMessage Response(string body, string contentType = "text/html") => new(HttpStatusCode.OK)
+        {
+            Content = new StringContent(body, Encoding.UTF8, contentType)
+        };
     }
 
     private sealed class RemoteStateHandler : HttpMessageHandler

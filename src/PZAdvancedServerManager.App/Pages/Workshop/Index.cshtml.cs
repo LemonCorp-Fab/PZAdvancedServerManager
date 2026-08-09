@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.AspNetCore.Routing;
 using PZAdvancedServerManager.Core.Domain;
 using PZAdvancedServerManager.Core.Infrastructure;
 using PZAdvancedServerManager.Core.Packaging;
@@ -26,7 +27,24 @@ public class IndexModel(
     [BindProperty(SupportsGet = true)] public string Source { get; set; } = "workshop";
     [BindProperty(SupportsGet = true)] public string Q { get; set; } = string.Empty;
     [BindProperty(SupportsGet = true)] public string Sort { get; set; } = "trend";
+    [BindProperty(SupportsGet = true)] public string Tags { get; set; } = string.Empty;
     [BindProperty(SupportsGet = true)] public string Tag { get; set; } = string.Empty;
+    [BindProperty(SupportsGet = true)] public string ExcludedTags { get; set; } = string.Empty;
+    [BindProperty(SupportsGet = true)] public bool MatchAllTags { get; set; } = true;
+    [BindProperty(SupportsGet = true)] public string SearchFields { get; set; } = "all";
+    [BindProperty(SupportsGet = true)] public int TrendDays { get; set; } = 7;
+    [BindProperty(SupportsGet = true)] public int CreatedWithinDays { get; set; }
+    [BindProperty(SupportsGet = true)] public int UpdatedWithinDays { get; set; }
+    [BindProperty(SupportsGet = true)] public string CreatorSteamId { get; set; } = string.Empty;
+    [BindProperty(SupportsGet = true)] public long MinSubscriptions { get; set; }
+    [BindProperty(SupportsGet = true)] public long MinLifetimeSubscriptions { get; set; }
+    [BindProperty(SupportsGet = true)] public long MinFavorites { get; set; }
+    [BindProperty(SupportsGet = true)] public long MinViews { get; set; }
+    [BindProperty(SupportsGet = true)] public decimal MinSizeMb { get; set; }
+    [BindProperty(SupportsGet = true)] public decimal MaxSizeMb { get; set; }
+    [BindProperty(SupportsGet = true)] public string ContentFilter { get; set; } = "any";
+    [BindProperty(SupportsGet = true)] public string CatalogState { get; set; } = "all";
+    [BindProperty(SupportsGet = true)] public int ScanPages { get; set; } = 1;
     [BindProperty(SupportsGet = true)] public int PageNumber { get; set; } = 1;
 
     public PackageProject? Project { get; private set; }
@@ -40,6 +58,9 @@ public class IndexModel(
     public IReadOnlySet<string> IncludedModIds { get; private set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     public SteamCmdStatus SteamCmdStatus { get; private set; } = new(false, string.Empty, string.Empty, null, 0);
     public string TargetVersion => Project?.TargetPzVersion ?? PzasmConstants.DefaultTargetVersion;
+    public int ActiveWorkshopFilterCount { get; private set; }
+    public IReadOnlyList<string> SuggestedTags { get; private set; } =
+        ["Build 42", "Build 41", "Map", "Multiplayer", "QOL", "Vehicles", "Weapons", "Traits", "Clothing", "Items", "UI", "Translation"];
 
     public async Task<IActionResult> OnGetAsync(CancellationToken cancellationToken)
     {
@@ -55,7 +76,22 @@ public class IndexModel(
             Source = "workshop";
             try
             {
-                Catalog = await catalog.SearchAsync(new WorkshopCatalogQuery(Q, Sort, PageNumber, Tag), cancellationToken);
+                if (string.IsNullOrWhiteSpace(Tags)) Tags = Tag;
+                var query = CreateCatalogQuery().Normalize();
+                ApplyNormalizedQuery(query);
+                CatalogState = CatalogState is "available" or "included" ? CatalogState : "all";
+                Catalog = await catalog.SearchAsync(query, cancellationToken);
+                Catalog = Catalog with
+                {
+                    Items = Catalog.Items.Where(item => CatalogState == "all" ||
+                        (CatalogState == "available" && !IncludedWorkshopIds.Contains(item.WorkshopId)) ||
+                        (CatalogState == "included" && IncludedWorkshopIds.Contains(item.WorkshopId))).ToArray()
+                };
+                SuggestedTags = SuggestedTags.Concat(Catalog.Items.SelectMany(item => item.Tags))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Order(StringComparer.CurrentCultureIgnoreCase)
+                    .ToArray();
+                ActiveWorkshopFilterCount = CountActiveWorkshopFilters(query);
             }
             catch (Exception exception)
             {
@@ -295,6 +331,33 @@ public class IndexModel(
             ? $"PZ {mod.SelectedVersionFolder}"
             : "non déclarée";
 
+    public RouteValueDictionary FilterRouteValues(int pageNumber) => new(new Dictionary<string, object?>
+    {
+        [nameof(ProjectId)] = ProjectId,
+        [nameof(ServerName)] = ServerName,
+        [nameof(Source)] = Source,
+        [nameof(Q)] = Q,
+        [nameof(Sort)] = Sort,
+        [nameof(Tags)] = Tags,
+        [nameof(ExcludedTags)] = ExcludedTags,
+        [nameof(MatchAllTags)] = MatchAllTags,
+        [nameof(SearchFields)] = SearchFields,
+        [nameof(TrendDays)] = TrendDays,
+        [nameof(CreatedWithinDays)] = CreatedWithinDays,
+        [nameof(UpdatedWithinDays)] = UpdatedWithinDays,
+        [nameof(CreatorSteamId)] = CreatorSteamId,
+        [nameof(MinSubscriptions)] = MinSubscriptions,
+        [nameof(MinLifetimeSubscriptions)] = MinLifetimeSubscriptions,
+        [nameof(MinFavorites)] = MinFavorites,
+        [nameof(MinViews)] = MinViews,
+        [nameof(MinSizeMb)] = MinSizeMb,
+        [nameof(MaxSizeMb)] = MaxSizeMb,
+        [nameof(ContentFilter)] = ContentFilter,
+        [nameof(CatalogState)] = CatalogState,
+        [nameof(ScanPages)] = ScanPages,
+        [nameof(PageNumber)] = pageNumber
+    });
+
     private IActionResult? LoadContext()
     {
         if (ProjectId is not null && !string.IsNullOrWhiteSpace(ServerName)) return BadRequest("Choisissez soit un pack, soit un serveur.");
@@ -336,6 +399,77 @@ public class IndexModel(
         PageNumber = Math.Clamp(PageNumber, 1, Math.Max(1, (int)Math.Ceiling(LocalTotal / 60d)));
         return filtered.Skip((PageNumber - 1) * 60).Take(60).ToArray();
     }
+
+    private WorkshopCatalogQuery CreateCatalogQuery() => new(
+        Q,
+        Sort,
+        PageNumber,
+        Tags,
+        ExcludedTags,
+        MatchAllTags,
+        SearchFields,
+        TrendDays,
+        CreatedWithinDays,
+        UpdatedWithinDays,
+        CreatorSteamId,
+        MinSubscriptions,
+        MinLifetimeSubscriptions,
+        MinFavorites,
+        MinViews,
+        MegabytesToBytes(MinSizeMb),
+        MegabytesToBytes(MaxSizeMb),
+        ContentFilter,
+        ScanPages);
+
+    private void ApplyNormalizedQuery(WorkshopCatalogQuery query)
+    {
+        Q = query.SearchText;
+        Sort = query.Sort;
+        PageNumber = query.Page;
+        Tags = query.RequiredTags;
+        ExcludedTags = query.ExcludedTags;
+        MatchAllTags = query.MatchAllTags;
+        SearchFields = query.SearchFields;
+        TrendDays = query.TrendDays;
+        CreatedWithinDays = query.CreatedWithinDays;
+        UpdatedWithinDays = query.UpdatedWithinDays;
+        CreatorSteamId = query.CreatorSteamId;
+        MinSubscriptions = query.MinSubscriptions;
+        MinLifetimeSubscriptions = query.MinLifetimeSubscriptions;
+        MinFavorites = query.MinFavorites;
+        MinViews = query.MinViews;
+        MinSizeMb = BytesToMegabytes(query.MinFileSizeBytes);
+        MaxSizeMb = BytesToMegabytes(query.MaxFileSizeBytes);
+        ContentFilter = query.Content;
+        ScanPages = query.ScanPages;
+    }
+
+    private int CountActiveWorkshopFilters(WorkshopCatalogQuery query) => new[]
+    {
+        query.RequiredTagList.Count > 0,
+        query.ExcludedTagList.Count > 0,
+        !query.MatchAllTags,
+        query.SearchFields != "all",
+        query.Sort == "trend" && query.TrendDays != 7,
+        query.CreatedWithinDays > 0,
+        query.UpdatedWithinDays > 0,
+        query.CreatorSteamId.Length > 0,
+        query.MinSubscriptions > 0,
+        query.MinLifetimeSubscriptions > 0,
+        query.MinFavorites > 0,
+        query.MinViews > 0,
+        query.MinFileSizeBytes > 0,
+        query.MaxFileSizeBytes > 0,
+        query.Content != "any",
+        CatalogState != "all",
+        query.ScanPages != 1
+    }.Count(active => active);
+
+    private static long MegabytesToBytes(decimal megabytes) => megabytes <= 0
+        ? 0
+        : (long)Math.Min(megabytes * 1024 * 1024, 100m * 1024 * 1024 * 1024);
+
+    private static decimal BytesToMegabytes(long bytes) => bytes <= 0 ? 0 : Math.Round(bytes / 1024m / 1024m, 1);
 
     private async Task<IReadOnlyList<WorkshopRequiredItem>> GetMissingWorkshopDependenciesAsync(
         IEnumerable<ulong> workshopIds,

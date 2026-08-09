@@ -6,6 +6,7 @@
     var targetKind = Model.Project is not null ? "PACK" : Model.Server is not null ? "SERVEUR" : "CATALOGUE";
     var isLocal = Model.Source.Equals("local", StringComparison.OrdinalIgnoreCase);
     var selectionScope = Model.ProjectId is not null ? $"pack:{Model.ProjectId:N}" : $"server:{Model.ServerName}";
+    var requiredTagValues = Model.Tags.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToHashSet(StringComparer.OrdinalIgnoreCase);
 }
 
 <a class="back-link" asp-page="@(Model.Project is not null ? "/Projects/Edit" : Model.Server is not null ? "/Server/Index" : "/Index")" asp-route-id="@Model.Project?.Id" asp-route-name="@Model.Server?.Name" asp-route-tab="@(Model.Project is not null ? "mods" : "content")">← Retour à @targetName</a>
@@ -35,14 +36,52 @@
         <input type="hidden" asp-for="ProjectId" />
         <input type="hidden" asp-for="ServerName" />
         <input type="hidden" asp-for="Source" />
+        <input type="hidden" name="PageNumber" value="1" />
         <label class="catalog-query"><span>Recherche</span><input asp-for="Q" placeholder="Nom, description, Mod ID ou Workshop ID…" autofocus /></label>
         @if (!isLocal)
         {
-            <label><span>Classement</span><select asp-for="Sort"><option value="trend">Tendances</option><option value="recent">Plus récents</option><option value="subscribed">Plus abonnés</option><option value="popular">Plus consultés</option><option value="relevance">Pertinence</option></select></label>
-            <label><span>Tag exact</span><input asp-for="Tag" list="workshop-tags" placeholder="Tous les tags" /></label>
-            <datalist id="workshop-tags"><option value="Build 42"></option><option value="Build 41"></option><option value="Map"></option><option value="Multiplayer"></option><option value="QOL"></option><option value="Vehicles"></option><option value="Weapons"></option><option value="Traits"></option></datalist>
+            <label><span>Champ recherché</span><select asp-for="SearchFields"><option value="all">Titre et description</option><option value="title">Titre uniquement</option><option value="description">Description uniquement</option></select></label>
+            <label><span>Classement</span><select asp-for="Sort"><option value="trend">Tendances</option><option value="relevance">Pertinence</option><option value="recent">Date de publication</option><option value="updated">Dernière mise à jour</option><option value="subscribed">Plus abonnés</option><option value="popular">Plus consultés</option><option value="rated">Mieux notés</option></select></label>
         }
         <button class="button primary" type="submit">Rechercher</button>
+        @if (!isLocal)
+        {
+            <details class="catalog-advanced-filters" @(Model.ActiveWorkshopFilterCount > 0 ? "open" : null)>
+                <summary><span><strong>Filtres avancés</strong><small>Tags, dates, popularité, taille, auteur et profondeur</small></span><b>@Model.ActiveWorkshopFilterCount actif(s)</b></summary>
+                <div class="catalog-filter-groups">
+                    <fieldset>
+                        <legend>Tags et compatibilité</legend>
+                        <label><span>Tags requis</span><input asp-for="Tags" list="workshop-tags" placeholder="Build 42; Map; Multiplayer" /><small>Séparez plusieurs tags par « ; ».</small></label>
+                        <div class="catalog-tag-presets" data-workshop-tag-presets data-workshop-tag-input="Tags">@foreach (var suggestedTag in Model.SuggestedTags.Take(14)) { <button class="@(requiredTagValues.Contains(suggestedTag) ? "active" : null)" type="button" data-workshop-tag="@suggestedTag">@suggestedTag</button> }</div>
+                        <label><span>Correspondance</span><select asp-for="MatchAllTags"><option value="true">Tous les tags requis</option><option value="false">Au moins un tag requis</option></select></label>
+                        <label><span>Tags exclus</span><input asp-for="ExcludedTags" list="workshop-tags" placeholder="Build 41; Translation" /></label>
+                        <datalist id="workshop-tags">@foreach (var suggestedTag in Model.SuggestedTags) { <option value="@suggestedTag"></option> }</datalist>
+                    </fieldset>
+                    <fieldset>
+                        <legend>Dates et créateur</legend>
+                        <label><span>Publié depuis</span><select asp-for="CreatedWithinDays"><option value="0">N’importe quand</option><option value="1">24 heures</option><option value="7">7 jours</option><option value="30">30 jours</option><option value="90">90 jours</option><option value="180">6 mois</option><option value="365">1 an</option><option value="730">2 ans</option></select></label>
+                        <label><span>Mis à jour depuis</span><select asp-for="UpdatedWithinDays"><option value="0">N’importe quand</option><option value="1">24 heures</option><option value="7">7 jours</option><option value="30">30 jours</option><option value="90">90 jours</option><option value="180">6 mois</option><option value="365">1 an</option><option value="730">2 ans</option></select></label>
+                        <label><span>SteamID64 du créateur</span><input asp-for="CreatorSteamId" inputmode="numeric" placeholder="7656119…" /></label>
+                        <label><span>Période des tendances</span><select asp-for="TrendDays"><option value="1">24 heures</option><option value="7">7 jours</option><option value="30">30 jours</option><option value="180">6 mois</option><option value="365">1 an</option><option value="0">Toute la période</option></select></label>
+                    </fieldset>
+                    <fieldset>
+                        <legend>Popularité minimale</legend>
+                        <label><span>Abonnés actuels</span><input name="MinSubscriptions" value="@Model.MinSubscriptions" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="0" /></label>
+                        <label><span>Abonnements cumulés</span><input name="MinLifetimeSubscriptions" value="@Model.MinLifetimeSubscriptions" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="0" /></label>
+                        <label><span>Favoris</span><input name="MinFavorites" value="@Model.MinFavorites" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="0" /></label>
+                        <label><span>Consultations</span><input name="MinViews" value="@Model.MinViews" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="0" /></label>
+                    </fieldset>
+                    <fieldset>
+                        <legend>Contenu et résultats</legend>
+                        <div class="catalog-size-pair"><label><span>Taille minimale (Mio)</span><input name="MinSizeMb" value="@Model.MinSizeMb.ToString(System.Globalization.CultureInfo.InvariantCulture)" type="text" inputmode="decimal" pattern="[0-9]+([.,][0-9]+)?" placeholder="0" /></label><label><span>Taille maximale (Mio)</span><input name="MaxSizeMb" value="@Model.MaxSizeMb.ToString(System.Globalization.CultureInfo.InvariantCulture)" type="text" inputmode="decimal" pattern="[0-9]+([.,][0-9]+)?" placeholder="0" /></label></div>
+                        <label><span>Métadonnées</span><select asp-for="ContentFilter"><option value="any">Tous les items</option><option value="preview">Avec image</option><option value="description">Avec description</option><option value="complete">Image et description</option></select></label>
+                        <label><span>État dans la destination</span><select asp-for="CatalogState"><option value="all">Tous</option><option value="available">Pas encore ajoutés</option><option value="included">Déjà ajoutés</option></select></label>
+                        <label><span>Profondeur de recherche</span><select asp-for="ScanPages"><option value="1">Rapide · 1 page Steam</option><option value="3">Étendue · 3 pages Steam</option><option value="5">Maximale · 5 pages Steam</option></select><small>Plus de pages améliore les filtres stricts mais prend plus de temps.</small></label>
+                    </fieldset>
+                </div>
+                <div class="catalog-filter-actions"><span>Les filtres numériques sont appliqués aux métadonnées publiques après la recherche Steam.</span><a class="button ghost" asp-page="/Workshop/Index" asp-route-projectId="@Model.ProjectId" asp-route-serverName="@Model.ServerName" asp-route-source="workshop">Réinitialiser tous les filtres</a></div>
+            </details>
+        }
     </form>
     @if (!isLocal)
     {
@@ -96,8 +135,8 @@
 else
 {
     <form method="post" asp-page-handler="AddWorkshop" class="catalog-selection-form" data-catalog-selection data-workshop-progress data-dependency-preflight-url="@Url.Page(null, "WorkshopDependencyPlan", new { ProjectId = Model.ProjectId, ServerName = Model.ServerName, Source = Model.Source })" data-catalog-storage-key="pzasm-catalog:@selectionScope:workshop" data-catalog-input-name="selectedWorkshopIds" data-loading-title="Téléchargement des mods Workshop…" data-loading-detail="SteamCMD télécharge chaque item, puis le manager analyse les mod.info et leurs dépendances.">
-        <input type="hidden" asp-for="ProjectId" /><input type="hidden" asp-for="ServerName" /><input type="hidden" asp-for="Source" /><input type="hidden" asp-for="Q" /><input type="hidden" asp-for="Sort" /><input type="hidden" asp-for="Tag" /><input type="hidden" asp-for="PageNumber" />
-        <div class="catalog-results-heading"><div><span class="eyebrow">WORKSHOP PROJECT ZOMBOID</span><h2>@Model.Catalog.Items.Count résultats · page @Model.Catalog.Page</h2></div><div class="action-row"><button class="button ghost" type="button" data-catalog-select-all>Tout sélectionner sur cette page</button><button class="button ghost" type="button" data-catalog-deselect-page>Désélectionner la page</button></div></div>
+        <input type="hidden" asp-for="ProjectId" /><input type="hidden" asp-for="ServerName" /><input type="hidden" asp-for="Source" /><input type="hidden" asp-for="Q" /><input type="hidden" asp-for="Sort" /><input type="hidden" asp-for="Tags" /><input type="hidden" asp-for="ExcludedTags" /><input type="hidden" asp-for="MatchAllTags" /><input type="hidden" asp-for="SearchFields" /><input type="hidden" asp-for="TrendDays" /><input type="hidden" asp-for="CreatedWithinDays" /><input type="hidden" asp-for="UpdatedWithinDays" /><input type="hidden" asp-for="CreatorSteamId" /><input type="hidden" asp-for="MinSubscriptions" /><input type="hidden" asp-for="MinLifetimeSubscriptions" /><input type="hidden" asp-for="MinFavorites" /><input type="hidden" asp-for="MinViews" /><input type="hidden" asp-for="MinSizeMb" /><input type="hidden" asp-for="MaxSizeMb" /><input type="hidden" asp-for="ContentFilter" /><input type="hidden" asp-for="CatalogState" /><input type="hidden" asp-for="ScanPages" /><input type="hidden" asp-for="PageNumber" />
+        <div class="catalog-results-heading"><div><span class="eyebrow">WORKSHOP PROJECT ZOMBOID</span><h2>@Model.Catalog.Items.Count résultats filtrés</h2><p>@Model.Catalog.CandidatesInspected items inspectés sur @Model.Catalog.SourcePagesScanned page(s) Steam · lot @Model.Catalog.Page</p></div><div class="action-row"><button class="button ghost" type="button" data-catalog-select-all>Tout sélectionner sur cette page</button><button class="button ghost" type="button" data-catalog-deselect-page>Désélectionner la page</button></div></div>
         @if (Model.Catalog.Items.Count == 0)
         {
             <div class="empty-state"><h3>Aucun item trouvé</h3><p>Essayez un autre terme, retirez le tag ou collez directement un Workshop ID.</p></div>
@@ -112,7 +151,7 @@ else
                         <label>
                             <input type="checkbox" name="selectedWorkshopIds" value="@item.WorkshopId" data-catalog-title="@item.Title" data-catalog-detail="Workshop @item.WorkshopId" disabled="@included" />
                             <span class="workshop-preview">@if (!string.IsNullOrWhiteSpace(item.PreviewUrl)) { <img src="@item.PreviewUrl" alt="" loading="lazy" referrerpolicy="no-referrer" /> } else { <span>W</span> }<span class="catalog-state">@(included ? "DÉJÀ AJOUTÉ" : "SÉLECTIONNER")</span></span>
-                            <span class="workshop-card-copy"><span class="workshop-id">ID @item.WorkshopId</span><strong>@item.Title</strong><span class="workshop-version">Révision Workshop · @(item.UpdatedAt?.LocalDateTime.ToString("dd/MM/yyyy HH:mm") ?? "date inconnue")</span><span class="workshop-stats"><span>@item.Subscriptions.ToString("N0") abonnés</span><span>@IndexModel.FormatBytes(item.FileSize)</span></span><small>@item.Description</small><span class="tag-row">@foreach (var itemTag in item.Tags.Take(6)) { <span>@itemTag</span> }</span></span>
+                            <span class="workshop-card-copy"><span class="workshop-id">ID @item.WorkshopId · auteur @item.CreatorSteamId</span><strong>@item.Title</strong><span class="workshop-version">Mis à jour · @(item.UpdatedAt?.LocalDateTime.ToString("dd/MM/yyyy HH:mm") ?? "date inconnue") · publié @(item.CreatedAt?.LocalDateTime.ToString("dd/MM/yyyy") ?? "date inconnue")</span><span class="workshop-stats"><span>@item.Subscriptions.ToString("N0") abonnés</span><span>@item.LifetimeSubscriptions.ToString("N0") cumulés</span><span>@item.Favorites.ToString("N0") favoris</span><span>@item.Views.ToString("N0") vues</span><span>@IndexModel.FormatBytes(item.FileSize)</span></span><small>@item.Description</small><span class="tag-row">@foreach (var itemTag in item.Tags.Take(8)) { <span>@itemTag</span> }</span></span>
                         </label>
                         <a href="@item.WorkshopUrl" target="_blank" rel="noreferrer" class="workshop-external-link">Voir la fiche Steam ↗</a>
                     </article>
@@ -120,9 +159,9 @@ else
             </div>
         }
         <div class="catalog-pagination">
-            @if (Model.Catalog.HasPrevious) { <a class="button ghost" asp-page="/Workshop/Index" asp-route-projectId="@Model.ProjectId" asp-route-serverName="@Model.ServerName" asp-route-source="workshop" asp-route-q="@Model.Q" asp-route-sort="@Model.Sort" asp-route-tag="@Model.Tag" asp-route-pageNumber="@(Model.Catalog.Page - 1)">← Page précédente</a> }
-            <span>Page @Model.Catalog.Page</span>
-            @if (Model.Catalog.HasNext) { <a class="button ghost" asp-page="/Workshop/Index" asp-route-projectId="@Model.ProjectId" asp-route-serverName="@Model.ServerName" asp-route-source="workshop" asp-route-q="@Model.Q" asp-route-sort="@Model.Sort" asp-route-tag="@Model.Tag" asp-route-pageNumber="@(Model.Catalog.Page + 1)">Page suivante →</a> }
+            @if (Model.Catalog.HasPrevious) { <a class="button ghost" href="@Url.Page("/Workshop/Index", null, Model.FilterRouteValues(Model.Catalog.Page - 1))">← Lot précédent</a> }
+            <span>Lot @Model.Catalog.Page · @Model.ScanPages page(s) Steam par lot</span>
+            @if (Model.Catalog.HasNext) { <a class="button ghost" href="@Url.Page("/Workshop/Index", null, Model.FilterRouteValues(Model.Catalog.Page + 1))">Lot suivant →</a> }
         </div>
         <div class="catalog-selection-bar" data-catalog-cart>
             <div class="catalog-selection-header"><span><strong><b data-catalog-count>0</b> mod(s) sélectionné(s)</strong><small>Votre sélection est conservée entre les pages, recherches et tris.</small></span><button class="button ghost compact-button" type="button" data-catalog-clear-all>Vider toute la sélection</button></div>

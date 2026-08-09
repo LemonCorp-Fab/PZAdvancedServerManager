@@ -557,6 +557,33 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
     update();
 });
 
+document.querySelectorAll('[data-workshop-tag-presets]').forEach(container => {
+    const inputName = container.dataset.workshopTagInput;
+    const form = container.closest('form');
+    const input = form?.querySelector(`[name="${inputName}"]`);
+    if (!(input instanceof HTMLInputElement)) return;
+    const readTags = () => input.value.split(/[;,\n\r]+/).map(value => value.trim()).filter(Boolean);
+    const refresh = () => {
+        const selected = new Set(readTags().map(value => value.toLocaleLowerCase()));
+        container.querySelectorAll('[data-workshop-tag]').forEach(button => {
+            button.classList.toggle('active', selected.has(button.dataset.workshopTag.toLocaleLowerCase()));
+        });
+    };
+    container.addEventListener('click', event => {
+        const button = event.target.closest('[data-workshop-tag]');
+        if (!(button instanceof HTMLButtonElement)) return;
+        const tags = readTags();
+        const index = tags.findIndex(value => value.localeCompare(button.dataset.workshopTag, undefined, { sensitivity: 'accent' }) === 0);
+        if (index >= 0) tags.splice(index, 1);
+        else tags.push(button.dataset.workshopTag);
+        input.value = tags.join('; ');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        refresh();
+    });
+    input.addEventListener('input', refresh);
+    refresh();
+});
+
 (() => {
     const overlay = document.querySelector('[data-confirm-dialog]');
     if (!overlay) return;

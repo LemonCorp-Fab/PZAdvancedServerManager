@@ -419,7 +419,7 @@
                     </div>
                 }
                 <div class="server-mod-audit-actions">
-                    <a class="button secondary" asp-page="/Projects/Edit" asp-route-id="@modAudit.Project.Id" asp-route-tab="mods">Ouvrir l'atelier de résolution</a>
+                    <a class="button secondary" asp-page="/Projects/Edit" asp-route-id="@modAudit.Project.Id" asp-route-tab="compatibility">Ouvrir l'atelier de résolution</a>
                     <form method="post" asp-page-handler="OptimizeAndApplyPack" asp-route-name="@Model.Selected.Name" data-loading-title="Optimisation et alignement du serveur…" data-loading-detail="Recalcul des contraintes, sauvegarde de l'INI puis application des listes optimisées." data-confirm-title="Optimiser puis aligner ce serveur ?" data-confirm-message="Le pack recevra l'ordre recommandé, puis WorkshopItems, Mods et Map seront réécrits dans l'INI après sauvegarde. Les collisions ambiguës sans gagnant resteront signalées." data-confirm-action="Optimiser et aligner"><input type="hidden" name="projectId" value="@modAudit.Project.Id" /><button class="button primary" type="submit" disabled="@Model.SelectedServerOnline">Optimiser et aligner l'INI</button></form>
                 </div>
                 @if (Model.SelectedServerOnline) { <p class="fine-print warning-text">L'analyse reste disponible, mais l'écriture de l'INI exige l'arrêt propre du serveur.</p> }

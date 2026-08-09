@@ -11,6 +11,11 @@
     var globallyUpdatedMods = Model.Project.Mods.Count(x => x.Enabled && x.IncludeInGlobalUpdates);
     var mapConflicts = Model.MapAnalysis.Entries.Sum(x => x.Conflicts.Count) / 2;
     var createsWorkshopItem = Model.Project.PublishedWorkshopId == 0;
+    var validationErrors = Model.Validation.Issues.Count(issue => issue.IsError);
+    var validationWarnings = Model.Validation.Issues.Count - validationErrors;
+    var unresolvedConflicts = Model.ConflictAnalysis.ErrorCount + Model.ConflictAnalysis.WarningCount;
+    var safeBatchMods = Model.VerifiedIncompatibleMods.Concat(Model.UnavailableSourceMods).DistinctBy(mod => mod.Id).ToArray();
+    var hasSafeBatch = safeBatchMods.Length > 0 || Model.ConflictAnalysis.HasOrderChange;
 }
 
 <a class="back-link" asp-page="/Index">← Tableau de bord</a>
@@ -41,13 +46,16 @@
     </div>
 </section>
 
-@if (Model.Validation.Issues.Count > 0)
-{
-    <details class="validation-box @(Model.Validation.CanPublish ? "ok" : "warning")" open="@(!Model.Validation.CanPublish)">
-        <summary><div><strong>@(Model.Validation.CanPublish ? "Configuration exploitable" : "Points à corriger")</strong><span>Build @(Model.Validation.CanBuild ? "prêt" : "bloqué") · Publication @(Model.Validation.CanPublish ? "prête" : "bloquée") · Planification @(!Model.Project.Automation.Enabled ? "désactivée" : Model.Validation.CanAutomate ? "prête" : "à corriger")</span></div><span class="count-pill">@Model.Validation.Issues.Count</span></summary>
-        <ul>@foreach (var issue in Model.Validation.Issues) { <li class="@(issue.IsError ? "issue-error" : "")">@issue.Message</li> }</ul>
-    </details>
-}
+<a class="project-health-card @((validationErrors > 0 || Model.ConflictAnalysis.ErrorCount > 0) ? "has-errors" : unresolvedConflicts > 0 || validationWarnings > 0 ? "has-warnings" : "is-ready")" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" data-open-project-tab="compatibility">
+    <span class="project-health-mark">@((validationErrors > 0 || Model.ConflictAnalysis.ErrorCount > 0) ? "!" : unresolvedConflicts > 0 || validationWarnings > 0 ? "△" : "✓")</span>
+    <span class="project-health-copy">
+        <span class="eyebrow">ÉTAT DU PACK</span>
+        <strong>@(validationErrors > 0 || Model.ConflictAnalysis.ErrorCount > 0 ? "Des corrections sont nécessaires" : unresolvedConflicts > 0 || validationWarnings > 0 ? "Le pack demande votre arbitrage" : "Le pack est cohérent")</strong>
+        <small>Build @(Model.Validation.CanBuild ? "prêt" : "bloqué") · Publication @(Model.Validation.CanPublish ? "prête" : "bloquée") · @Model.ConflictAnalysis.ErrorCount conflit(s) bloquant(s) · @Model.ConflictAnalysis.WarningCount alerte(s)</small>
+    </span>
+    <span class="project-health-action"><strong>Ouvrir le diagnostic</strong><small>Corrections automatiques et décisions manuelles</small></span>
+    <span class="project-health-arrow">→</span>
+</a>
 
 <form id="install-steamcmd-form" method="post" asp-page-handler="InstallSteamCmd" data-loading-title="Installation de SteamCMD…" data-loading-detail="Téléchargement depuis Valve, extraction dans l’espace portable du gestionnaire et première initialisation."></form>
 
@@ -55,6 +63,7 @@
     <nav class="workspace-tabs" aria-label="Sections du pack" role="tablist">
         <button type="button" role="tab" data-tab-target="overview">Vue d’ensemble</button>
         <button type="button" role="tab" data-tab-target="mods">Mods & droits <span>@enabledMods</span></button>
+        <button type="button" role="tab" data-tab-target="compatibility">Compatibilité <span>@unresolvedConflicts</span></button>
         <button type="button" role="tab" data-tab-target="maps">Cartes <span>@Model.MapAnalysis.Entries.Count</span></button>
         <button type="button" role="tab" data-tab-target="distribution">Distribution</button>
         <button type="button" role="tab" data-tab-target="automation">Planification</button>
@@ -264,11 +273,66 @@
         <div class="workspace-savebar"><span><strong>Modifications du pack</strong><small>L’identifiant stable et le Workshop ID existant sont conservés.</small></span><button class="button primary" type="submit">Enregistrer les réglages</button></div>
     </form>
 
-    <section class="workspace-panel" data-tab-panel="mods" role="tabpanel">
+    <section class="workspace-panel compatibility-panel" data-tab-panel="compatibility" role="tabpanel">
         <div class="panel-heading">
-            <div><span class="eyebrow">SOURCES FIGÉES</span><h2>Mods, dépendances et autorisations</h2><p>Chaque source est copiée dans un snapshot privé avant d’entrer dans un build.</p></div>
-            <div class="action-row"><a class="button primary" asp-page="/Workshop/Index" asp-route-projectId="@Model.Project.Id">Ouvrir le catalogue interne</a><a class="button ghost" asp-page="/Projects/Edit" asp-route-id="@Model.Project.Id" asp-route-refresh="true" asp-route-tab="mods">Relancer la détection</a></div>
+            <div><span class="eyebrow">CENTRE DE RÉSOLUTION</span><h2>Compatibilité et décisions du pack</h2><p>Commencez par les corrections certaines, puis examinez uniquement les conflits qui nécessitent réellement votre décision.</p></div>
+            <div class="action-row"><a class="button ghost" asp-page="/Projects/Edit" asp-route-id="@Model.Project.Id" asp-route-refresh="true" asp-route-tab="compatibility">Relancer l’analyse complète</a></div>
         </div>
+
+        <section class="resolution-command-center">
+            <div class="resolution-command-heading">
+                <div><span class="eyebrow">RÉSOLUTION AUTOMATIQUE</span><h3>Corriger ce qui est vérifiable, sans masquer les ambiguïtés</h3><p>Ces actions ne suppriment aucun fichier. Les mods exclus gardent leur snapshot et restent réactivables depuis « Mods & droits ».</p></div>
+                <span class="resolution-confidence">RÈGLES DÉTERMINISTES</span>
+            </div>
+            <div class="resolution-batch-grid">
+                <article class="resolution-batch-card @(Model.VerifiedIncompatibleMods.Count > 0 ? "needs-action" : "is-complete")">
+                    <span class="resolution-batch-icon">42</span>
+                    <div><span class="eyebrow">VERSION CIBLE</span><h4>@Model.VerifiedIncompatibleMods.Count mod(s) incompatible(s) vérifié(s)</h4><p>@(Model.VerifiedIncompatibleMods.Count > 0 ? "Aucun manifeste Build 42 valide n’a été trouvé pour ces snapshots. PZ les ignorera réellement au chargement." : "Tous les snapshots actifs exposent une version compatible avec la cible du pack.")</p></div>
+                    @if (Model.VerifiedIncompatibleMods.Count > 0)
+                    {
+                        <div class="resolution-preview"><span>Seront exclus</span><div>@foreach (var mod in Model.VerifiedIncompatibleMods.Take(8)) { <code>@mod.ModId</code> }@if (Model.VerifiedIncompatibleMods.Count > 8) { <code>+@(Model.VerifiedIncompatibleMods.Count - 8)</code> }</div></div>
+                        <form method="post" asp-page-handler="ApplyResolutionBatch" data-loading-title="Exclusion des versions incompatibles…" data-loading-detail="Vérification finale des diagnostics Build 42, désactivation réversible et nouvel audit du pack." data-confirm-title="Exclure @Model.VerifiedIncompatibleMods.Count mod(s) incompatibles ?" data-confirm-message="Seuls les mods pour lesquels l’absence de version Build 42 a été prouvée seront désactivés. Aucun snapshot ni fichier source ne sera supprimé." data-confirm-action="Exclure les incompatibles" data-confirm-tone="danger"><input type="hidden" name="recipe" value="verified-incompatible" /><button class="button danger" type="submit">Exclure les @Model.VerifiedIncompatibleMods.Count mods vérifiés</button></form>
+                    }
+                    else { <span class="resolution-complete-label">✓ Rien à corriger</span> }
+                </article>
+
+                <article class="resolution-batch-card @(Model.UnavailableSourceMods.Count > 0 ? "needs-action" : "is-complete")">
+                    <span class="resolution-batch-icon">SRC</span>
+                    <div><span class="eyebrow">SOURCES</span><h4>@Model.UnavailableSourceMods.Count source(s) inutilisable(s)</h4><p>@(Model.UnavailableSourceMods.Count > 0 ? "Le dossier ou le mod.info effectif est absent. Ces entrées ne peuvent pas produire un mod chargeable." : "Toutes les sources actives et leurs manifestes effectifs sont accessibles.")</p></div>
+                    @if (Model.UnavailableSourceMods.Count > 0)
+                    {
+                        <div class="resolution-preview"><span>Seront exclues</span><div>@foreach (var mod in Model.UnavailableSourceMods.Take(8)) { <code>@mod.ModId</code> }@if (Model.UnavailableSourceMods.Count > 8) { <code>+@(Model.UnavailableSourceMods.Count - 8)</code> }</div></div>
+                        <form method="post" asp-page-handler="ApplyResolutionBatch" data-loading-title="Exclusion des sources inutilisables…" data-loading-detail="Nouvelle vérification des chemins et manifestes avant désactivation réversible." data-confirm-title="Exclure @Model.UnavailableSourceMods.Count source(s) inutilisables ?" data-confirm-message="Seules les entrées dont la source ou le mod.info effectif est réellement absent seront désactivées. Les fichiers encore présents ne seront pas modifiés." data-confirm-action="Exclure les sources" data-confirm-tone="danger"><input type="hidden" name="recipe" value="unavailable-sources" /><button class="button danger" type="submit">Exclure les @Model.UnavailableSourceMods.Count sources</button></form>
+                    }
+                    else { <span class="resolution-complete-label">✓ Rien à corriger</span> }
+                </article>
+
+                <article class="resolution-batch-card @(Model.ConflictAnalysis.HasOrderChange ? "needs-action" : "is-complete")">
+                    <span class="resolution-batch-icon">↕</span>
+                    <div><span class="eyebrow">ORDRE DYNAMIQUE</span><h4>@(Model.ConflictAnalysis.HasOrderChange ? "Un meilleur ordre est disponible" : "Ordre déjà optimisé")</h4><p>Dépendances, <code>loadAfter/loadBefore</code>, décisions de priorité, connecteurs et cellules de cartes sont calculés ensemble.</p></div>
+                    @if (Model.ConflictAnalysis.HasOrderChange)
+                    {
+                        <form method="post" asp-page-handler="ApplyRecommendedOrder" data-loading-title="Application de l’ordre recommandé…" data-loading-detail="Tri topologique des mods, contraintes mod.info, priorités manuelles et ordre dynamique des cartes." data-confirm-title="Appliquer l’ordre recommandé ?" data-confirm-message="L’ordre des Mod IDs et des cartes sera remplacé par la recommandation calculée. Les choix manuels de gagnant déjà enregistrés seront respectés." data-confirm-action="Appliquer l’ordre"><button class="button primary" type="submit">Optimiser mods + cartes</button></form>
+                    }
+                    else { <span class="resolution-complete-label">✓ Rien à corriger</span> }
+                </article>
+            </div>
+            @if (hasSafeBatch)
+            {
+                <div class="resolution-all-safe">
+                    <div><strong>Tout ce qui est certain, en une seule passe</strong><span>@safeBatchMods.Length exclusion(s) réversible(s) · ordre des mods et cartes recalculé · aucune collision ambiguë décidée à votre place</span></div>
+                    <form method="post" asp-page-handler="ApplyResolutionBatch" data-loading-title="Application des corrections sûres…" data-loading-detail="Nouvelle analyse, exclusions vérifiées, recalcul des dépendances et ordre final des cartes." data-confirm-title="Appliquer toutes les corrections sûres ?" data-confirm-message="@safeBatchMods.Length mod(s) dont l’incompatibilité ou la source inutilisable est prouvée seront désactivés, puis l’ordre complet sera recalculé. Les conflits ambigus resteront à arbitrer et aucun fichier ne sera supprimé." data-confirm-action="Tout corriger automatiquement"><input type="hidden" name="recipe" value="all-safe" /><button class="button primary" type="submit">Tout corriger automatiquement</button></form>
+                </div>
+            }
+        </section>
+
+        @if (Model.Validation.Issues.Count > 0)
+        {
+            <details class="configuration-diagnostics">
+                <summary><span><span class="eyebrow">CONFIGURATION GÉNÉRALE</span><strong>@validationErrors erreur(s) · @validationWarnings avertissement(s)</strong><small>Build, publication et planification — ouvrir pour afficher la liste complète.</small></span><span class="count-pill">@Model.Validation.Issues.Count</span></summary>
+                <ul>@foreach (var issue in Model.Validation.Issues) { <li class="@(issue.IsError ? "issue-error" : "")">@issue.Message</li> }</ul>
+            </details>
+        }
 
         <section class="conflict-workbench" id="conflict-workbench">
             <div class="conflict-workbench-heading">
@@ -283,25 +347,25 @@
                 <span><strong>@Model.ConflictAnalysis.ScannedFiles.ToString("N0")</strong><small>fichiers effectifs inspectés</small></span>
                 <span><strong>@Model.ConflictAnalysis.ComparedFilePaths.ToString("N0")</strong><small>chemins partagés comparés</small></span>
                 <span><strong>@Model.ConflictAnalysis.Duration.TotalSeconds.ToString("0.0") s</strong><small>analyse mise en cache</small></span>
-                <form method="post" asp-page-handler="ApplyRecommendedOrder" data-loading-title="Application de l'ordre recommandé…" data-loading-detail="Tri topologique des mods, contraintes mod.info, priorités manuelles et ordre dynamique des cartes." data-confirm-title="Appliquer l'ordre recommandé ?" data-confirm-message="L'ordre des Mod IDs et des cartes sera remplacé par la recommandation calculée. Les choix manuels de gagnant déjà enregistrés seront respectés." data-confirm-action="Appliquer l'ordre"><button class="button primary" type="submit">Optimiser mods + cartes</button></form>
+                <a class="button secondary" asp-page="/Projects/Edit" asp-route-id="@Model.Project.Id" asp-route-refresh="true" asp-route-tab="compatibility" asp-fragment="conflict-workbench">Rafraîchir les preuves</a>
             </div>
             @if (Model.ConflictAnalysis.Issues.Count > 0)
             {
                 <nav class="conflict-filter-bar" aria-label="Compatibility analysis filters">
                     <div class="conflict-filter-group">
                         <span>État</span>
-                        <a class="@(Model.ConflictFilter == "action" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="mods" asp-route-conflictFilter="action" asp-route-conflictCategory="@Model.ConflictCategory" asp-fragment="conflict-workbench">À traiter <strong>@Model.ConflictAnalysis.Issues.Count(issue => !issue.IsResolved && issue.Severity != ModConflictSeverity.Information)</strong></a>
-                        <a class="@(Model.ConflictFilter == "errors" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="mods" asp-route-conflictFilter="errors" asp-route-conflictCategory="@Model.ConflictCategory" asp-fragment="conflict-workbench">Bloquants <strong>@Model.ConflictAnalysis.ErrorCount</strong></a>
-                        <a class="@(Model.ConflictFilter == "warnings" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="mods" asp-route-conflictFilter="warnings" asp-route-conflictCategory="@Model.ConflictCategory" asp-fragment="conflict-workbench">Alertes <strong>@Model.ConflictAnalysis.WarningCount</strong></a>
-                        <a class="@(Model.ConflictFilter == "resolved" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="mods" asp-route-conflictFilter="resolved" asp-route-conflictCategory="@Model.ConflictCategory" asp-fragment="conflict-workbench">Examinés <strong>@Model.ConflictAnalysis.ResolvedCount</strong></a>
-                        <a class="@(Model.ConflictFilter == "all" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="mods" asp-route-conflictFilter="all" asp-route-conflictCategory="@Model.ConflictCategory" asp-fragment="conflict-workbench">Tous <strong>@Model.ConflictAnalysis.Issues.Count</strong></a>
+                        <a class="@(Model.ConflictFilter == "action" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="action" asp-route-conflictCategory="@Model.ConflictCategory" asp-fragment="conflict-workbench">À traiter <strong>@Model.ConflictAnalysis.Issues.Count(issue => !issue.IsResolved && issue.Severity != ModConflictSeverity.Information)</strong></a>
+                        <a class="@(Model.ConflictFilter == "errors" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="errors" asp-route-conflictCategory="@Model.ConflictCategory" asp-fragment="conflict-workbench">Bloquants <strong>@Model.ConflictAnalysis.ErrorCount</strong></a>
+                        <a class="@(Model.ConflictFilter == "warnings" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="warnings" asp-route-conflictCategory="@Model.ConflictCategory" asp-fragment="conflict-workbench">Alertes <strong>@Model.ConflictAnalysis.WarningCount</strong></a>
+                        <a class="@(Model.ConflictFilter == "resolved" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="resolved" asp-route-conflictCategory="@Model.ConflictCategory" asp-fragment="conflict-workbench">Examinés <strong>@Model.ConflictAnalysis.ResolvedCount</strong></a>
+                        <a class="@(Model.ConflictFilter == "all" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="all" asp-route-conflictCategory="@Model.ConflictCategory" asp-fragment="conflict-workbench">Tous <strong>@Model.ConflictAnalysis.Issues.Count</strong></a>
                     </div>
                     <div class="conflict-filter-group category">
                         <span>Famille</span>
-                        <a class="@(Model.ConflictCategory == "all" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="mods" asp-route-conflictFilter="@Model.ConflictFilter" asp-route-conflictCategory="all" asp-fragment="conflict-workbench">Toutes</a>
+                        <a class="@(Model.ConflictCategory == "all" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="@Model.ConflictFilter" asp-route-conflictCategory="all" asp-fragment="conflict-workbench">Toutes</a>
                         @foreach (var category in Enum.GetValues<ModConflictCategory>())
                         {
-                            <a class="@(Model.ConflictCategory == category.ToString() ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="mods" asp-route-conflictFilter="@Model.ConflictFilter" asp-route-conflictCategory="@category" asp-fragment="conflict-workbench">@category</a>
+                            <a class="@(Model.ConflictCategory == category.ToString() ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="@Model.ConflictFilter" asp-route-conflictCategory="@category" asp-fragment="conflict-workbench">@category</a>
                         }
                     </div>
                 </nav>
@@ -381,21 +445,29 @@
                         <div>
                             @if (Model.ConflictPage > 1)
                             {
-                                <a asp-route-id="@Model.Project.Id" asp-route-tab="mods" asp-route-conflictFilter="@Model.ConflictFilter" asp-route-conflictCategory="@Model.ConflictCategory" asp-route-conflictPage="@(Model.ConflictPage - 1)" asp-fragment="conflict-workbench">Précédent</a>
+                                <a asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="@Model.ConflictFilter" asp-route-conflictCategory="@Model.ConflictCategory" asp-route-conflictPage="@(Model.ConflictPage - 1)" asp-fragment="conflict-workbench">Précédent</a>
                             }
                             @for (var conflictPageNumber = firstConflictPage; conflictPageNumber <= lastConflictPage; conflictPageNumber++)
                             {
-                                <a class="@(conflictPageNumber == Model.ConflictPage ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="mods" asp-route-conflictFilter="@Model.ConflictFilter" asp-route-conflictCategory="@Model.ConflictCategory" asp-route-conflictPage="@conflictPageNumber" asp-fragment="conflict-workbench">@conflictPageNumber</a>
+                                <a class="@(conflictPageNumber == Model.ConflictPage ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="@Model.ConflictFilter" asp-route-conflictCategory="@Model.ConflictCategory" asp-route-conflictPage="@conflictPageNumber" asp-fragment="conflict-workbench">@conflictPageNumber</a>
                             }
                             @if (Model.ConflictPage < Model.ConflictPageCount)
                             {
-                                <a asp-route-id="@Model.Project.Id" asp-route-tab="mods" asp-route-conflictFilter="@Model.ConflictFilter" asp-route-conflictCategory="@Model.ConflictCategory" asp-route-conflictPage="@(Model.ConflictPage + 1)" asp-fragment="conflict-workbench">Suivant</a>
+                                <a asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="@Model.ConflictFilter" asp-route-conflictCategory="@Model.ConflictCategory" asp-route-conflictPage="@(Model.ConflictPage + 1)" asp-fragment="conflict-workbench">Suivant</a>
                             }
                         </div>
                     </nav>
                 }
             }
         </section>
+
+    </section>
+
+    <section class="workspace-panel" data-tab-panel="mods" role="tabpanel">
+        <div class="panel-heading">
+            <div><span class="eyebrow">SOURCES FIGÉES</span><h2>Mods, dépendances et autorisations</h2><p>Ajoutez, mettez à jour et documentez les sources. Les problèmes techniques sont regroupés dans l’onglet Compatibilité.</p></div>
+            <div class="action-row"><a class="button primary" asp-page="/Workshop/Index" asp-route-projectId="@Model.Project.Id">Ouvrir le catalogue interne</a><a class="button ghost" asp-page="/Projects/Edit" asp-route-id="@Model.Project.Id" asp-route-refresh="true" asp-route-tab="mods">Relancer la détection</a></div>
+        </div>
 
         <section class="catalog-launch-card">
             <span class="catalog-launch-mark">W</span>

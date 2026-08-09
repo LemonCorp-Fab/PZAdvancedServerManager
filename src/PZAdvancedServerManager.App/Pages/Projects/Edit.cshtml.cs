@@ -43,6 +43,8 @@ public class EditModel(
     public int ConflictPageCount { get; private set; } = 1;
     public int FilteredConflictCount { get; private set; }
     public int ConflictPageSize => 12;
+    public IReadOnlyList<PackageModReference> VerifiedIncompatibleMods { get; private set; } = [];
+    public IReadOnlyList<PackageModReference> UnavailableSourceMods { get; private set; } = [];
     public IReadOnlyList<PackageModReference> VisibleProjectMods { get; private set; } = [];
     public string ModQuery { get; private set; } = string.Empty;
     public string ModFilter { get; private set; } = "all";
@@ -213,7 +215,56 @@ public class EditModel(
         ApplyRecommendedOrder(project, analysis, includeMaps: true);
         store.Save(project);
         TempData["Message"] = "Ordre recommand\u00e9 appliqu\u00e9 aux mods et aux cartes. Les d\u00e9pendances et contraintes mod.info sont maintenant respect\u00e9es; les choix manuels de priorit\u00e9 sont conserv\u00e9s.";
-        return RedirectToPage(new { id, tab = "mods" });
+        return RedirectToPage(new { id, tab = "compatibility" });
+    }
+
+    public IActionResult OnPostApplyResolutionBatch(Guid id, string recipe)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+
+        var analysis = conflicts.Analyze(project, refresh: true);
+        var issueCodes = recipe switch
+        {
+            "verified-incompatible" => new HashSet<string>(["B42_LEGACY"], StringComparer.OrdinalIgnoreCase),
+            "unavailable-sources" => new HashSet<string>(["SOURCE_MISSING", "MANIFEST_MISSING"], StringComparer.OrdinalIgnoreCase),
+            "all-safe" => new HashSet<string>(["B42_LEGACY", "SOURCE_MISSING", "MANIFEST_MISSING"], StringComparer.OrdinalIgnoreCase),
+            _ => null
+        };
+        if (issueCodes is null)
+        {
+            TempData["Error"] = "Cette recette de résolution n'existe plus. Relancez l'analyse avant de continuer.";
+            return RedirectToPage(new { id, tab = "compatibility" });
+        }
+
+        var targetIds = analysis.Issues
+            .Where(issue => !issue.IsResolved && issueCodes.Contains(issue.Code))
+            .SelectMany(issue => issue.ModReferenceIds)
+            .ToHashSet();
+        var targets = project.Mods.Where(mod => mod.Enabled && targetIds.Contains(mod.Id)).ToArray();
+        var applyOrder = recipe == "all-safe";
+        if (targets.Length == 0 && (!applyOrder || !analysis.HasOrderChange))
+        {
+            TempData["Message"] = "Aucune correction vérifiée n'est nécessaire pour cette recette. Le pack n'a pas été modifié.";
+            return RedirectToPage(new { id, tab = "compatibility" });
+        }
+
+        DisableMods(project, analysis, targets);
+        if (applyOrder)
+        {
+            analysis = conflicts.Analyze(project, refresh: true);
+            ApplyRecommendedOrder(project, analysis, includeMaps: true);
+        }
+        store.Save(project);
+
+        var disabledNames = targets.Select(mod => mod.ModId).OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToArray();
+        var disabledSummary = disabledNames.Length == 0
+            ? "aucun mod désactivé"
+            : $"{disabledNames.Length} mod(s) désactivé(s) : {string.Join(", ", disabledNames.Take(12))}{(disabledNames.Length > 12 ? $" et {disabledNames.Length - 12} autre(s)" : string.Empty)}";
+        TempData["Message"] = applyOrder
+            ? $"Corrections sûres appliquées : {disabledSummary}; ordre des mods et des cartes recalculé. Aucun snapshot ni fichier source n'a été supprimé."
+            : $"Résolution appliquée : {disabledSummary}. Les snapshots sont conservés et chaque mod peut être réactivé depuis « Mods & droits ».";
+        return RedirectToPage(new { id, tab = "compatibility" });
     }
 
     public IActionResult OnPostResolveConflict(Guid id, string conflictKey, string winnerModId)
@@ -225,7 +276,7 @@ public class EditModel(
         if (issue is null || !issue.CanChooseWinner || !issue.ModIds.Contains(winnerModId, StringComparer.OrdinalIgnoreCase))
         {
             TempData["Error"] = "La collision a chang\u00e9 depuis son affichage. Relancez l'analyse avant de choisir une priorit\u00e9.";
-            return RedirectToPage(new { id, tab = "mods" });
+            return RedirectToPage(new { id, tab = "compatibility" });
         }
         project.ConflictWinners[issue.Key] = winnerModId;
         project.AcknowledgedConflicts.RemoveAll(key => key.Equals(issue.Key, StringComparison.OrdinalIgnoreCase));
@@ -233,7 +284,7 @@ public class EditModel(
         ApplyRecommendedOrder(project, analysis, includeMaps: false);
         store.Save(project);
         TempData["Message"] = $"Priorit\u00e9 enregistr\u00e9e : \u00ab {winnerModId} \u00bb sera charg\u00e9 apr\u00e8s les autres mods concern\u00e9s. Reconstruisez puis testez le comportement associ\u00e9.";
-        return RedirectToPage(new { id, tab = "mods" });
+        return RedirectToPage(new { id, tab = "compatibility" });
     }
 
     public IActionResult OnPostClearConflictResolution(Guid id, string conflictKey)
@@ -244,7 +295,7 @@ public class EditModel(
         project.AcknowledgedConflicts.RemoveAll(key => key.Equals(conflictKey, StringComparison.OrdinalIgnoreCase));
         store.Save(project);
         TempData["Message"] = "Choix manuel retir\u00e9. L'analyseur utilisera de nouveau les seules contraintes d\u00e9clar\u00e9es par les mods.";
-        return RedirectToPage(new { id, tab = "mods" });
+        return RedirectToPage(new { id, tab = "compatibility" });
     }
 
     public IActionResult OnPostAcknowledgeConflict(Guid id, string conflictKey)
@@ -255,12 +306,12 @@ public class EditModel(
         if (issue is null)
         {
             TempData["Error"] = "Le conflit n'existe plus dans la version actuelle du pack.";
-            return RedirectToPage(new { id, tab = "mods" });
+            return RedirectToPage(new { id, tab = "compatibility" });
         }
         if (!project.AcknowledgedConflicts.Contains(issue.Key, StringComparer.OrdinalIgnoreCase)) project.AcknowledgedConflicts.Add(issue.Key);
         store.Save(project);
         TempData["Message"] = "Conflit document\u00e9 comme volontaire. Il restera visible et pourra \u00eatre rouvert si les fichiers ou les mods changent.";
-        return RedirectToPage(new { id, tab = "mods" });
+        return RedirectToPage(new { id, tab = "compatibility" });
     }
 
     public IActionResult OnPostSetModEnabled(Guid id, Guid modReferenceId, bool enabled)
@@ -276,7 +327,7 @@ public class EditModel(
         }
         store.Save(project);
         TempData["Message"] = enabled ? $"{mod.Name} r\u00e9activ\u00e9 dans le pack." : $"{mod.Name} d\u00e9sactiv\u00e9 du prochain build. Son snapshot est conserv\u00e9.";
-        return RedirectToPage(new { id, tab = "mods" });
+        return RedirectToPage(new { id, tab = "compatibility" });
     }
 
     public IActionResult OnPostBuild(Guid id)
@@ -797,6 +848,8 @@ public class EditModel(
         ServerConfigNames = servers.List().Select(x => x.Name).ToList();
         MapAnalysis = mapPriority.Analyze(project);
         ConflictAnalysis = conflicts.Analyze(project, refresh);
+        VerifiedIncompatibleMods = FindBatchTargets(project, ConflictAnalysis, "B42_LEGACY");
+        UnavailableSourceMods = FindBatchTargets(project, ConflictAnalysis, "SOURCE_MISSING", "MANIFEST_MISSING");
         ConfigureConflictView();
         ConfigureModView();
         var preview = ResolvePreviewPath(project);
@@ -941,6 +994,38 @@ public class EditModel(
             mod.Order = rank.TryGetValue(mod.Id, out var position) ? position : enabledCount++;
         project.Mods = project.Mods.OrderBy(mod => mod.Order).ToList();
         if (includeMaps) project.MapOrder = analysis.RecommendedMapOrder.ToList();
+    }
+
+    private static IReadOnlyList<PackageModReference> FindBatchTargets(PackageProject project, ModConflictAnalysis analysis, params string[] issueCodes)
+    {
+        var codes = issueCodes.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var ids = analysis.Issues
+            .Where(issue => !issue.IsResolved && codes.Contains(issue.Code))
+            .SelectMany(issue => issue.ModReferenceIds)
+            .ToHashSet();
+        return project.Mods
+            .Where(mod => mod.Enabled && ids.Contains(mod.Id))
+            .OrderBy(mod => mod.Order)
+            .ThenBy(mod => mod.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToArray();
+    }
+
+    private static void DisableMods(PackageProject project, ModConflictAnalysis analysis, IReadOnlyCollection<PackageModReference> targets)
+    {
+        var referenceIds = targets.Select(mod => mod.Id).ToHashSet();
+        var modIds = targets.Select(mod => mod.ModId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var mod in targets) mod.Enabled = false;
+
+        var affectedIssueKeys = analysis.Issues
+            .Where(issue => issue.ModReferenceIds.Any(referenceIds.Contains))
+            .Select(issue => issue.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var key in project.ConflictWinners
+                     .Where(entry => affectedIssueKeys.Contains(entry.Key) || modIds.Contains(entry.Value))
+                     .Select(entry => entry.Key)
+                     .ToArray())
+            project.ConflictWinners.Remove(key);
+        project.AcknowledgedConflicts.RemoveAll(affectedIssueKeys.Contains);
     }
 
     private async Task<IActionResult> StreamOperationAsync(

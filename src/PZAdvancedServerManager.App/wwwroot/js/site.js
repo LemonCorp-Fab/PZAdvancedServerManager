@@ -341,6 +341,18 @@ document.querySelectorAll('[data-tabs]').forEach(tabSet => {
     };
 
     buttons.forEach(button => button.addEventListener('click', () => activate(button.dataset.tabTarget)));
+    document.querySelectorAll('[data-open-project-tab]').forEach(link => {
+        link.addEventListener('click', event => {
+            const target = link.dataset.openProjectTab;
+            if (!target || !panels.some(panel => panel.dataset.tabPanel === target)) return;
+            event.preventDefault();
+            activate(target);
+            const url = new URL(window.location.href);
+            url.searchParams.set('tab', target);
+            window.history.replaceState(null, '', url);
+            tabSet.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+    });
     let initial = buttons[0].dataset.tabTarget;
     const requestedTab = new URLSearchParams(window.location.search).get('tab');
     try { initial = requestedTab || window.sessionStorage.getItem(storageKey) || initial; } catch { initial = requestedTab || initial; }

@@ -83,6 +83,16 @@
         ['Afficher les détails', 'Show details', 'Mostrar detalles', 'Details anzeigen', 'Mostrar detalhes', '显示详情'],
         ['Masquer les détails', 'Hide details', 'Ocultar detalles', 'Details ausblenden', 'Ocultar detalhes', '隐藏详情'],
         ['Mods & droits', 'Mods & rights', 'Mods y derechos', 'Mods & Rechte', 'Mods e direitos', '模组与权限'],
+        ['ORDRE DE CHARGEMENT', 'LOAD ORDER', 'ORDEN DE CARGA', 'LADEREIHENFOLGE', 'ORDEM DE CARREGAMENTO', '加载顺序'],
+        ['Placez précisément ce mod sans modifier l’ordre relatif des autres éléments.', 'Place this mod precisely without changing the relative order of the other items.', 'Coloca este mod con precisión sin cambiar el orden relativo de los demás elementos.', 'Platziere diesen Mod präzise, ohne die relative Reihenfolge der anderen Elemente zu ändern.', 'Posicione este mod com precisão sem alterar a ordem relativa dos demais itens.', '精确放置此模组，同时保持其他项目的相对顺序。'],
+        ['Mettre en premier', 'Move to first', 'Mover al principio', 'An den Anfang', 'Mover para o início', '移到最前'],
+        ['Mettre en dernier', 'Move to last', 'Mover al final', 'Ans Ende', 'Mover para o fim', '移到最后'],
+        ['Mod de référence', 'Reference mod', 'Mod de referencia', 'Referenz-Mod', 'Mod de referência', '参考模组'],
+        ['Mettre avant…', 'Move before…', 'Mover antes de…', 'Verschieben vor…', 'Mover antes de…', '移到其前面…'],
+        ['Mettre après…', 'Move after…', 'Mover después de…', 'Verschieben nach…', 'Mover depois de…', '移到其后面…'],
+        ['Ce mod est le seul élément du pack.', 'This mod is the only item in the pack.', 'Este mod es el único elemento del paquete.', 'Dieser Mod ist das einzige Element im Paket.', 'Este mod é o único item do pacote.', '此模组是包中的唯一项目。'],
+        ['Réorganisation du pack…', 'Reordering pack…', 'Reordenando el paquete…', 'Paket wird neu geordnet…', 'Reordenando o pacote…', '正在重新排列模组包…'],
+        ['Enregistrement du nouvel ordre de chargement et recalcul des positions.', 'Saving the new load order and recalculating positions.', 'Guardando el nuevo orden de carga y recalculando las posiciones.', 'Neue Ladereihenfolge wird gespeichert und Positionen werden neu berechnet.', 'Salvando a nova ordem de carregamento e recalculando as posições.', '正在保存新的加载顺序并重新计算位置。'],
         ['Compatibilité', 'Compatibility', 'Compatibilidad', 'Kompatibilität', 'Compatibilidade', '兼容性'],
         ['ÉTAT DU PACK', 'PACK STATUS', 'ESTADO DEL PAQUETE', 'PAKETSTATUS', 'ESTADO DO PACOTE', '模组包状态'],
         ['Des corrections sont nécessaires', 'Corrections are required', 'Se requieren correcciones', 'Korrekturen sind erforderlich', 'Correções são necessárias', '需要修正'],
@@ -806,6 +816,8 @@
         if (dictionary.has(value)) return dictionary.get(value);
         if (activeLanguage === 'fr') return value;
         const patterns = [
+            [/^Position (\d+) sur (\d+)$/, ['Position $1 of $2', 'Posición $1 de $2', 'Position $1 von $2', 'Posição $1 de $2', '位置 $1 / $2']],
+            [/^« (.+) » occupe maintenant la position (\d+) sur (\d+)\.$/, ['“$1” is now at position $2 of $3.', '«$1» está ahora en la posición $2 de $3.', '„$1“ befindet sich jetzt an Position $2 von $3.', '“$1” está agora na posição $2 de $3.', '“$1”现在位于第 $2 / $3 位。']],
             [/^(\d+) fichier\(s\) texte comparable\(s\) dans ce diagnostic$/, ['$1 comparable text file(s) in this diagnostic', '$1 archivo(s) de texto comparable(s) en este diagnóstico', '$1 vergleichbare Textdatei(en) in dieser Diagnose', '$1 arquivo(s) de texto comparável(is) neste diagnóstico', '此诊断中有 $1 个可比较的文本文件']],
             [/^(.+) · (\d+) copies$/, ['$1 · $2 copies', '$1 · $2 copias', '$1 · $2 Kopien', '$1 · $2 cópias', '$1 · $2 个副本']],
             [/^(\d+) copies texte$/, ['$1 text copies', '$1 copias de texto', '$1 Textkopien', '$1 cópias de texto', '$1 个文本副本']],

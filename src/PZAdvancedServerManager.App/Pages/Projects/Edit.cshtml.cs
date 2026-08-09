@@ -53,6 +53,7 @@ public class EditModel(
     public int ModPageCount { get; private set; } = 1;
     public int FilteredModCount { get; private set; }
     public int ModPageSize => 20;
+    public Guid? ExpandedModId { get; private set; }
     public SteamCmdStatus SteamCmdStatus { get; private set; } = new(false, string.Empty, string.Empty, null, 0);
     public bool PreviewAvailable { get; private set; }
     public string PreviewSourceLabel { get; private set; } = "Preview générée par le manager";
@@ -206,6 +207,29 @@ public class EditModel(
         if (project is null) return NotFound();
         projects.Move(project, modReferenceId, direction);
         return RedirectToPage(new { id, tab = "mods" });
+    }
+
+    public IActionResult OnPostReorder(Guid id, Guid modReferenceId, string placement, Guid? targetModReferenceId, string? modQuery, string? modFilter, int modPage = 1)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+        if (!Enum.TryParse<ModPlacement>(placement, ignoreCase: true, out var parsedPlacement))
+        {
+            TempData["Error"] = "La position demandée n'est pas reconnue.";
+            return RedirectToMod(project, modReferenceId, modQuery, modFilter, modPage);
+        }
+
+        try
+        {
+            projects.Reorder(project, modReferenceId, parsedPlacement, targetModReferenceId);
+            var moved = project.Mods.First(mod => mod.Id == modReferenceId);
+            TempData["Message"] = $"« {moved.Name} » occupe maintenant la position {moved.Order + 1} sur {project.Mods.Count}.";
+        }
+        catch (Exception exception)
+        {
+            TempData["Error"] = exception.Message;
+        }
+        return RedirectToMod(project, modReferenceId, modQuery, modFilter, modPage);
     }
 
     public IActionResult OnPostApplyRecommendedOrder(Guid id)
@@ -956,6 +980,9 @@ public class EditModel(
 
     private void ConfigureModView()
     {
+        ExpandedModId = Guid.TryParse(Request.Query["expandedMod"].FirstOrDefault(), out var expandedModId)
+            ? expandedModId
+            : null;
         ModQuery = Request.Query["modQuery"].FirstOrDefault()?.Trim() ?? string.Empty;
         var requestedFilter = Request.Query["modFilter"].FirstOrDefault()?.Trim().ToLowerInvariant();
         ModFilter = requestedFilter is "enabled" or "disabled" or "manual" or "rights" ? requestedFilter : "all";
@@ -984,6 +1011,42 @@ public class EditModel(
             ? Math.Clamp(requestedPage, 1, ModPageCount)
             : 1;
         VisibleProjectMods = filtered.Skip((ModPage - 1) * ModPageSize).Take(ModPageSize).ToArray();
+    }
+
+    private IActionResult RedirectToMod(PackageProject project, Guid modReferenceId, string? modQuery, string? modFilter, int requestedPage)
+    {
+        var normalizedFilter = modFilter is "enabled" or "disabled" or "manual" or "rights" ? modFilter : "all";
+        var query = modQuery?.Trim() ?? string.Empty;
+        IEnumerable<PackageModReference> filtered = project.Mods.OrderBy(mod => mod.Order);
+        filtered = normalizedFilter switch
+        {
+            "enabled" => filtered.Where(mod => mod.Enabled),
+            "disabled" => filtered.Where(mod => !mod.Enabled),
+            "manual" => filtered.Where(mod => !mod.IncludeInGlobalUpdates),
+            "rights" => filtered.Where(mod => mod.Permission.Status is PermissionStatus.Unknown or PermissionStatus.Denied),
+            _ => filtered
+        };
+        if (!string.IsNullOrWhiteSpace(query))
+        {
+            filtered = filtered.Where(mod => mod.Name.Contains(query, StringComparison.CurrentCultureIgnoreCase)
+                || mod.ModId.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || mod.Author.Contains(query, StringComparison.CurrentCultureIgnoreCase)
+                || mod.WorkshopId.ToString().Contains(query, StringComparison.OrdinalIgnoreCase));
+        }
+
+        var orderedIds = filtered.Select(mod => mod.Id).ToArray();
+        var visibleIndex = Array.IndexOf(orderedIds, modReferenceId);
+        var page = visibleIndex >= 0 ? visibleIndex / ModPageSize + 1 : Math.Max(1, requestedPage);
+        var url = Url.Page("/Projects/Edit", null, new
+        {
+            id = project.Id,
+            tab = "mods",
+            modQuery = query,
+            modFilter = normalizedFilter,
+            modPage = page,
+            expandedMod = modReferenceId
+        });
+        return LocalRedirect($"{url}#mod-{modReferenceId:N}");
     }
 
     private string? ResolvePreviewPath(PackageProject project)

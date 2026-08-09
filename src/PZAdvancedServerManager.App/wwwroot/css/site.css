@@ -176,6 +176,21 @@ label small { display: block; margin-top: 6px; color: var(--muted); font-weight:
 .mod-order-actions { display: flex; gap: 8px; align-items: center; }
 .mod-order-actions form { display: flex; }
 .mod-refresh-form { margin-right: auto; }
+.mod-reorder-panel { display: grid; gap: 13px; margin-top: 18px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+.mod-reorder-heading { display: flex; gap: 18px; align-items: end; justify-content: space-between; }
+.mod-reorder-heading > span { display: grid; gap: 3px; }
+.mod-reorder-heading .eyebrow { margin: 0; }
+.mod-reorder-heading strong { font-size: .98rem; }
+.mod-reorder-heading p { max-width: 34rem; margin: 0; color: var(--muted); font-size: .8rem; text-align: right; }
+.mod-reorder-form { display: grid; grid-template-columns: auto minmax(16rem, 1fr) auto; gap: 10px; align-items: end; }
+.mod-reorder-edge-actions, .mod-reorder-relative-actions { display: flex; gap: 7px; }
+.mod-reorder-edge-actions .button, .mod-reorder-relative-actions .button { min-height: 42px; padding: 9px 12px; white-space: nowrap; }
+.mod-reorder-edge-actions .button span, .mod-reorder-relative-actions .button span { font-size: 1rem; line-height: 1; }
+.mod-reorder-target { display: grid; min-width: 0; gap: 5px; margin: 0; }
+.mod-reorder-target > span { color: var(--muted); font-size: .7rem; font-weight: 800; }
+.mod-reorder-target select { width: 100%; min-width: 0; }
+.mod-reorder-alone { grid-column: 2 / -1; align-self: center; margin: 0; color: var(--muted); font-size: .82rem; }
+.mod-card:target { border-color: color-mix(in srgb, var(--green) 68%, var(--line)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 14%, transparent); }
 .description-preview { max-height: 480px; padding: 20px; overflow: auto; white-space: pre-wrap; color: #c8d0c4; border: 1px solid var(--line); border-radius: 10px; background: #090c0a; font-size: .82rem; }
 .preview-editor-layout { display: grid; grid-template-columns: minmax(250px, 390px) minmax(0, 1fr); gap: 24px; align-items: start; }
 .preview-editor-frame { position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 16px; aspect-ratio: 1; background: #101611; box-shadow: 0 14px 35px rgba(0,0,0,.18); }
@@ -1009,6 +1024,12 @@ body.has-modal { overflow: hidden; }
   .mod-summary-status { grid-column: 2; max-width: none; justify-content: flex-start; }
   .mod-actions { align-items: stretch; flex-direction: column; }
   .mod-refresh-form .button { width: 100%; }
+  .mod-reorder-heading { align-items: start; flex-direction: column; gap: 6px; }
+  .mod-reorder-heading p { text-align: left; }
+  .mod-reorder-form { grid-template-columns: 1fr; }
+  .mod-reorder-edge-actions, .mod-reorder-relative-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  .mod-reorder-edge-actions .button, .mod-reorder-relative-actions .button { width: 100%; }
+  .mod-reorder-alone { grid-column: auto; }
   .steam-session-actions { grid-template-columns: 1fr; }
   .mod-order-actions { justify-content: flex-end; }
   .path-list { grid-template-columns: 1fr; }

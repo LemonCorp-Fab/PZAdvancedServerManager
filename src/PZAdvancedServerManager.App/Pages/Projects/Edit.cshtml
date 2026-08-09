@@ -634,6 +634,7 @@
         }
         else
         {
+            var orderedProjectMods = Model.Project.Mods.OrderBy(item => item.Order).ThenBy(item => item.Name).ToArray();
             <form method="get" class="package-mod-toolbar" aria-label="Recherche dans les mods du pack">
                 <input type="hidden" name="tab" value="mods" />
                 <input type="hidden" name="conflictFilter" value="@Model.ConflictFilter" />
@@ -650,7 +651,8 @@
             <div class="mod-list">
             @foreach (var mod in Model.VisibleProjectMods)
             {
-                <details class="mod-card">
+                var reorderTargets = orderedProjectMods.Where(item => item.Id != mod.Id).ToArray();
+                <details class="mod-card" id="mod-@mod.Id.ToString("N")" open="@(Model.ExpandedModId == mod.Id ? "open" : null)">
                     <summary>
                         <span class="order-number">@(mod.Order + 1)</span>
                         <span class="mod-summary-copy"><strong>@mod.Name</strong><small>Mod ID @mod.ModId · @(mod.WorkshopId == 0 ? "source locale" : $"Workshop {mod.WorkshopId}")</small><span class="mod-version-line"><b>Version @mod.DisplayVersion</b><em>Profil PZ @(string.IsNullOrWhiteSpace(mod.SelectedVersionFolder) ? "racine" : mod.SelectedVersionFolder)</em>@if (!string.IsNullOrWhiteSpace(mod.PinnedContentHash)) { <em>Révision @mod.PinnedContentHash[..Math.Min(10, mod.PinnedContentHash.Length)]</em> }</span></span>
@@ -659,6 +661,34 @@
                     <div class="mod-details">
                         <div class="mod-metadata"><div><span>Version du mod</span><strong>@mod.DisplayVersion</strong></div><div><span>Compatibilité PZ</span><strong>@(string.IsNullOrWhiteSpace(mod.SelectedVersionFolder) ? "racine / legacy" : mod.SelectedVersionFolder)</strong></div><div><span>Origine</span><strong>@mod.SourceModRoot</strong></div><div><span>Révision figée</span><strong>@(Directory.Exists(mod.PinnedSourceRoot) ? $"{mod.PinnedAt?.LocalDateTime:dd/MM/yyyy HH:mm} · {mod.PinnedContentHash[..Math.Min(12, mod.PinnedContentHash.Length)]}…" : "En attente")</strong></div>@if (mod.RequiredModIds.Length > 0) { <div><span>Dépendances</span><strong>@string.Join(", ", mod.RequiredModIds)</strong></div> }@if (mod.MapFolders.Length > 0) { <div><span>Cartes</span><strong>@string.Join(", ", mod.MapFolders)</strong></div> }</div>
                         @if (!string.IsNullOrWhiteSpace(mod.SourceUrl)) { <a href="@mod.SourceUrl" target="_blank" rel="noreferrer">Voir la source originale sur Steam ↗</a> }
+                        <section class="mod-reorder-panel" aria-label="Réorganiser @mod.Name">
+                            <div class="mod-reorder-heading">
+                                <span><span class="eyebrow">ORDRE DE CHARGEMENT</span><strong>Position @(mod.Order + 1) sur @Model.Project.Mods.Count</strong></span>
+                                <p>Placez précisément ce mod sans modifier l’ordre relatif des autres éléments.</p>
+                            </div>
+                            <form method="post" asp-page-handler="Reorder" class="mod-reorder-form" data-loading-title="Réorganisation du pack…" data-loading-detail="Enregistrement du nouvel ordre de chargement et recalcul des positions.">
+                                <input type="hidden" name="modReferenceId" value="@mod.Id" />
+                                <input type="hidden" name="modQuery" value="@Model.ModQuery" />
+                                <input type="hidden" name="modFilter" value="@Model.ModFilter" />
+                                <input type="hidden" name="modPage" value="@Model.ModPage" />
+                                <div class="mod-reorder-edge-actions">
+                                    <button class="button secondary" type="submit" name="placement" value="first" disabled="@(mod.Order == 0)"><span aria-hidden="true">⇤</span> Mettre en premier</button>
+                                    <button class="button secondary" type="submit" name="placement" value="last" disabled="@(mod.Order == Model.Project.Mods.Count - 1)">Mettre en dernier <span aria-hidden="true">⇥</span></button>
+                                </div>
+                                @if (reorderTargets.Length > 0)
+                                {
+                                    <label class="mod-reorder-target"><span>Mod de référence</span><select name="targetModReferenceId" required>@foreach (var target in reorderTargets) { <option value="@target.Id">#@(target.Order + 1) — @target.Name — @target.ModId</option> }</select></label>
+                                    <div class="mod-reorder-relative-actions">
+                                        <button class="button ghost" type="submit" name="placement" value="before"><span aria-hidden="true">↑</span> Mettre avant…</button>
+                                        <button class="button ghost" type="submit" name="placement" value="after"><span aria-hidden="true">↓</span> Mettre après…</button>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <p class="mod-reorder-alone">Ce mod est le seul élément du pack.</p>
+                                }
+                            </form>
+                        </section>
                         <form method="post" asp-page-handler="UpdateMod" class="rights-form" data-loading-title="Enregistrement des droits…" data-loading-detail="Mise à jour des informations d’auteur, de licence et des preuves associées.">
                             <input type="hidden" name="modReferenceId" value="@mod.Id" />
                             <div class="form-grid two">
@@ -677,11 +707,7 @@
                         </form>
                         <div class="mod-actions">
                             <form method="post" asp-page-handler="RefreshMod" class="mod-refresh-form" data-operation-progress data-loading-title="Mise à jour de @mod.Name…" data-loading-detail="Téléchargement de la source actuelle et remplacement du snapshot de ce mod uniquement." data-loading-steps="Validation du Workshop ID|Téléchargement SteamCMD|Inspection du mod.info|Remplacement du snapshot|Enregistrement" data-confirm-title="Mettre à jour ce mod ?" data-confirm-message="Seul le snapshot de « @mod.Name » sera remplacé par la version actuelle. Ce choix fonctionne même si le mod est exclu de la mise à jour globale." data-confirm-action="Mettre à jour ce mod"><input type="hidden" name="modReferenceId" value="@mod.Id" /><button class="button primary" type="submit">Mettre à jour ce mod</button></form>
-                            <span class="mod-order-actions">
-                            <form method="post" asp-page-handler="Move" data-loading-title="Mise à jour de l’ordre…"><input type="hidden" name="modReferenceId" value="@mod.Id" /><input type="hidden" name="direction" value="-1" /><button class="icon-button" title="Monter" type="submit">↑</button></form>
-                            <form method="post" asp-page-handler="Move" data-loading-title="Mise à jour de l’ordre…"><input type="hidden" name="modReferenceId" value="@mod.Id" /><input type="hidden" name="direction" value="1" /><button class="icon-button" title="Descendre" type="submit">↓</button></form>
                             <form method="post" asp-page-handler="RemoveMod" data-loading-title="Retrait du mod…" data-loading-detail="Mise à jour du projet et suppression de son snapshot privé uniquement." data-confirm-title="Retirer ce mod ?" data-confirm-message="Le mod et son snapshot privé seront retirés du pack. Les fichiers source et l’item Workshop original resteront intacts." data-confirm-action="Retirer du pack" data-confirm-tone="danger"><input type="hidden" name="modReferenceId" value="@mod.Id" /><button class="button danger" type="submit">Retirer</button></form>
-                            </span>
                         </div>
                     </div>
                 </details>

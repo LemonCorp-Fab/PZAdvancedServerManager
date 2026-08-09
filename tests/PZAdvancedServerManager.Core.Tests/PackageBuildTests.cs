@@ -614,6 +614,37 @@ public sealed class PackageBuildTests : IDisposable
     }
 
     [Fact]
+    public void Reorder_SupportsEdgesAndRelativeTargetsAndPersistsNormalizedPositions()
+    {
+        var paths = new ApplicationPaths(Path.Combine(_root, "reorder-data"));
+        var store = new PackageProjectStore(paths);
+        var projects = new PackageProjectService(paths, store, new PackageSourceSnapshotService(paths));
+        var project = ValidProject(PackageMode.Bundle,
+            Ref("a", "A", string.Empty),
+            Ref("b", "B", string.Empty),
+            Ref("c", "C", string.Empty),
+            Ref("d", "D", string.Empty));
+        store.Save(project);
+        var a = project.Mods[0].Id;
+        var b = project.Mods[1].Id;
+        var c = project.Mods[2].Id;
+
+        projects.Reorder(project, c, ModPlacement.First);
+        Assert.Equal(["C", "A", "B", "D"], project.Mods.Select(mod => mod.Name));
+
+        projects.Reorder(project, c, ModPlacement.Last);
+        Assert.Equal(["A", "B", "D", "C"], project.Mods.Select(mod => mod.Name));
+
+        projects.Reorder(project, c, ModPlacement.Before, b);
+        Assert.Equal(["A", "C", "B", "D"], project.Mods.Select(mod => mod.Name));
+
+        projects.Reorder(project, a, ModPlacement.After, b);
+        var reopened = store.Get(project.Id)!;
+        Assert.Equal(["C", "B", "A", "D"], reopened.Mods.Select(mod => mod.Name));
+        Assert.Equal([0, 1, 2, 3], reopened.Mods.Select(mod => mod.Order));
+    }
+
+    [Fact]
     public void AutomationErrors_DoNotBlockManualBuildOrPublish()
     {
         var source = CreateMod("Schedule", "schedule-id", "return true");

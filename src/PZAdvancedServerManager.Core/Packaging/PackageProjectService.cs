@@ -56,6 +56,28 @@ public sealed class PackageProjectService(
         store.Save(project);
     }
 
+    public void Reorder(PackageProject project, Guid modReferenceId, ModPlacement placement, Guid? targetModReferenceId = null)
+    {
+        var ordered = project.Mods.OrderBy(x => x.Order).ToList();
+        var mod = ordered.FirstOrDefault(x => x.Id == modReferenceId)
+            ?? throw new InvalidOperationException("Référence de mod introuvable.");
+
+        ordered.Remove(mod);
+        var insertionIndex = placement switch
+        {
+            ModPlacement.First => 0,
+            ModPlacement.Last => ordered.Count,
+            ModPlacement.Before => ResolveTargetIndex(ordered, targetModReferenceId),
+            ModPlacement.After => ResolveTargetIndex(ordered, targetModReferenceId) + 1,
+            _ => throw new ArgumentOutOfRangeException(nameof(placement), placement, null)
+        };
+
+        ordered.Insert(insertionIndex, mod);
+        for (var i = 0; i < ordered.Count; i++) ordered[i].Order = i;
+        project.Mods = ordered;
+        store.Save(project);
+    }
+
     public PackageProject Duplicate(Guid id, string? name = null)
     {
         var source = store.Get(id) ?? throw new InvalidOperationException("Projet PZASM introuvable.");
@@ -107,4 +129,22 @@ public sealed class PackageProjectService(
         for (var i = 0; i < ordered.Count; i++) ordered[i].Order = i;
         project.Mods = ordered;
     }
+
+    private static int ResolveTargetIndex(IReadOnlyList<PackageModReference> ordered, Guid? targetModReferenceId)
+    {
+        if (targetModReferenceId is null)
+            throw new InvalidOperationException("Choisissez un mod de référence.");
+        var targetIndex = ordered.ToList().FindIndex(x => x.Id == targetModReferenceId.Value);
+        return targetIndex >= 0
+            ? targetIndex
+            : throw new InvalidOperationException("Le mod de référence est introuvable.");
+    }
+}
+
+public enum ModPlacement
+{
+    First,
+    Last,
+    Before,
+    After
 }

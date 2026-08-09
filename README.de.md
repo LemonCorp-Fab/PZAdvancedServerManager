@@ -98,6 +98,8 @@ Jedes Projekt ist ein unabhängiges globales Paket. Ohne ausdrückliche Aktivier
 
 ## SteamCMD und entfernte Server
 
+Pine Hosting besitzt ein eigenes API-Backend. API-Schlüssel und Server-ID genügen, um die gemeinsamen INI-, SandboxVars- und Lua-Editoren, Pack-Bereitstellung, Konsole, Prozesssteuerung und Provider-Backups ohne SSH zu verwenden. Wiederherstellung und Fresh Start erfordern einen gestoppten Server und bieten vorher ein Sicherheits-Backup an. Siehe [Pine Hosting provider](docs/PINE-HOSTING.md).
+
 Steam-Passwort und Steam-Guard-Code werden nur für die jeweilige Anfrage über die Standardeingabe an SteamCMD gesendet; PZASM legt sie weder in die Befehlszeile noch speichert es sie. SteamCMD behält sein eigenes Token im portablen Ordner für geplante Veröffentlichungen. Ist die Sitzung abgelaufen oder fehlt ein Geheimnis, endet die Veröffentlichung sofort mit einer verständlichen Meldung, statt unsichtbar zu warten. Die Oberfläche zeigt die Live-Ausgabe und kann den externen Prozess abbrechen.
 
 Ein entferntes Profil kann ausschließlich RCON verwenden: authentifizierter Status, Konsole, `save`, `quit` und Koordination funktionieren ohne SSH. Wenn systemd, Docker, ein Panel oder der Hoster Project Zomboid nach `quit` neu startet, veröffentlicht PZASM zuerst und fordert danach den sauberen RCON-Neustart an. SSH bleibt optional für INI-Zugriff oder einen ausdrücklichen Startbefehl des Spiels. PZASM startet niemals den gesamten VPS oder Dedicated Host neu.

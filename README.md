@@ -177,6 +177,8 @@ Remote profiles can be RCON-only. RCON provides authenticated status, the comman
 
 Remote SSH is non-interactive and uses an SSH agent or private key. The RCON password is stored in the manager's local profile data because it is required for unattended status and graceful stops; protect the PZASM data directory like the Project Zomboid server INI files.
 
+Pine Hosting is available as a separate API backend. Enter an API key and server identifier to reuse the complete INI, SandboxVars, Lua, pack deployment, process-control, and data-management UI without SSH. Provider-native backups can be created, locked, downloaded, restored, or used as the default safety step before a fresh start. See [Pine Hosting provider](docs/PINE-HOSTING.md).
+
 ## Steam publishing identity
 
 SteamCMD opens its own Steam session. Do not use the same account that is active in the desktop Steam client for unattended publishing: concurrent use can interrupt the desktop session or an active game. Use a dedicated publishing account that owns Project Zomboid, keep that account as the Workshop item owner, and protect the portable SteamCMD data directory.

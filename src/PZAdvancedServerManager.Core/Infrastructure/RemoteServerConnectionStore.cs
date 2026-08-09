@@ -58,5 +58,7 @@ public sealed class RemoteServerConnectionStore(ApplicationPaths paths)
         var temporary = paths.RemoteServersFile + ".tmp";
         File.WriteAllText(temporary, JsonSerializer.Serialize(connections, JsonOptions));
         File.Move(temporary, paths.RemoteServersFile, true);
+        if (!OperatingSystem.IsWindows())
+            File.SetUnixFileMode(paths.RemoteServersFile, UnixFileMode.UserRead | UnixFileMode.UserWrite);
     }
 }

@@ -51,20 +51,30 @@
         </form>
         <details class="remote-profile-creator">
             <summary>Ajouter un serveur distant</summary>
-            <form method="post" asp-page-handler="CreateRemote" class="stack-form" data-loading-title="Création du profil RCON distant…" data-loading-detail="Validation de l’adresse RCON, enregistrement sécurisé du profil et préparation des options de coordination." data-loading-steps="Validation RCON|Enregistrement du profil|Préparation de la coordination">
+            <form method="post" asp-page-handler="CreateRemote" class="stack-form remote-provider-form" data-loading-title="Connexion au serveur distant…" data-loading-detail="Validation du fournisseur, test des accès et préparation de la gestion unifiée." data-loading-steps="Validation des accès|Lecture du serveur|Enregistrement du profil|Préparation de la gestion">
                 <label><span>Nom du profil</span><input asp-for="NewRemote.Name" required placeholder="vps-principal" /></label>
-                <div class="form-grid two compact-fields"><label><span>Hôte RCON</span><input asp-for="NewRemote.RconHost" required placeholder="server.example.com" /></label><label><span>Port RCON</span><input asp-for="NewRemote.RconPort" type="number" min="1" max="65535" /></label></div>
-                <label><span>Mot de passe RCON</span><input asp-for="NewRemote.RconPassword" type="password" required autocomplete="new-password" /></label>
-                <label class="switch-row"><input asp-for="NewRemote.AutoRestartAfterRconQuit" /><span><strong>Superviseur avec relance automatique</strong><small>Après publication, le manager envoie save puis quit; systemd, Docker ou votre hébergeur relance Project Zomboid.</small></span></label>
-                <details class="optional-connection"><summary>Gestion SSH / INI facultative</summary><div class="stack-form optional-connection-fields">
-                    <div class="form-grid two compact-fields"><label><span>Hôte SSH</span><input asp-for="NewRemote.Host" placeholder="server.example.com" /></label><label><span>Port SSH</span><input asp-for="NewRemote.SshPort" type="number" min="1" max="65535" /></label></div>
-                    <label><span>Utilisateur SSH</span><input asp-for="NewRemote.SshUser" placeholder="pz" /></label>
-                    <label><span>Clé privée — optionnelle si agent SSH</span><input asp-for="NewRemote.SshPrivateKeyPath" placeholder="C:\Users\me\.ssh\id_ed25519" /></label>
-                    <label><span>Chemin INI — optionnel</span><input asp-for="NewRemote.RemoteIniPath" placeholder="/home/pz/Zomboid/Server/servertest.ini" /></label>
-                    <label><span>Commande de démarrage du jeu — optionnelle</span><input asp-for="NewRemote.StartCommand" placeholder="systemctl start pzserver" /></label>
-                    <label class="check-row"><input type="checkbox" name="createConfigIfMissing" value="true" /> Créer l’INI distant s’il n’existe pas</label>
-                </div></details>
-                <button class="button primary" type="submit">Ajouter le profil RCON</button>
+                <label><span>Type de fournisseur</span><select asp-for="NewRemote.Provider" data-remote-provider><option value="PineHosting">Pine Hosting · API complète</option><option value="RconSsh">Serveur générique · RCON / SSH</option></select></label>
+                <div class="stack-form provider-fields" data-provider-fields="PineHosting">
+                    <div class="info-callout"><strong>Accès Pine Hosting</strong><p>Créez une clé dans le panel Pine, puis fournissez la clé et l’identifiant court du serveur. Aucun mot de passe de compte Pine n’est demandé.</p></div>
+                    <label><span>Clé API Pine</span><input asp-for="NewRemote.ApiToken" type="password" autocomplete="new-password" placeholder="ptlc_…" /></label>
+                    <label><span>Identifiant du serveur</span><input asp-for="NewRemote.ApiServerIdentifier" placeholder="a1b2c3d4" /></label>
+                    <input asp-for="NewRemote.ApiBaseUrl" type="hidden" value="@PineHostingClient.DefaultApiBaseUrl" />
+                    <label><span>Chemin INI Pine</span><input asp-for="NewRemote.RemoteIniPath" id="NewRemote_PineIniPath" value="@PineHostingClient.DefaultIniPath" /></label>
+                </div>
+                <div class="stack-form provider-fields" data-provider-fields="RconSsh" hidden>
+                    <div class="form-grid two compact-fields"><label><span>Hôte RCON</span><input asp-for="NewRemote.RconHost" placeholder="server.example.com" /></label><label><span>Port RCON</span><input asp-for="NewRemote.RconPort" type="number" min="1" max="65535" /></label></div>
+                    <label><span>Mot de passe RCON</span><input asp-for="NewRemote.RconPassword" type="password" autocomplete="new-password" /></label>
+                    <label class="switch-row"><input asp-for="NewRemote.AutoRestartAfterRconQuit" /><span><strong>Superviseur avec relance automatique</strong><small>Après save puis quit, systemd, Docker ou l’hébergeur relance Project Zomboid.</small></span></label>
+                    <details class="optional-connection"><summary>Gestion SSH / INI facultative</summary><div class="stack-form optional-connection-fields">
+                        <div class="form-grid two compact-fields"><label><span>Hôte SSH</span><input asp-for="NewRemote.Host" placeholder="server.example.com" /></label><label><span>Port SSH</span><input asp-for="NewRemote.SshPort" type="number" min="1" max="65535" /></label></div>
+                        <label><span>Utilisateur SSH</span><input asp-for="NewRemote.SshUser" placeholder="pz" /></label>
+                        <label><span>Clé privée — optionnelle si agent SSH</span><input asp-for="NewRemote.SshPrivateKeyPath" placeholder="C:\Users\me\.ssh\id_ed25519" /></label>
+                        <label><span>Chemin INI — optionnel</span><input asp-for="NewRemote.RemoteIniPath" id="NewRemote_SshIniPath" placeholder="/home/pz/Zomboid/Server/servertest.ini" /></label>
+                        <label><span>Commande de démarrage du jeu — optionnelle</span><input asp-for="NewRemote.StartCommand" placeholder="systemctl start pzserver" /></label>
+                        <label class="check-row"><input type="checkbox" name="createConfigIfMissing" value="true" /> Créer l’INI distant s’il n’existe pas</label>
+                    </div></details>
+                </div>
+                <button class="button primary" type="submit">Connecter le serveur distant</button>
             </form>
         </details>
     </aside>
@@ -118,7 +128,7 @@
             <div class="server-action-grid">
                 @if (Model.Selected.IsDedicatedLocal) { <form method="post" asp-page-handler="RepairDedicated" asp-route-name="@Model.Selected.Name" data-operation-progress data-loading-title="Mise à jour du serveur dédié…" data-loading-detail="SteamCMD vérifie les fichiers de l’AppID 380870 et rafraîchit les droits de téléchargement Workshop anonymes." data-loading-steps="Connexion Steam anonyme|Vérification des fichiers|Réparation de l’installation|Rafraîchissement des droits Workshop" data-confirm-title="Mettre à jour et réparer le serveur dédié ?" data-confirm-message="SteamCMD validera toute l’installation Project Zomboid Dedicated Server. Cette opération peut lire plusieurs gigaoctets et restaurer les fichiers d’installation officiels." data-confirm-action="Mettre à jour et réparer"><button class="server-action maintenance-action" type="submit" disabled="@Model.SelectedServerOnline"><span class="server-action-icon">↻</span><span><strong>Mettre à jour et réparer</strong><small>AppID 380870 · SteamCMD anonyme</small></span></button></form> }
                 <form method="post" asp-page-handler="Start" asp-route-name="@Model.Selected.Name" class="server-start-form" autocomplete="off" data-loading-title="Démarrage du serveur Project Zomboid…" data-loading-detail="Vérification Workshop, lancement du serveur dédié et initialisation sécurisée du compte admin si nécessaire. La machine hôte ne sera jamais redémarrée.">
-                    <button class="server-action primary-action" type="submit" disabled="@(Model.SelectedServerOnline || !Model.SelectedServerCanStart)"><span class="server-action-icon">▶</span><span><strong>@(Model.Selected.IsRemote ? "Démarrer le serveur distant" : Model.Selected.IsHostedLocal ? "Lancement depuis le menu Host" : "Démarrer le serveur dédié")</strong><small>@(Model.Selected.IsRemote ? (Model.SelectedServerCanStart ? "Commande SSH configurée" : "Commande SSH à configurer") : Model.Selected.IsHostedLocal ? "Ouvrez Project Zomboid puis choisissez ce profil" : "Installation Dedicated Server locale · AppID 380870")</small></span></button>
+                    <button class="server-action primary-action" type="submit" disabled="@(Model.SelectedServerOnline || !Model.SelectedServerCanStart)"><span class="server-action-icon">▶</span><span><strong>@(Model.Selected.IsRemote ? "Démarrer le serveur distant" : Model.Selected.IsHostedLocal ? "Lancement depuis le menu Host" : "Démarrer le serveur dédié")</strong><small>@(Model.Selected.IsPineHosting ? "Commande d'alimentation Pine Hosting API" : Model.Selected.IsRemote ? (Model.SelectedServerCanStart ? "Commande SSH configurée" : "Commande SSH à configurer") : Model.Selected.IsHostedLocal ? "Ouvrez Project Zomboid puis choisissez ce profil" : "Installation Dedicated Server locale · AppID 380870")</small></span></button>
                     @if (Model.Selected.IsDedicatedLocal)
                     {
                         @if (Model.AdminAccountStatus.IsConfigured)
@@ -138,14 +148,14 @@
                         }
                     }
                 </form>
-                <form method="post" asp-page-handler="Stop" asp-route-name="@Model.Selected.Name" data-loading-title="Arrêt propre du serveur…" data-loading-detail="Envoi de save puis quit par RCON et attente de la fermeture complète." data-confirm-title="Sauvegarder et arrêter le serveur ?" data-confirm-message="Le gestionnaire enverra save puis quit par RCON et attendra l’arrêt complet. Aucun arrêt forcé ne sera utilisé." data-confirm-action="Sauvegarder et arrêter" data-confirm-tone="danger"><button class="server-action danger-action" type="submit" disabled="@(!Model.SelectedRconAvailable)"><span class="server-action-icon">■</span><span><strong>Sauvegarder et arrêter</strong><small>save puis quit par RCON</small></span></button></form>
+                <form method="post" asp-page-handler="Stop" asp-route-name="@Model.Selected.Name" data-loading-title="Arrêt propre du serveur…" data-loading-detail="Envoi de save puis quit et attente de la fermeture complète." data-confirm-title="Sauvegarder et arrêter le serveur ?" data-confirm-message="Le gestionnaire enverra save puis quit et attendra l’arrêt complet. Aucun arrêt forcé ne sera utilisé." data-confirm-action="Sauvegarder et arrêter" data-confirm-tone="danger"><button class="server-action danger-action" type="submit" disabled="@(!Model.SelectedControlAvailable)"><span class="server-action-icon">■</span><span><strong>Sauvegarder et arrêter</strong><small>@(Model.Selected.IsPineHosting ? "console + contrôle Pine API" : "save puis quit par RCON")</small></span></button></form>
                 @if (Model.SelectedServerCanForceStop)
                 {
                     <form method="post" asp-page-handler="ForceStopLocal" asp-route-name="@Model.Selected.Name" class="force-stop-form" data-loading-title="Arrêt forcé du processus dédié…" data-loading-detail="Le manager recherche à nouveau le processus GameServer exact du profil, termine son arbre puis vérifie sa disparition." data-confirm-title="Forcer l’arrêt du serveur dédié ?" data-confirm-message="RCON est indisponible : aucune commande save ne peut être envoyée. Le processus GameServer correspondant exactement à ce profil sera terminé. Les dernières données non sauvegardées peuvent être perdues ou incohérentes." data-confirm-action="Terminer le processus sans sauvegarde" data-confirm-tone="danger">
                         <button class="server-action danger-action force-stop-action" type="submit"><span class="server-action-icon">×</span><span><strong>Forcer l’arrêt du processus</strong><small>@(Model.SelectedRuntime.ProcessId is int forcePid ? $"java.exe · PID {forcePid} · RCON indisponible" : "GameServer local · RCON indisponible")</small></span></button>
                     </form>
                 }
-                @if (Model.Selected.IsRemote && Model.Selected.Remote!.AutoRestartAfterRconQuit) { <form method="post" asp-page-handler="RestartRcon" asp-route-name="@Model.Selected.Name" data-loading-title="Redémarrage RCON de Project Zomboid…" data-loading-detail="Sauvegarde du monde, envoi de quit et prise en charge de la relance par le superviseur distant." data-confirm-title="Redémarrer Project Zomboid par RCON ?" data-confirm-message="Le manager enverra save puis quit. Le superviseur distant configuré doit relancer uniquement le processus de jeu." data-confirm-action="Sauvegarder et redémarrer"><button class="server-action primary-action" type="submit" disabled="@(!Model.SelectedRconAvailable)"><span class="server-action-icon">↻</span><span><strong>Redémarrer par RCON</strong><small>save + quit + superviseur</small></span></button></form> }
+                @if (Model.Selected.IsRemote && (Model.Selected.IsPineHosting || Model.Selected.Remote!.AutoRestartAfterRconQuit)) { <form method="post" asp-page-handler="RestartRcon" asp-route-name="@Model.Selected.Name" data-loading-title="Redémarrage de Project Zomboid…" data-loading-detail="Sauvegarde du monde puis redémarrage contrôlé du processus de jeu." data-confirm-title="Redémarrer Project Zomboid ?" data-confirm-message="Le manager sauvegardera le monde avant de redémarrer uniquement le processus Project Zomboid." data-confirm-action="Sauvegarder et redémarrer"><button class="server-action primary-action" type="submit" disabled="@(!Model.SelectedControlAvailable)"><span class="server-action-icon">↻</span><span><strong>Redémarrer le jeu</strong><small>@(Model.Selected.IsPineHosting ? "save + Pine Hosting API" : "save + quit + superviseur")</small></span></button></form> }
             </div>
         </section>
 
@@ -240,11 +250,11 @@
             </section>
         }
 
-        @if (Model.SelectedRconAvailable)
+        @if (Model.SelectedControlAvailable)
         {
             <section class="panel rcon-console-panel" id="rcon-console" data-server-view="network" hidden>
                 <div class="panel-heading rcon-console-heading">
-                    <div><span class="eyebrow">RCON AUTHENTIFIÉ</span><h2>Console d’administration</h2><p>Historique des commandes envoyées depuis cette session du manager et de leurs réponses.</p></div>
+                    <div><span class="eyebrow">@(Model.Selected.IsPineHosting ? "CONSOLE PINE API" : "RCON AUTHENTIFIÉ")</span><h2>Console d’administration</h2><p>Historique des commandes envoyées depuis cette session du manager et de leurs réponses.</p></div>
                     @if (Model.RconHistory.Count > 0)
                     {
                         <form method="post" asp-page-handler="ClearRconConsole" asp-route-name="@Model.Selected.Name" data-confirm-title="Effacer l’historique RCON ?" data-confirm-message="Les commandes et réponses conservées en mémoire pour ce profil seront supprimées. Aucun journal Project Zomboid ne sera effacé." data-confirm-action="Effacer l’historique"><button class="button ghost" type="submit">Effacer</button></form>
@@ -267,10 +277,10 @@
                         }
                     }
                 </div>
-                <form method="post" asp-page-handler="RconCommand" asp-route-name="@Model.Selected.Name" class="rcon-command-form" data-loading-title="Commande RCON…" data-loading-detail="Envoi de la commande au processus Project Zomboid et attente de sa réponse.">
-                    <label for="rcon-command">Commande RCON</label>
+                <form method="post" asp-page-handler="RconCommand" asp-route-name="@Model.Selected.Name" class="rcon-command-form" data-loading-title="Commande serveur…" data-loading-detail="Envoi de la commande au processus Project Zomboid.">
+                    <label for="rcon-command">Commande @(Model.Selected.IsPineHosting ? "console Pine" : "RCON")</label>
                     <div class="inline-command"><input id="rcon-command" name="command" required maxlength="256" autocomplete="off" placeholder="players, servermsg…, save…" data-rcon-command /><button class="button primary" type="submit">Envoyer</button></div>
-                    <small>RCON retourne uniquement la réponse aux commandes envoyées ; il ne diffuse pas spontanément le fichier server-console.txt.</small>
+                    <small>@(Model.Selected.IsPineHosting ? "L'API confirme la transmission à la console. Le journal complet reste disponible dans le panel Pine." : "RCON retourne uniquement la réponse aux commandes envoyées ; il ne diffuse pas spontanément le fichier server-console.txt.")</small>
                 </form>
             </section>
         }
@@ -346,6 +356,50 @@
                 }
             </section>
         }
+        else if (Model.Selected.IsPineHosting)
+        {
+            <section class="panel server-data-panel pine-data-panel" data-server-view="data" hidden>
+                <div class="panel-heading"><div><span class="eyebrow">SAUVEGARDES PINE HOSTING</span><h2>Monde, joueurs et sauvegardes fournisseur</h2><p>Les archives complètes sont créées et stockées directement par Pine. Les opérations destructives exigent un serveur arrêté.</p></div><span class="count-pill">@Model.PineBackups.Count / @(Model.PineServer?.BackupLimit ?? 0)</span></div>
+                @if (!string.IsNullOrWhiteSpace(Model.WorldDataError))
+                {
+                    <div class="warning-callout"><strong>Données Pine indisponibles</strong><p>@Model.WorldDataError</p></div>
+                }
+                else
+                {
+                    <div class="world-data-summary">
+                        <div><span class="world-data-icon">P</span><span><strong>Serveur Pine</strong><small>@(Model.PineServer?.Name ?? Model.Selected.Remote!.ApiServerIdentifier)</small></span></div>
+                        <div><span class="world-data-icon">B</span><span><strong>Sauvegardes</strong><small>@Model.PineBackups.Count archive(s) fournisseur</small></span></div>
+                        <div><span class="world-data-icon">C</span><span><strong>Configuration</strong><small>@Model.Selected.Remote!.RemoteIniPath</small></span></div>
+                    </div>
+                    @if (Model.SelectedServerOnline) { <div class="warning-callout"><strong>Arrêt propre requis</strong><p>Arrêtez Project Zomboid avant une sauvegarde cohérente, une restauration ou un fresh start.</p></div> }
+                    <div class="world-data-actions pine-data-actions">
+                        <form method="post" asp-page-handler="CreatePineBackup" asp-route-name="@Model.Selected.Name" data-loading-title="Sauvegarde Pine Hosting…" data-loading-detail="Création d'une archive complète, attente de la fin du traitement et vérification du résultat." data-loading-steps="Demande au fournisseur|Archivage des fichiers|Calcul de l'empreinte|Vérification finale"><button class="primary-command backup-command" type="submit" disabled="@Model.SelectedServerOnline"><span class="primary-command-icon">B</span><span><strong>Créer une sauvegarde Pine</strong><small>Archive complète stockée par l'hébergeur</small></span></button></form>
+                        <form method="post" asp-page-handler="ResetPineWorld" asp-route-name="@Model.Selected.Name" class="reset-world-form" data-loading-title="Fresh start Pine Hosting…" data-loading-detail="Sauvegarde de sécurité puis retrait du monde et de la base joueurs via l'API fichiers." data-confirm-toggle="createSafetyBackup" data-confirm-title="Créer un nouveau monde Pine ?" data-confirm-message="Une sauvegarde Pine verrouillée sera créée et vérifiée avant le retrait du monde et de la base joueurs. L'INI, les mods et SandboxVars resteront configurés." data-confirm-message-unchecked="ATTENTION : le monde Pine et sa base joueurs seront supprimés sans sauvegarde préalable." data-confirm-action="Sauvegarder et créer un monde neuf" data-confirm-action-unchecked="Supprimer sans sauvegarde et recommencer" data-confirm-tone="danger"><label class="reset-backup-choice"><input type="checkbox" name="createSafetyBackup" value="true" checked /><span><strong>Sauvegarder avant le fresh start</strong><small>Recommandé · archive fournisseur verrouillée</small></span></label><button class="button danger world-reset-button" type="submit" disabled="@Model.SelectedServerOnline">Nouveau monde (fresh start)</button></form>
+                    </div>
+                    <div class="world-backup-heading"><div><span class="eyebrow">ARCHIVES FOURNISSEUR</span><h3>Sauvegardes Pine disponibles</h3></div><span class="count-pill">@Model.PineBackups.Count</span></div>
+                    @if (Model.PineBackups.Count == 0) { <div class="empty-state compact-empty"><h3>Aucune sauvegarde Pine</h3><p>Créez une archive avant toute maintenance importante.</p></div> }
+                    else
+                    {
+                        <div class="world-backup-list">
+                        @foreach (var backup in Model.PineBackups)
+                        {
+                            <article class="world-backup-card">
+                                <div class="world-backup-main"><span class="backup-reason @(backup.IsSuccessful ? "manual" : "automatic")">@(backup.IsSuccessful ? "VÉRIFIÉE" : backup.CompletedAt is null ? "EN COURS" : "ÉCHEC")</span><div><strong>@backup.Name</strong><small>@(backup.CreatedAt?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "Date inconnue") · @IndexModel.FormatBytes(backup.Bytes)</small></div></div>
+                                <div class="backup-content-tags"><span class="@(backup.IsLocked ? "present" : "missing")">@(backup.IsLocked ? "Verrouillée" : "Non verrouillée")</span><span class="@(string.IsNullOrWhiteSpace(backup.Sha256) ? "missing" : "present")">SHA-256</span></div>
+                                <details class="backup-integrity"><summary>Intégrité et identifiant</summary><code>@backup.Uuid</code><code>SHA-256 @(string.IsNullOrWhiteSpace(backup.Sha256) ? "en attente" : backup.Sha256)</code></details>
+                                <div class="world-backup-actions">
+                                    <a class="button secondary" asp-page-handler="DownloadPineBackup" asp-route-name="@Model.Selected.Name" asp-route-backupUuid="@backup.Uuid">Télécharger</a>
+                                    <form method="post" asp-page-handler="RestorePineBackup" asp-route-name="@Model.Selected.Name" data-loading-title="Restauration Pine…" data-loading-detail="Création facultative d'une sauvegarde de sécurité puis restauration complète par le fournisseur." data-confirm-title="Restaurer cette sauvegarde Pine ?" data-confirm-message="L'état actuel sera sauvegardé puis remplacé par cette archive. Le serveur doit rester arrêté." data-confirm-action="Sauvegarder l'état actuel et restaurer"><input type="hidden" name="backupUuid" value="@backup.Uuid" /><label class="check-row"><input type="checkbox" name="createSafetyBackup" value="true" checked /> Créer une sauvegarde de sécurité</label><button class="button primary" type="submit" disabled="@(Model.SelectedServerOnline || !backup.IsSuccessful)">Restaurer</button></form>
+                                    <form method="post" asp-page-handler="LockPineBackup" asp-route-name="@Model.Selected.Name"><input type="hidden" name="backupUuid" value="@backup.Uuid" /><input type="hidden" name="locked" value="@(!backup.IsLocked).ToString().ToLowerInvariant()" /><button class="button secondary" type="submit">@(backup.IsLocked ? "Déverrouiller" : "Verrouiller")</button></form>
+                                    <form method="post" asp-page-handler="DeletePineBackup" asp-route-name="@Model.Selected.Name" data-confirm-title="Supprimer cette sauvegarde Pine ?" data-confirm-message="L'archive sera supprimée définitivement du stockage Pine. Cette opération ne modifie pas le monde actuellement installé." data-confirm-action="Supprimer l'archive" data-confirm-tone="danger"><input type="hidden" name="backupUuid" value="@backup.Uuid" /><button class="button danger ghost-danger" type="submit" disabled="@backup.IsLocked">Supprimer</button></form>
+                                </div>
+                            </article>
+                        }
+                        </div>
+                    }
+                }
+            </section>
+        }
         else
         {
             <section class="panel server-data-panel remote-data-note" data-server-view="data" hidden><div class="panel-heading"><div><span class="eyebrow">DONNÉES DU SERVEUR DISTANT</span><h2>Backups hébergeur ou accès fichiers requis</h2><p>RCON ne transporte pas les fichiers du monde. Utilisez les snapshots de votre VPS/hébergeur pour l’instant; aucune suppression distante n’est proposée sans chemin de données explicite et vérifiable.</p></div></div></section>
@@ -354,20 +408,29 @@
         @if (Model.Selected.IsRemote)
         {
             <section class="panel remote-connection-panel" data-server-view="deployment" hidden>
-                <div class="panel-heading"><div><span class="eyebrow">CONNEXION DISTANTE</span><h3>RCON principal · SSH facultatif</h3><p>RCON suffit pour le statut, les commandes, save/quit et la coordination. SSH n’est requis que pour l’INI ou un démarrage explicite.</p></div></div>
-                <form method="post" asp-page-handler="SaveRemote" asp-route-name="@Model.Selected.Name" class="form-grid" data-loading-title="Enregistrement du profil distant…" data-loading-detail="Validation des paramètres RCON et, si configurés, test des accès SSH facultatifs." data-loading-steps="Validation RCON|Vérification SSH facultative|Enregistrement atomique">
-                    <input asp-for="Remote.Name" type="hidden" />
-                    <div class="form-grid two"><label><span>Hôte RCON</span><input asp-for="Remote.RconHost" required /></label><label><span>Port RCON</span><input asp-for="Remote.RconPort" type="number" min="1" max="65535" /></label></div>
-                    <label><span>Mot de passe RCON</span><input asp-for="Remote.RconPassword" type="password" autocomplete="new-password" /><small>Nécessaire pour confirmer que Project Zomboid est réellement actif et envoyer save/quit.</small></label>
-                    <label class="switch-row"><input asp-for="Remote.AutoRestartAfterRconQuit" /><span><strong>Relance automatique après RCON quit</strong><small>À activer si systemd, Docker ou l’hébergeur relance automatiquement Project Zomboid.</small></span></label>
-                    <details class="optional-connection" open="@(Model.Selected.Remote!.HasSshConnection ? "open" : null)"><summary>Gestion SSH / INI facultative</summary><div class="form-grid optional-connection-fields">
-                        <div class="form-grid two"><label><span>Hôte SSH</span><input asp-for="Remote.Host" /></label><label><span>Port SSH</span><input asp-for="Remote.SshPort" type="number" min="1" max="65535" /></label></div>
-                        <div class="form-grid two"><label><span>Utilisateur SSH</span><input asp-for="Remote.SshUser" /></label><label><span>Clé privée — optionnelle</span><input asp-for="Remote.SshPrivateKeyPath" /></label></div>
-                        <label><span>Chemin INI distant — optionnel</span><input asp-for="Remote.RemoteIniPath" /></label>
-                        <label><span>Commande pour démarrer Project Zomboid — optionnelle</span><input asp-for="Remote.StartCommand" placeholder="systemctl start pzserver" /></label>
-                    </div></details>
-                    <div class="action-row"><button class="button primary" type="submit">Enregistrer</button><button class="button secondary" type="submit" formaction="?handler=TestRcon&name=@Uri.EscapeDataString(Model.Selected.Name)" data-loading-title="Test RCON…" data-loading-detail="Authentification réelle auprès du processus Project Zomboid.">Tester RCON</button><button class="button secondary" type="submit" formaction="?handler=TestRemote&name=@Uri.EscapeDataString(Model.Selected.Name)" data-loading-title="Test SSH…" data-loading-detail="Connexion non interactive avec la clé ou l’agent SSH." disabled="@(!Model.Selected.Remote.HasSshConnection)">Tester SSH</button></div>
-                </form>
+                @if (Model.Selected.IsPineHosting)
+                {
+                    <div class="panel-heading"><div><span class="eyebrow">PINE HOSTING API</span><h3>Accès fournisseur natif</h3><p>La clé API et l'identifiant pilotent les fichiers, la console, l'alimentation et les sauvegardes. La clé laissée vide est conservée.</p></div><span class="connection-badge remote">PINE</span></div>
+                    <form method="post" asp-page-handler="SaveRemote" asp-route-name="@Model.Selected.Name" class="form-grid" data-loading-title="Vérification Pine Hosting…" data-loading-detail="Authentification API, lecture du serveur puis enregistrement du profil." data-loading-steps="Authentification Bearer|Lecture du serveur|Vérification des droits|Enregistrement atomique">
+                        <input asp-for="Remote.Name" type="hidden" /><input asp-for="Remote.Provider" type="hidden" /><input asp-for="Remote.ApiBaseUrl" type="hidden" />
+                        <div class="form-grid two"><label><span>Identifiant serveur Pine</span><input asp-for="Remote.ApiServerIdentifier" required /></label><label><span>Chemin INI</span><input asp-for="Remote.RemoteIniPath" required /></label></div>
+                        <label><span>Nouvelle clé API Pine</span><input asp-for="Remote.ApiToken" type="password" autocomplete="new-password" placeholder="Laisser vide pour conserver la clé actuelle" /><small>La clé n'est jamais réaffichée ni inscrite dans les journaux.</small></label>
+                        <details class="optional-connection"><summary>RCON facultatif</summary><div class="form-grid optional-connection-fields"><div class="form-grid two"><label><span>Hôte RCON</span><input asp-for="Remote.RconHost" /></label><label><span>Port RCON</span><input asp-for="Remote.RconPort" type="number" min="1" max="65535" /></label></div><label><span>Mot de passe RCON</span><input asp-for="Remote.RconPassword" type="password" autocomplete="new-password" /></label></div></details>
+                        <div class="action-row"><button class="button primary" type="submit">Enregistrer et vérifier</button><button class="button secondary" type="submit" formaction="?handler=TestRemote&name=@Uri.EscapeDataString(Model.Selected.Name)" data-loading-title="Test Pine Hosting API…" data-loading-detail="Authentification Bearer et lecture du serveur sélectionné.">Tester l'API Pine</button></div>
+                    </form>
+                }
+                else
+                {
+                    <div class="panel-heading"><div><span class="eyebrow">CONNEXION DISTANTE</span><h3>RCON principal · SSH facultatif</h3><p>RCON suffit pour le statut, les commandes, save/quit et la coordination. SSH n’est requis que pour l’INI ou un démarrage explicite.</p></div></div>
+                    <form method="post" asp-page-handler="SaveRemote" asp-route-name="@Model.Selected.Name" class="form-grid" data-loading-title="Enregistrement du profil distant…" data-loading-detail="Validation des paramètres RCON et, si configurés, test des accès SSH facultatifs." data-loading-steps="Validation RCON|Vérification SSH facultative|Enregistrement atomique">
+                        <input asp-for="Remote.Name" type="hidden" /><input asp-for="Remote.Provider" type="hidden" />
+                        <div class="form-grid two"><label><span>Hôte RCON</span><input asp-for="Remote.RconHost" required /></label><label><span>Port RCON</span><input asp-for="Remote.RconPort" type="number" min="1" max="65535" /></label></div>
+                        <label><span>Mot de passe RCON</span><input asp-for="Remote.RconPassword" type="password" autocomplete="new-password" /><small>Nécessaire pour confirmer que Project Zomboid est réellement actif et envoyer save/quit.</small></label>
+                        <label class="switch-row"><input asp-for="Remote.AutoRestartAfterRconQuit" /><span><strong>Relance automatique après RCON quit</strong><small>À activer si systemd, Docker ou l’hébergeur relance automatiquement Project Zomboid.</small></span></label>
+                        <details class="optional-connection" open="@(Model.Selected.Remote!.HasSshConnection ? "open" : null)"><summary>Gestion SSH / INI facultative</summary><div class="form-grid optional-connection-fields"><div class="form-grid two"><label><span>Hôte SSH</span><input asp-for="Remote.Host" /></label><label><span>Port SSH</span><input asp-for="Remote.SshPort" type="number" min="1" max="65535" /></label></div><div class="form-grid two"><label><span>Utilisateur SSH</span><input asp-for="Remote.SshUser" /></label><label><span>Clé privée — optionnelle</span><input asp-for="Remote.SshPrivateKeyPath" /></label></div><label><span>Chemin INI distant — optionnel</span><input asp-for="Remote.RemoteIniPath" /></label><label><span>Commande pour démarrer Project Zomboid — optionnelle</span><input asp-for="Remote.StartCommand" placeholder="systemctl start pzserver" /></label></div></details>
+                        <div class="action-row"><button class="button primary" type="submit">Enregistrer</button><button class="button secondary" type="submit" formaction="?handler=TestRcon&name=@Uri.EscapeDataString(Model.Selected.Name)" data-loading-title="Test RCON…" data-loading-detail="Authentification réelle auprès du processus Project Zomboid.">Tester RCON</button><button class="button secondary" type="submit" formaction="?handler=TestRemote&name=@Uri.EscapeDataString(Model.Selected.Name)" data-loading-title="Test SSH…" data-loading-detail="Connexion non interactive avec la clé ou l’agent SSH." disabled="@(!Model.Selected.Remote.HasSshConnection)">Tester SSH</button></div>
+                    </form>
+                }
                 <form method="post" asp-page-handler="DeleteRemote" asp-route-name="@Model.Selected.Name" data-confirm-title="Retirer ce profil distant ?" data-confirm-message="Seul le profil enregistré dans le manager sera supprimé. Aucun fichier, processus ou service ne sera modifié sur le serveur distant." data-confirm-action="Retirer le profil" data-confirm-tone="danger"><button class="button danger" type="submit">Retirer le profil distant</button></form>
             </section>
         }

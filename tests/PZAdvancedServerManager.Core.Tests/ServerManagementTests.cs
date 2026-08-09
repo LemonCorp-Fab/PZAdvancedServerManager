@@ -130,7 +130,13 @@ public sealed class ServerManagementTests : IDisposable
         var paths = new ApplicationPaths(_root);
         var environment = new PzEnvironmentService(new PzDiscoveryService(paths));
         var store = new RemoteServerConnectionStore(paths);
-        var service = new ServerProfileService(paths, environment, new ServerOrchestrationService(), store, new LocalServerProfileStore(paths), new SshRemoteServerService());
+        var orchestration = new ServerOrchestrationService();
+        var pine = new PineHostingClient();
+        var backends = new RemoteServerBackendRouter([
+            new SshRconRemoteBackend(new SshRemoteServerService(), orchestration),
+            new PineHostingRemoteBackend(pine)
+        ]);
+        var service = new ServerProfileService(paths, environment, orchestration, store, new LocalServerProfileStore(paths), backends, pine);
         var profileName = $"rcon-{Guid.NewGuid():N}";
 
         var created = await service.CreateRemoteAsync(new RemoteServerConnection

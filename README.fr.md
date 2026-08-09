@@ -103,6 +103,8 @@ Chaque projet représente un pack global séparé. Rien ne se met à jour automa
 
 ## SteamCMD et serveurs distants
 
+Pine Hosting dispose d'un backend API distinct. Une clé API et l'identifiant du serveur suffisent pour réutiliser les éditeurs INI, SandboxVars et Lua, le déploiement des packs, la console, le démarrage/arrêt et les sauvegardes fournisseur sans SSH. Les restaurations et fresh starts exigent un serveur arrêté et proposent une sauvegarde de sécurité préalable. La documentation technique complète est disponible dans [Pine Hosting provider](docs/PINE-HOSTING.md).
+
 Le mot de passe Steam et le code Steam Guard sont transmis à SteamCMD par son entrée standard uniquement pendant la demande ; ils ne sont ni placés dans la ligne de commande, ni enregistrés par PZASM. SteamCMD conserve son propre jeton dans son dossier portable pour la planification. Si la session expire ou qu’un secret manque, la publication s’arrête immédiatement avec une explication au lieu d’attendre silencieusement. L’UI affiche la sortie en direct et permet d’annuler le processus externe.
 
 Un profil distant peut fonctionner avec RCON uniquement : statut authentifié, console, `save`, `quit` et coordination sont disponibles sans SSH. Si systemd, Docker, le panel ou l’hébergeur relance Project Zomboid après `quit`, PZASM publie d’abord puis demande le redémarrage propre par RCON. SSH reste facultatif pour lire/modifier l’INI ou lancer explicitement le processus du jeu. PZASM ne redémarre jamais le VPS ou le serveur dédié lui-même.

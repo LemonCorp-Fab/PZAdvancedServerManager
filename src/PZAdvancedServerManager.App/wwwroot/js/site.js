@@ -1545,5 +1545,29 @@ document.querySelectorAll('[data-workshop-tag-presets]').forEach(container => {
         applyContext();
     });
 
+    document.querySelectorAll('.remote-provider-form').forEach(form => {
+        const select = form.querySelector('[data-remote-provider]');
+        const groups = Array.from(form.querySelectorAll('[data-provider-fields]'));
+        if (!(select instanceof HTMLSelectElement)) return;
+        const update = () => {
+            const pinePath = form.querySelector('#NewRemote_PineIniPath');
+            const sshPath = form.querySelector('#NewRemote_SshIniPath');
+            if (select.value === 'PineHosting' && pinePath instanceof HTMLInputElement && !pinePath.value)
+                pinePath.value = '/.cache/Server/Zomboid.ini';
+            if (select.value === 'RconSsh' && sshPath instanceof HTMLInputElement && sshPath.value === '/.cache/Server/Zomboid.ini')
+                sshPath.value = '';
+            groups.forEach(group => {
+                const active = group.dataset.providerFields === select.value;
+                group.hidden = !active;
+                group.querySelectorAll('input, select, textarea, button').forEach(control => {
+                    if (control instanceof HTMLInputElement || control instanceof HTMLSelectElement || control instanceof HTMLTextAreaElement || control instanceof HTMLButtonElement)
+                        control.disabled = !active;
+                });
+            });
+        };
+        select.addEventListener('change', update);
+        update();
+    });
+
     window.addEventListener('pageshow', resetLoading);
 })();

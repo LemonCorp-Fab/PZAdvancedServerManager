@@ -1512,3 +1512,17 @@ body.has-modal { overflow: hidden; }
   .world-data-actions form, .world-data-actions button, .world-backup-actions form, .world-backup-actions button { width: 100%; }
   .world-backup-actions { align-items: stretch; flex-direction: column; }
 }
+
+.remote-provider-form .provider-fields { padding: .9rem; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--surface) 90%, var(--green) 10%); }
+.remote-provider-form .provider-fields[hidden] { display: none !important; }
+.pine-data-panel .panel-heading { align-items: flex-start; }
+.pine-data-actions { align-items: stretch; }
+.pine-data-actions > form { flex: 1 1 22rem; }
+.pine-data-actions .primary-command, .pine-data-actions .reset-world-form { height: 100%; }
+.pine-data-panel .world-backup-actions > a.button { align-self: center; }
+.remote-connection-panel > form + form { margin-top: 1rem; }
+
+@media (max-width: 760px) {
+  .remote-provider-form .provider-fields { padding: .7rem; }
+  .pine-data-actions > form { flex-basis: 100%; }
+}

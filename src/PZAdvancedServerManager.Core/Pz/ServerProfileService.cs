@@ -10,7 +10,8 @@ public sealed class ServerProfileService(
     ServerOrchestrationService orchestration,
     RemoteServerConnectionStore remoteStore,
     LocalServerProfileStore localStore,
-    SshRemoteServerService ssh)
+    RemoteServerBackendRouter remoteBackends,
+    PineHostingClient pine)
 {
     public PzInstallation Installation => environment.Installation;
 
@@ -58,18 +59,31 @@ public sealed class ServerProfileService(
         NormalizeAndValidate(connection);
         if (remoteStore.Get(connection.Name) is not null || File.Exists(Path.Combine(ServerRoot, connection.Name + ".ini")))
             throw new IOException("Un profil local ou distant utilise déjà ce nom.");
-        if (connection.HasSshConnection)
+        if (connection.IsPineHosting)
         {
-            await ssh.TestAsync(connection, cancellationToken);
+            var info = await pine.TestAsync(connection, cancellationToken);
+            connection.ProviderServerName = info.Name;
+            try
+            {
+                _ = await remoteBackends.Resolve(connection).ReadFileAsync(connection, connection.RemoteIniPath, cancellationToken);
+            }
+            catch when (createConfigIfMissing)
+            {
+                throw new InvalidOperationException("La création automatique de l'INI n'est pas proposée sur Pine Hosting. Démarrez une première fois le serveur depuis le panel, puis reconnectez le profil.");
+            }
+        }
+        else if (connection.HasSshConnection)
+        {
+            await remoteBackends.Resolve(connection).TestAsync(connection, cancellationToken);
             if (connection.HasSshManagement)
             {
                 try
                 {
-                    _ = await ssh.ReadFileAsync(connection, cancellationToken);
+                    _ = await remoteBackends.Resolve(connection).ReadFileAsync(connection, connection.RemoteIniPath, cancellationToken);
                 }
                 catch when (createConfigIfMissing)
                 {
-                    await ssh.WriteFileAsync(connection, Template(connection.Name), cancellationToken);
+                    await remoteBackends.Resolve(connection).WriteFileAsync(connection, connection.RemoteIniPath, Template(connection.Name), cancellationToken);
                 }
             }
         }
@@ -82,23 +96,28 @@ public sealed class ServerProfileService(
         var existing = remoteStore.Get(connection.Name) ?? throw new KeyNotFoundException("Profil serveur distant introuvable.");
         connection.Id = existing.Id;
         if (string.IsNullOrEmpty(connection.RconPassword)) connection.RconPassword = existing.RconPassword;
+        if (string.IsNullOrEmpty(connection.ApiToken)) connection.ApiToken = existing.ApiToken;
         NormalizeAndValidate(connection);
-        if (connection.HasSshConnection) await ssh.TestAsync(connection, cancellationToken);
+        if (connection.IsPineHosting)
+            connection.ProviderServerName = (await pine.GetServerAsync(connection, cancellationToken)).Name;
+        else if (connection.HasSshConnection)
+            await remoteBackends.Resolve(connection).TestAsync(connection, cancellationToken);
         remoteStore.Save(connection);
     }
 
     public async Task TestRemoteAsync(RemoteServerConnection connection, CancellationToken cancellationToken = default)
     {
-        PreserveStoredRconPassword(connection);
+        PreserveStoredSecrets(connection);
         NormalizeAndValidate(connection);
-        if (!connection.HasSshConnection) throw new InvalidOperationException("Ajoutez l'hôte et l'utilisateur SSH pour tester la connexion facultative.");
-        await ssh.TestAsync(connection, cancellationToken);
+        await remoteBackends.Resolve(connection).TestAsync(connection, cancellationToken);
     }
 
     public async Task TestRconAsync(RemoteServerConnection connection, CancellationToken cancellationToken = default)
     {
-        PreserveStoredRconPassword(connection);
+        PreserveStoredSecrets(connection);
         NormalizeAndValidate(connection);
+        if (connection.IsPineHosting && (string.IsNullOrWhiteSpace(connection.RconHost) || string.IsNullOrWhiteSpace(connection.RconPassword)))
+            throw new InvalidOperationException("RCON est facultatif avec Pine Hosting. Ajoutez son hôte et son mot de passe uniquement si vous souhaitez aussi tester RCON.");
         if (!await orchestration.IsOnlineAsync(RconHost(connection), connection.RconPort, connection.RconPassword, cancellationToken))
             throw new IOException("Project Zomboid n'a pas accepté la connexion RCON. Vérifiez l'hôte, le port, le mot de passe et l'état du jeu.");
     }
@@ -110,7 +129,7 @@ public sealed class ServerProfileService(
         var profile = Get(name);
         if (profile.IsRemote) EnsureConfigurationAccess(profile);
         return profile.IsRemote
-            ? ssh.ReadFileAsync(profile.Remote!).GetAwaiter().GetResult()
+            ? remoteBackends.Resolve(profile.Remote!).ReadFileAsync(profile.Remote!, profile.Path).GetAwaiter().GetResult()
             : ServerConfigDocument.ReadText(profile.Path).Text;
     }
 
@@ -121,7 +140,7 @@ public sealed class ServerProfileService(
         string backup;
         if (profile.IsRemote)
         {
-            backup = ssh.WriteFileAsync(profile.Remote!, content).GetAwaiter().GetResult();
+            backup = remoteBackends.Resolve(profile.Remote!).WriteFileAsync(profile.Remote!, profile.Path, content).GetAwaiter().GetResult();
         }
         else
         {
@@ -133,7 +152,7 @@ public sealed class ServerProfileService(
             File.Move(temp, profile.Path, true);
         }
         var persisted = profile.IsRemote
-            ? ssh.ReadFileAsync(profile.Remote!).GetAwaiter().GetResult()
+            ? remoteBackends.Resolve(profile.Remote!).ReadFileAsync(profile.Remote!, profile.Path).GetAwaiter().GetResult()
             : ServerConfigDocument.ReadText(profile.Path).Text;
         if (!NormalizeText(persisted).Equals(NormalizeText(content), StringComparison.Ordinal))
             throw new IOException($"La configuration « {profile.Name} » a été écrite mais sa relecture diffère. La sauvegarde reste disponible : {backup}");
@@ -186,13 +205,13 @@ public sealed class ServerProfileService(
         var profile = Get(name);
         if (!profile.IsRemote)
             return (await ReadRuntimeAsync(profile.Name, cancellationToken)).IsRunning;
-        var remote = profile.Remote!;
-        return await orchestration.IsOnlineAsync(RconHost(remote), remote.RconPort, remote.RconPassword, cancellationToken);
+        return await remoteBackends.Resolve(profile.Remote!).IsOnlineAsync(profile.Remote!, cancellationToken);
     }
 
     public async Task<bool> IsRconAuthenticatedAsync(string name, CancellationToken cancellationToken = default)
     {
         var profile = Get(name);
+        if (profile.Remote?.IsPineHosting == true && (string.IsNullOrWhiteSpace(profile.Remote.RconHost) || string.IsNullOrWhiteSpace(profile.Remote.RconPassword))) return false;
         var (host, port, password) = RconEndpoint(profile);
         return await orchestration.IsOnlineAsync(host, port, password, cancellationToken);
     }
@@ -219,22 +238,7 @@ public sealed class ServerProfileService(
             return await orchestration.InspectLocalRuntimeAsync(profile.Name, profile.Path, consolePath, coopConsolePath, cancellationToken);
         }
 
-        var remote = profile.Remote!;
-        var rconAvailable = await orchestration.IsOnlineAsync(RconHost(remote), remote.RconPort, remote.RconPassword, cancellationToken);
-        return new ServerRuntimeSnapshot(
-            rconAvailable ? ServerRuntimeState.Online : ServerRuntimeState.Stopped,
-            rconAvailable,
-            rconAvailable,
-            rconAvailable,
-            false,
-            false,
-            null,
-            null,
-            null,
-            [])
-        {
-            Origin = ServerRuntimeOrigin.RemoteRcon
-        };
+        return await remoteBackends.Resolve(profile.Remote!).ReadRuntimeAsync(profile.Remote!, cancellationToken);
     }
 
     public ServerNetworkInfo ReadNetworkInfo(string name)
@@ -254,6 +258,7 @@ public sealed class ServerProfileService(
         var profile = Get(name);
         if (!profile.IsRemote) return await orchestration.IsPortReachableAsync(profile.Path, cancellationToken);
         var remote = profile.Remote!;
+        if (remote.IsPineHosting && (string.IsNullOrWhiteSpace(remote.RconHost) || string.IsNullOrWhiteSpace(remote.RconPassword))) return false;
         return await orchestration.IsPortReachableAsync(RconHost(remote), remote.RconPort, cancellationToken);
     }
 
@@ -264,6 +269,7 @@ public sealed class ServerProfileService(
             return (await ReadRuntimeAsync(profile.Name, cancellationToken)).IsRunning
                 || await orchestration.IsRconServiceAsync(profile.Path, cancellationToken);
         var remote = profile.Remote!;
+        if (remote.IsPineHosting && (string.IsNullOrWhiteSpace(remote.RconHost) || string.IsNullOrWhiteSpace(remote.RconPassword))) return false;
         return await orchestration.IsRconServiceAsync(RconHost(remote), remote.RconPort, remote.RconPassword, cancellationToken);
     }
 
@@ -271,13 +277,13 @@ public sealed class ServerProfileService(
     public bool CanStart(string name)
     {
         var profile = Get(name);
-        return !profile.IsRemote || profile.Remote!.HasSshConnection && !string.IsNullOrWhiteSpace(profile.Remote.StartCommand);
+        return !profile.IsRemote || profile.Remote!.IsPineHosting || profile.Remote.HasSshConnection && !string.IsNullOrWhiteSpace(profile.Remote.StartCommand);
     }
 
     public bool CanCoordinateRestart(string name)
     {
         var profile = Get(name);
-        return !profile.IsRemote || CanStart(name) || profile.Remote!.AutoRestartAfterRconQuit;
+        return !profile.IsRemote || profile.Remote!.IsPineHosting || CanStart(name) || profile.Remote.AutoRestartAfterRconQuit;
     }
 
     public async Task StartAsync(string name, CancellationToken cancellationToken = default)
@@ -290,7 +296,7 @@ public sealed class ServerProfileService(
         {
             if (!string.IsNullOrEmpty(initialAdminPassword))
                 throw new InvalidOperationException("Le mot de passe administrateur initial ne peut être transmis qu'à un serveur local lancé par le manager.");
-            await ssh.RunStartCommandAsync(profile.Remote!, cancellationToken);
+            await remoteBackends.Resolve(profile.Remote!).StartAsync(profile.Remote!, cancellationToken);
             return;
         }
         var dedicatedRoot = environment.Installation.DedicatedServerRoot
@@ -311,8 +317,7 @@ public sealed class ServerProfileService(
             await orchestration.StopGracefullyAsync(profile.Path, cancellationToken);
             return;
         }
-        var remote = profile.Remote!;
-        await orchestration.StopGracefullyAsync(RconHost(remote), remote.RconPort, remote.RconPassword, cancellationToken);
+        await remoteBackends.Resolve(profile.Remote!).StopAsync(profile.Remote!, cancellationToken);
     }
 
     public async Task<ForcedServerStopResult> ForceStopLocalDedicatedAsync(string name, CancellationToken cancellationToken = default)
@@ -331,6 +336,11 @@ public sealed class ServerProfileService(
     public async Task RestartViaRconAsync(string name, CancellationToken cancellationToken = default)
     {
         var profile = Get(name);
+        if (profile.IsRemote)
+        {
+            await remoteBackends.Resolve(profile.Remote!).RestartAsync(profile.Remote!, cancellationToken);
+            return;
+        }
         var (host, port, password) = RconEndpoint(profile);
         await orchestration.RequestRestartAsync(host, port, password, cancellationToken);
     }
@@ -338,6 +348,8 @@ public sealed class ServerProfileService(
     public async Task<string> ExecuteRconCommandAsync(string name, string command, CancellationToken cancellationToken = default)
     {
         var profile = Get(name);
+        if (profile.IsRemote)
+            return await remoteBackends.Resolve(profile.Remote!).ExecuteCommandAsync(profile.Remote!, command, cancellationToken);
         var (host, port, password) = RconEndpoint(profile);
         return await orchestration.ExecuteCommandAsync(host, port, password, command, cancellationToken);
     }
@@ -371,6 +383,65 @@ public sealed class ServerProfileService(
     public string ResolveIniPath(string name) => Get(name).Path;
     public ServerConfigDocument ReadDocument(string name) => ReadDocument(Get(name));
 
+    public async Task<PineServerInfo> ReadPineServerAsync(string name, CancellationToken cancellationToken = default)
+        => await pine.GetServerAsync(RequirePine(name), cancellationToken);
+
+    public async Task<IReadOnlyList<PineBackupInfo>> ListPineBackupsAsync(string name, CancellationToken cancellationToken = default)
+        => await pine.ListBackupsAsync(RequirePine(name), cancellationToken);
+
+    public async Task<PineBackupInfo> CreatePineBackupAsync(string name, string? backupName = null, bool locked = false, IProgress<OperationProgress>? progress = null, CancellationToken cancellationToken = default)
+    {
+        var connection = RequirePine(name);
+        if (await remoteBackends.Resolve(connection).IsOnlineAsync(connection, cancellationToken))
+            throw new InvalidOperationException("Arrêtez le serveur Pine avant de créer une sauvegarde cohérente du monde et de sa base joueurs.");
+        progress?.Report(new OperationProgress("pine-backup", "Création de la sauvegarde complète chez Pine Hosting…", 1, 2));
+        var created = await pine.CreateBackupAsync(connection, backupName ?? $"PZASM {DateTimeOffset.Now:yyyy-MM-dd HH:mm}", locked, cancellationToken);
+        progress?.Report(new OperationProgress("pine-backup", "Vérification de l'achèvement et de l'empreinte de la sauvegarde…", 2, 2));
+        return await pine.WaitForBackupAsync(connection, created.Uuid, TimeSpan.FromMinutes(30), cancellationToken);
+    }
+
+    public async Task RestorePineBackupAsync(string name, string backupUuid, bool createSafetyBackup, IProgress<OperationProgress>? progress = null, CancellationToken cancellationToken = default)
+    {
+        var connection = RequirePine(name);
+        if (await remoteBackends.Resolve(connection).IsOnlineAsync(connection, cancellationToken))
+            throw new InvalidOperationException("Arrêtez le serveur Pine avant de restaurer une sauvegarde.");
+        if (createSafetyBackup)
+        {
+            progress?.Report(new OperationProgress("pine-restore", "Création de la sauvegarde de sécurité préalable…", 1, 3));
+            await CreatePineBackupAsync(name, $"PZASM avant restauration {DateTimeOffset.Now:yyyy-MM-dd HH:mm}", true, null, cancellationToken);
+        }
+        progress?.Report(new OperationProgress("pine-restore", "Demande de restauration transactionnelle à Pine Hosting…", 2, 3));
+        await pine.RestoreBackupAsync(connection, backupUuid, cancellationToken);
+        progress?.Report(new OperationProgress("pine-restore", "Restauration acceptée par Pine Hosting. Le panel finalise les fichiers…", 3, 3));
+    }
+
+    public async Task SetPineBackupLockAsync(string name, string backupUuid, bool locked, CancellationToken cancellationToken = default)
+        => await pine.SetBackupLockAsync(RequirePine(name), backupUuid, locked, cancellationToken);
+
+    public async Task DeletePineBackupAsync(string name, string backupUuid, CancellationToken cancellationToken = default)
+        => await pine.DeleteBackupAsync(RequirePine(name), backupUuid, cancellationToken);
+
+    public async Task<Uri> GetPineBackupDownloadUriAsync(string name, string backupUuid, CancellationToken cancellationToken = default)
+        => await pine.GetBackupDownloadUriAsync(RequirePine(name), backupUuid, cancellationToken);
+
+    public async Task<PineWorldResetResult> ResetPineWorldAsync(string name, bool createSafetyBackup, IProgress<OperationProgress>? progress = null, CancellationToken cancellationToken = default)
+    {
+        var connection = RequirePine(name);
+        if (await remoteBackends.Resolve(connection).IsOnlineAsync(connection, cancellationToken))
+            throw new InvalidOperationException("Arrêtez le serveur Pine avant de réinitialiser le monde.");
+        PineBackupInfo? backup = null;
+        if (createSafetyBackup)
+        {
+            progress?.Report(new OperationProgress("pine-reset", "Création d'une sauvegarde Pine verrouillée avant le fresh start…", 1, 3));
+            backup = await CreatePineBackupAsync(name, $"PZASM avant fresh start {DateTimeOffset.Now:yyyy-MM-dd HH:mm}", true, null, cancellationToken);
+        }
+        progress?.Report(new OperationProgress("pine-reset", "Retrait du monde multijoueur…", 2, 3));
+        await pine.DeleteFilesAsync(connection, "/.cache/Saves/Multiplayer", ["Zomboid"], cancellationToken);
+        progress?.Report(new OperationProgress("pine-reset", "Retrait de la base joueurs…", 3, 3));
+        await pine.DeleteFilesAsync(connection, "/.cache/db", ["Zomboid.db"], cancellationToken);
+        return new PineWorldResetResult(backup, DateTimeOffset.UtcNow);
+    }
+
     public ServerWorldDataLocation ResolveWorldDataLocation(string name)
     {
         var profile = Get(name);
@@ -398,8 +469,7 @@ public sealed class ServerProfileService(
         var profile = Get(name);
         if (profile.IsRemote)
         {
-            var sandboxConnection = WithRemotePath(profile.Remote!, SandboxPath(profile));
-            return SandboxSettingsDocument.Parse(ssh.ReadFileAsync(sandboxConnection).GetAwaiter().GetResult());
+            return SandboxSettingsDocument.Parse(remoteBackends.Resolve(profile.Remote!).ReadFileAsync(profile.Remote!, SandboxPath(profile)).GetAwaiter().GetResult());
         }
         var path = SandboxPath(profile);
         if (!File.Exists(path)) throw new FileNotFoundException("Le fichier SandboxVars de ce profil n'existe pas encore. Démarrez une première fois le serveur ou créez-le avec l'éditeur officiel.", path);
@@ -414,7 +484,7 @@ public sealed class ServerProfileService(
         var expected = values.Keys.ToDictionary(key => key, document.Get, StringComparer.Ordinal);
         string backup;
         if (profile.IsRemote)
-            backup = ssh.WriteFileAsync(WithRemotePath(profile.Remote!, SandboxPath(profile)), document.Render()).GetAwaiter().GetResult();
+            backup = remoteBackends.Resolve(profile.Remote!).WriteFileAsync(profile.Remote!, SandboxPath(profile), document.Render()).GetAwaiter().GetResult();
         else
         {
             var path = SandboxPath(profile);
@@ -432,7 +502,7 @@ public sealed class ServerProfileService(
     {
         var profile = Get(name);
         var path = LuaFilePath(profile, kind);
-        if (profile.IsRemote) return ssh.ReadFileAsync(WithRemotePath(profile.Remote!, path)).GetAwaiter().GetResult();
+        if (profile.IsRemote) return remoteBackends.Resolve(profile.Remote!).ReadFileAsync(profile.Remote!, path).GetAwaiter().GetResult();
         if (!File.Exists(path)) return string.Empty;
         return ServerConfigDocument.ReadText(path).Text;
     }
@@ -446,7 +516,7 @@ public sealed class ServerProfileService(
         if (NormalizeText(current).Equals(NormalizeText(content), StringComparison.Ordinal)) return string.Empty;
         string backup;
         if (profile.IsRemote)
-            backup = ssh.WriteFileAsync(WithRemotePath(profile.Remote!, path), content).GetAwaiter().GetResult();
+            backup = remoteBackends.Resolve(profile.Remote!).WriteFileAsync(profile.Remote!, path, content).GetAwaiter().GetResult();
         else
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -463,7 +533,7 @@ public sealed class ServerProfileService(
     }
 
     private ServerConfigDocument ReadDocument(ServerConfigEntry profile) => profile.IsRemote
-        ? ServerConfigDocument.Parse(ssh.ReadFileAsync(EnsureConfigurationAccess(profile)).GetAwaiter().GetResult())
+        ? ServerConfigDocument.Parse(remoteBackends.Resolve(profile.Remote!).ReadFileAsync(EnsureConfigurationAccess(profile), profile.Path).GetAwaiter().GetResult())
         : ServerConfigDocument.Load(profile.Path);
 
     private string WriteDocument(ServerConfigEntry profile, ServerConfigDocument document)
@@ -471,7 +541,7 @@ public sealed class ServerProfileService(
         var expected = NormalizeText(document.Render());
         string backup;
         if (profile.IsRemote)
-            backup = ssh.WriteFileAsync(EnsureConfigurationAccess(profile), document.Render()).GetAwaiter().GetResult();
+            backup = remoteBackends.Resolve(profile.Remote!).WriteFileAsync(EnsureConfigurationAccess(profile), profile.Path, document.Render()).GetAwaiter().GetResult();
         else
         {
             backup = Backup(profile.Path);
@@ -520,22 +590,6 @@ public sealed class ServerProfileService(
             throw new InvalidDataException("Le fichier de spawn doit retourner une table Lua.");
     }
 
-    private static RemoteServerConnection WithRemotePath(RemoteServerConnection source, string path) => new()
-    {
-        Id = source.Id,
-        Name = source.Name,
-        Host = source.Host,
-        SshPort = source.SshPort,
-        SshUser = source.SshUser,
-        SshPrivateKeyPath = source.SshPrivateKeyPath,
-        RemoteIniPath = path,
-        StartCommand = source.StartCommand,
-        RconHost = source.RconHost,
-        RconPort = source.RconPort,
-        RconPassword = source.RconPassword,
-        AutoRestartAfterRconQuit = source.AutoRestartAfterRconQuit,
-        UpdatedAt = source.UpdatedAt
-    };
     private static string RconHost(RemoteServerConnection remote) => string.IsNullOrWhiteSpace(remote.RconHost) ? remote.Host : remote.RconHost;
     private static (string Host, int Port, string Password) RconEndpoint(ServerConfigEntry profile)
     {
@@ -566,6 +620,17 @@ public sealed class ServerProfileService(
         connection.RemoteIniPath = connection.RemoteIniPath.Trim();
         connection.StartCommand = connection.StartCommand.Trim();
         connection.RconHost = connection.RconHost.Trim();
+        connection.ApiBaseUrl = string.IsNullOrWhiteSpace(connection.ApiBaseUrl) ? PineHostingClient.DefaultApiBaseUrl : connection.ApiBaseUrl.Trim().TrimEnd('/');
+        connection.ApiToken = connection.ApiToken.Trim();
+        connection.ApiServerIdentifier = connection.ApiServerIdentifier.Trim();
+        connection.ProviderServerName = connection.ProviderServerName.Trim();
+        if (connection.IsPineHosting)
+        {
+            if (string.IsNullOrWhiteSpace(connection.RemoteIniPath)) connection.RemoteIniPath = PineHostingClient.DefaultIniPath;
+            PineHostingClient.ValidateConnection(connection);
+            if (connection.RconPort is < 1 or > 65535) throw new ArgumentException("Le port RCON doit être compris entre 1 et 65535.");
+            return;
+        }
         if (string.IsNullOrWhiteSpace(connection.RconHost)) connection.RconHost = connection.Host;
         if (string.IsNullOrWhiteSpace(connection.RconHost) || string.IsNullOrWhiteSpace(connection.RconPassword))
             throw new ArgumentException("L'hôte et le mot de passe RCON sont requis pour un profil distant.");
@@ -582,16 +647,24 @@ public sealed class ServerProfileService(
     private static RemoteServerConnection EnsureConfigurationAccess(ServerConfigEntry profile)
     {
         if (!profile.IsRemote) throw new InvalidOperationException("Ce profil est local.");
-        if (!profile.Remote!.HasSshManagement)
-            throw new InvalidOperationException("Ce profil utilise RCON uniquement. Activez la gestion SSH facultative pour lire ou modifier l'INI distant.");
+        if (!profile.Remote!.HasConfigurationManagement)
+            throw new InvalidOperationException("Ce profil utilise RCON uniquement. Activez SSH ou sélectionnez le fournisseur Pine Hosting pour lire et modifier les fichiers distants.");
         return profile.Remote;
     }
 
-    private void PreserveStoredRconPassword(RemoteServerConnection connection)
+    private void PreserveStoredSecrets(RemoteServerConnection connection)
     {
-        if (!string.IsNullOrEmpty(connection.RconPassword)) return;
         var existing = remoteStore.Get(connection.Name);
-        if (existing is not null) connection.RconPassword = existing.RconPassword;
+        if (existing is null) return;
+        if (string.IsNullOrEmpty(connection.RconPassword)) connection.RconPassword = existing.RconPassword;
+        if (string.IsNullOrEmpty(connection.ApiToken)) connection.ApiToken = existing.ApiToken;
+    }
+
+    private RemoteServerConnection RequirePine(string name)
+    {
+        var profile = Get(name);
+        if (profile.Remote?.IsPineHosting != true) throw new InvalidOperationException("Cette opération nécessite un profil Pine Hosting.");
+        return profile.Remote;
     }
 
     private static string Backup(string path)
@@ -631,9 +704,13 @@ public sealed record ServerConfigEntry(
     public bool IsRemote => Kind == ServerConnectionKind.Remote;
     public bool IsHostedLocal => !IsRemote && LocalMode == LocalServerMode.Hosted;
     public bool IsDedicatedLocal => !IsRemote && LocalMode == LocalServerMode.Dedicated;
-    public bool CanManageConfiguration => !IsRemote || Remote!.HasSshManagement;
+    public bool CanManageConfiguration => !IsRemote || Remote!.HasConfigurationManagement;
+    public bool IsPineHosting => Remote?.IsPineHosting == true;
+    public bool CanUseProviderConsole => IsPineHosting || !IsRemote;
     public string Location => IsRemote
-        ? $"RCON {(string.IsNullOrWhiteSpace(Remote!.RconHost) ? Remote.Host : Remote.RconHost)}:{Remote.RconPort}" + (Remote.HasSshConnection ? $" · SSH {Remote.SshUser}@{Remote.Host}" : string.Empty)
+        ? IsPineHosting
+            ? $"Pine Hosting API · {(string.IsNullOrWhiteSpace(Remote!.ProviderServerName) ? Remote.ApiServerIdentifier : Remote.ProviderServerName)}"
+            : $"RCON {(string.IsNullOrWhiteSpace(Remote!.RconHost) ? Remote.Host : Remote.RconHost)}:{Remote.RconPort}" + (Remote.HasSshConnection ? $" · SSH {Remote.SshUser}@{Remote.Host}" : string.Empty)
         : Path;
 }
 
@@ -641,3 +718,4 @@ public sealed record ServerConfigSummary(IReadOnlyList<string> WorkshopItems, IR
 public sealed record ServerApplyResult(string BackupPath, IReadOnlyList<string> WorkshopItems, IReadOnlyList<string> Mods, IReadOnlyList<string> Maps);
 public sealed record ServerContentUpdateResult(string BackupPath, int AddedWorkshopItems, int AddedMods, IReadOnlyList<string> WorkshopItems, IReadOnlyList<string> Mods);
 public enum ServerLuaFileKind { SandboxVars, SpawnRegions, SpawnPoints }
+public sealed record PineWorldResetResult(PineBackupInfo? SafetyBackup, DateTimeOffset CompletedAt);

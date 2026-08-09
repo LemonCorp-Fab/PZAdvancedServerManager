@@ -39,10 +39,14 @@ public class IndexModel(
     public ServerWorldDataStatus? WorldDataStatus { get; private set; }
     public InitialAdminAccountStatus AdminAccountStatus { get; private set; } = new(InitialAdminAccountState.Unknown, "État non vérifié.");
     public IReadOnlyList<ServerWorldBackupInfo> WorldBackups { get; private set; } = [];
+    public PineServerInfo? PineServer { get; private set; }
+    public IReadOnlyList<PineBackupInfo> PineBackups { get; private set; } = [];
     public string WorldDataError { get; private set; } = string.Empty;
     public bool SelectedServerCanStart => Selected is not null
         && (Selected.IsDedicatedLocal
+            || Selected.IsPineHosting
             || Selected.IsRemote && Selected.Remote!.HasSshConnection && !string.IsNullOrWhiteSpace(Selected.Remote.StartCommand));
+    public bool SelectedControlAvailable => SelectedRconAvailable || Selected?.IsPineHosting == true && SelectedServerOnline;
     public bool SelectedServerCanForceStop => Selected is { IsRemote: false }
         && SelectedRuntime.IsRunning
         && !SelectedRuntime.IsRconAuthenticated
@@ -60,7 +64,9 @@ public class IndexModel(
     public string RuntimeStatusText => RuntimeStatus(SelectedRuntime);
     public string RuntimeStatusDetail => RuntimeDetail(SelectedRuntime);
     public string RuntimeStatusCss => RuntimeCss(SelectedRuntime.State);
-    public string RuntimeDetectionSource => Selected?.IsRemote == true
+    public string RuntimeDetectionSource => Selected?.IsPineHosting == true
+        ? "Supervision directe par l'API Pine Hosting"
+        : Selected?.IsRemote == true
         ? "Supervision distante par RCON"
         : SelectedRuntime.Instances.Count > 1
             ? "Plusieurs instances locales détectées"
@@ -75,13 +81,15 @@ public class IndexModel(
                         : "Aucun processus associé au profil";
     public string RuntimeLogSource => SelectedRuntime.Origin == ServerRuntimeOrigin.LocalHostedSession
         ? "coop-console.txt"
-        : Selected?.IsRemote == true
+        : Selected?.IsPineHosting == true
+            ? "État Pine Hosting API"
+            : Selected?.IsRemote == true
             ? "RCON distant"
             : "server-console.txt";
     [BindProperty] public string RawContent { get; set; } = string.Empty;
     [BindProperty] public GuidedServerForm Guided { get; set; } = new();
     [BindProperty] public RemoteServerForm Remote { get; set; } = new();
-    [BindProperty] public RemoteServerForm NewRemote { get; set; } = new();
+    [BindProperty] public RemoteServerForm NewRemote { get; set; } = new() { Provider = RemoteServerProvider.PineHosting, RemoteIniPath = PineHostingClient.DefaultIniPath };
 
     public async Task OnGetAsync(string? name, CancellationToken cancellationToken)
     {
@@ -137,6 +145,15 @@ public class IndexModel(
             }
             catch (Exception exception) { WorldDataError = exception.Message; }
         }
+        else if (Selected.IsPineHosting)
+        {
+            try
+            {
+                PineServer = await servers.ReadPineServerAsync(Selected.Name, cancellationToken);
+                PineBackups = await servers.ListPineBackupsAsync(Selected.Name, cancellationToken);
+            }
+            catch (Exception exception) { WorldDataError = exception.Message; }
+        }
     }
 
     public async Task<IActionResult> OnGetRuntimeAsync(string name, CancellationToken cancellationToken)
@@ -171,7 +188,9 @@ public class IndexModel(
                 }),
                 startedAt = runtime.StartedAt?.ToString("O"),
                 lastOutputAt = runtime.LastOutputAt?.ToString("O"),
-                source = profile.IsRemote
+                source = profile.IsPineHosting
+                    ? "Supervision directe par l'API Pine Hosting"
+                    : profile.IsRemote
                     ? "Supervision distante par RCON"
                     : runtime.Instances.Count > 1
                         ? "Plusieurs instances locales détectées"
@@ -313,9 +332,11 @@ public class IndexModel(
     {
         try
         {
-            if (!TryValidateHandlerModel(NewRemote, nameof(NewRemote))) throw new ValidationException("Vérifiez le nom et les paramètres RCON du profil distant.");
+            if (!TryValidateHandlerModel(NewRemote, nameof(NewRemote))) throw new ValidationException("Vérifiez le nom et les paramètres du fournisseur distant.");
             var profile = await servers.CreateRemoteAsync(NewRemote.ToConnection(), createConfigIfMissing, cancellationToken);
-            TempData["Message"] = $"Profil distant RCON « {profile.Name} » ajouté." + (profile.Remote!.HasSshConnection ? " Connexion SSH facultative vérifiée." : string.Empty);
+            TempData["Message"] = profile.IsPineHosting
+                ? $"Serveur Pine Hosting « {profile.Remote!.ProviderServerName} » ajouté avec accès complet à la configuration, aux contrôles et aux sauvegardes."
+                : $"Profil distant RCON « {profile.Name} » ajouté." + (profile.Remote!.HasSshConnection ? " Connexion SSH facultative vérifiée." : string.Empty);
             return RedirectToPage(new { name = profile.Name });
         }
         catch (Exception exception)
@@ -329,7 +350,7 @@ public class IndexModel(
     {
         try
         {
-            if (!TryValidateHandlerModel(Remote, nameof(Remote))) throw new ValidationException("Vérifiez les paramètres SSH et RCON.");
+            if (!TryValidateHandlerModel(Remote, nameof(Remote))) throw new ValidationException("Vérifiez les paramètres du fournisseur distant.");
             var connection = Remote.ToConnection();
             connection.Name = name;
             await servers.UpdateRemoteAsync(connection, cancellationToken);
@@ -343,11 +364,13 @@ public class IndexModel(
     {
         try
         {
-            if (!TryValidateHandlerModel(Remote, nameof(Remote))) throw new ValidationException("Vérifiez les paramètres SSH et RCON.");
+            if (!TryValidateHandlerModel(Remote, nameof(Remote))) throw new ValidationException("Vérifiez les paramètres du fournisseur distant.");
             var connection = Remote.ToConnection();
             connection.Name = name;
             await servers.TestRemoteAsync(connection, cancellationToken);
-            TempData["Message"] = $"Connexion SSH vers « {name} » opérationnelle.";
+            TempData["Message"] = connection.IsPineHosting
+                ? $"API Pine Hosting opérationnelle pour le serveur « {connection.ApiServerIdentifier} »."
+                : $"Connexion SSH vers « {name} » opérationnelle.";
         }
         catch (Exception exception) { TempData["Error"] = exception.Message; }
         return RedirectToPage(new { name });
@@ -517,7 +540,9 @@ public class IndexModel(
         try
         {
             await servers.StopAsync(name, cancellationToken);
-            TempData["Message"] = $"Serveur « {name} » sauvegardé puis arrêté proprement par RCON.";
+            TempData["Message"] = servers.Get(name).IsPineHosting
+                ? $"Serveur Pine « {name} » sauvegardé puis arrêté proprement via la console et l'API du fournisseur."
+                : $"Serveur « {name} » sauvegardé puis arrêté proprement par RCON.";
         }
         catch (Exception exception) { TempData["Error"] = exception.Message; }
         return RedirectToPage(new { name });
@@ -541,7 +566,9 @@ public class IndexModel(
         try
         {
             await servers.RestartViaRconAsync(name, cancellationToken);
-            TempData["Message"] = $"Serveur « {name} » sauvegardé puis commande quit envoyée par RCON. Le superviseur configuré doit relancer le processus Project Zomboid.";
+            TempData["Message"] = servers.Get(name).IsPineHosting
+                ? $"Serveur Pine « {name} » sauvegardé puis redémarré via l'API du fournisseur."
+                : $"Serveur « {name} » sauvegardé puis commande quit envoyée par RCON. Le superviseur configuré doit relancer le processus Project Zomboid.";
         }
         catch (Exception exception) { TempData["Error"] = exception.Message; }
         return RedirectToPage(new { name });
@@ -572,6 +599,76 @@ public class IndexModel(
     {
         rconConsole.Clear(name);
         TempData["Message"] = "Historique de la console RCON effacé.";
+        return RedirectToPage(new { name });
+    }
+
+    public async Task<IActionResult> OnPostCreatePineBackupAsync(string name, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var backup = await servers.CreatePineBackupAsync(name, cancellationToken: cancellationToken);
+            TempData["Message"] = $"Sauvegarde Pine « {backup.Name} » terminée et vérifiée ({FormatBytes(backup.Bytes)}).";
+        }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
+        return RedirectToPage(new { name });
+    }
+
+    public async Task<IActionResult> OnPostRestorePineBackupAsync(string name, string backupUuid, bool createSafetyBackup, bool confirmationAcknowledged, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!confirmationAcknowledged) throw new InvalidOperationException("Confirmez explicitement la restauration dans le dialogue du manager.");
+            await servers.RestorePineBackupAsync(name, backupUuid, createSafetyBackup, cancellationToken: cancellationToken);
+            TempData["Message"] = "Restauration transmise à Pine Hosting. Attendez sa finalisation dans le panel avant de redémarrer le serveur.";
+        }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
+        return RedirectToPage(new { name });
+    }
+
+    public async Task<IActionResult> OnPostLockPineBackupAsync(string name, string backupUuid, bool locked, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await servers.SetPineBackupLockAsync(name, backupUuid, locked, cancellationToken);
+            TempData["Message"] = locked ? "Sauvegarde Pine protégée contre la suppression." : "Verrou de la sauvegarde Pine retiré.";
+        }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
+        return RedirectToPage(new { name });
+    }
+
+    public async Task<IActionResult> OnPostDeletePineBackupAsync(string name, string backupUuid, bool confirmationAcknowledged, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!confirmationAcknowledged) throw new InvalidOperationException("Confirmez explicitement la suppression dans le dialogue du manager.");
+            await servers.DeletePineBackupAsync(name, backupUuid, cancellationToken);
+            TempData["Message"] = "Sauvegarde Pine supprimée.";
+        }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
+        return RedirectToPage(new { name });
+    }
+
+    public async Task<IActionResult> OnGetDownloadPineBackupAsync(string name, string backupUuid, CancellationToken cancellationToken)
+    {
+        try { return Redirect((await servers.GetPineBackupDownloadUriAsync(name, backupUuid, cancellationToken)).ToString()); }
+        catch (Exception exception)
+        {
+            TempData["Error"] = exception.Message;
+            return RedirectToPage(new { name });
+        }
+    }
+
+    public async Task<IActionResult> OnPostResetPineWorldAsync(string name, bool createSafetyBackup, bool confirmationAcknowledged, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!confirmationAcknowledged) throw new InvalidOperationException("Confirmez explicitement le fresh start dans le dialogue du manager.");
+            var result = await servers.ResetPineWorldAsync(name, createSafetyBackup, cancellationToken: cancellationToken);
+            TempData["Message"] = result.SafetyBackup is null
+                ? "Monde et base joueurs Pine retirés sans sauvegarde préalable."
+                : $"Fresh start Pine terminé après vérification de la sauvegarde « {result.SafetyBackup.Name} ».";
+        }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
         return RedirectToPage(new { name });
     }
 
@@ -908,13 +1005,17 @@ public class IndexModel(
     public sealed class RemoteServerForm
     {
         [Required, StringLength(64)] public string Name { get; set; } = string.Empty;
+        public RemoteServerProvider Provider { get; set; } = RemoteServerProvider.RconSsh;
+        [StringLength(255)] public string? ApiBaseUrl { get; set; } = PineHostingClient.DefaultApiBaseUrl;
+        [StringLength(512)] public string? ApiToken { get; set; }
+        [StringLength(128)] public string? ApiServerIdentifier { get; set; }
         [StringLength(255)] public string? Host { get; set; }
         [Range(1, 65535)] public int SshPort { get; set; } = 22;
         [StringLength(128)] public string? SshUser { get; set; }
         [StringLength(1024)] public string? SshPrivateKeyPath { get; set; }
         [StringLength(2048)] public string? RemoteIniPath { get; set; }
         [StringLength(2048)] public string? StartCommand { get; set; }
-        [Required, StringLength(255)] public string RconHost { get; set; } = string.Empty;
+        [StringLength(255)] public string? RconHost { get; set; }
         [Range(1, 65535)] public int RconPort { get; set; } = 27015;
         [StringLength(512)] public string? RconPassword { get; set; }
         public bool AutoRestartAfterRconQuit { get; set; } = true;
@@ -922,13 +1023,17 @@ public class IndexModel(
         public RemoteServerConnection ToConnection() => new()
         {
             Name = Name,
+            Provider = Provider,
+            ApiBaseUrl = ApiBaseUrl ?? PineHostingClient.DefaultApiBaseUrl,
+            ApiToken = ApiToken ?? string.Empty,
+            ApiServerIdentifier = ApiServerIdentifier ?? string.Empty,
             Host = Host ?? string.Empty,
             SshPort = SshPort,
             SshUser = SshUser ?? string.Empty,
             SshPrivateKeyPath = SshPrivateKeyPath ?? string.Empty,
             RemoteIniPath = RemoteIniPath ?? string.Empty,
             StartCommand = StartCommand ?? string.Empty,
-            RconHost = RconHost,
+            RconHost = RconHost ?? string.Empty,
             RconPort = RconPort,
             RconPassword = RconPassword ?? string.Empty,
             AutoRestartAfterRconQuit = AutoRestartAfterRconQuit
@@ -937,6 +1042,10 @@ public class IndexModel(
         public static RemoteServerForm From(RemoteServerConnection? connection) => connection is null ? new() : new()
         {
             Name = connection.Name,
+            Provider = connection.Provider,
+            ApiBaseUrl = connection.ApiBaseUrl,
+            ApiToken = string.Empty,
+            ApiServerIdentifier = connection.ApiServerIdentifier,
             Host = connection.Host,
             SshPort = connection.SshPort,
             SshUser = connection.SshUser,
@@ -949,4 +1058,12 @@ public class IndexModel(
             AutoRestartAfterRconQuit = connection.AutoRestartAfterRconQuit
         };
     }
+
+    public static string FormatBytes(long bytes) => bytes switch
+    {
+        >= 1_073_741_824 => $"{bytes / 1_073_741_824d:0.00} Gio",
+        >= 1_048_576 => $"{bytes / 1_048_576d:0.0} Mio",
+        >= 1024 => $"{bytes / 1024d:0.0} Kio",
+        _ => $"{bytes} o"
+    };
 }

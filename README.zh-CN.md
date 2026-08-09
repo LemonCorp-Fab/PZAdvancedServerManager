@@ -98,6 +98,8 @@ dotnet run --project src/PZAdvancedServerManager.Cli -- automation run --interva
 
 ## SteamCMD 与远程服务器
 
+Pine Hosting 现已作为独立 API 后端支持。只需 API 密钥和服务器 ID，即可在无需 SSH 的情况下复用统一的 INI、SandboxVars 与 Lua 编辑器、整合包部署、控制台、进程控制和供应商备份。恢复和全新开档要求服务器处于停止状态，并默认提供事前安全备份。详见 [Pine Hosting provider](docs/PINE-HOSTING.md)。
+
 Steam 密码和 Steam Guard 验证码只在当前请求中通过标准输入发送给 SteamCMD；PZASM 不会把它们放入命令行，也不会保存。SteamCMD 会在便携目录中保存自己的令牌供计划任务复用。如果会话过期或缺少验证信息，发布会立即停止并给出明确说明，不会在隐藏提示上无限等待。界面会实时显示输出，并可取消外部进程。
 
 远程配置可以仅使用 RCON：无需 SSH 即可获得已验证状态、命令控制台、`save`、`quit` 和发布协调。若 systemd、Docker、管理面板或托管服务会在 `quit` 后重新启动 Project Zomboid，PZASM 会先完成发布，再通过 RCON 请求正常重启。SSH 仅在需要读写远程 INI 或显式启动游戏进程时使用。PZASM 永远不会重启整个 VPS 或独立服务器。

@@ -15,7 +15,8 @@ public enum ServerRuntimeOrigin
     Unknown,
     LocalDedicated,
     LocalHostedSession,
-    RemoteRcon
+    RemoteRcon,
+    PineHostingApi
 }
 
 public sealed record ServerRuntimeInstance(

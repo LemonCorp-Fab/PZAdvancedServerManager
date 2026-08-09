@@ -67,6 +67,13 @@ public enum ServerConnectionKind
     Remote
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum RemoteServerProvider
+{
+    RconSsh,
+    PineHosting
+}
+
 public sealed class RemoteServerConnection
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -81,7 +88,22 @@ public sealed class RemoteServerConnection
     public int RconPort { get; set; } = 27015;
     public string RconPassword { get; set; } = string.Empty;
     public bool AutoRestartAfterRconQuit { get; set; } = true;
+    public RemoteServerProvider Provider { get; set; } = RemoteServerProvider.RconSsh;
+    public string ApiBaseUrl { get; set; } = "https://panel.pinehosting.com";
+    public string ApiToken { get; set; } = string.Empty;
+    public string ApiServerIdentifier { get; set; } = string.Empty;
+    public string ProviderServerName { get; set; } = string.Empty;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    [JsonIgnore]
+    public bool IsPineHosting => Provider == RemoteServerProvider.PineHosting;
+
+    [JsonIgnore]
+    public bool HasApiConnection =>
+        IsPineHosting &&
+        !string.IsNullOrWhiteSpace(ApiBaseUrl) &&
+        !string.IsNullOrWhiteSpace(ApiToken) &&
+        !string.IsNullOrWhiteSpace(ApiServerIdentifier);
 
     [JsonIgnore]
     public bool HasSshConnection =>
@@ -90,8 +112,12 @@ public sealed class RemoteServerConnection
 
     [JsonIgnore]
     public bool HasSshManagement =>
+        !IsPineHosting &&
         HasSshConnection &&
         !string.IsNullOrWhiteSpace(RemoteIniPath);
+
+    [JsonIgnore]
+    public bool HasConfigurationManagement => HasApiConnection || HasSshManagement;
 }
 
 public sealed record OperationProgress(string Phase, string Message, int? Current = null, int? Total = null);

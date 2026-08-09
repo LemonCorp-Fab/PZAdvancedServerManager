@@ -218,6 +218,10 @@ Local profiles have an explicit execution mode. **Hosted** profiles are started 
 
 An RCON-only profile can coordinate publication when systemd, Docker, a hosting panel, or another supervisor restarts Project Zomboid after `quit`: the upload completes first, then the manager sends `save` and `quit`. SSH is limited to optional remote INI transfer, connection testing, and an optional command that starts only the game process or service. It uses a private key or SSH agent in non-interactive mode. Host `reboot`, `shutdown`, and `poweroff` commands are rejected. The RCON secret is stored in local manager profile data for unattended operation, so that directory must be protected.
 
+Remote operations are selected through `RemoteServerBackendRouter`. `SshRconRemoteBackend` preserves the generic VPS behavior, while `PineHostingRemoteBackend` uses the Pine/Pterodactyl client API for files, resources, power, console commands, and backups. `ServerProfileService` continues to own parsing, validation, package application, offline policy, and read-after-write checks; provider implementations only supply transport and control primitives. This keeps the configuration UI and CLI behavior identical across local, SSH, and Pine profiles.
+
+Pine API requests are restricted to `https://panel.pinehosting.com`, use a per-request Bearer header, and validate every server, backup, and remote-path identifier. Configuration writes first create a timestamped provider-side copy and are accepted only after a successful readback. Fresh start deletes only the allowlisted Project Zomboid world and player-database targets after the optional locked safety backup has completed.
+
 ## Compatibility and conflict workbench
 
 The pack editor and server deployment view share a cached static analyzer. It reads effective Build 42 layouts (`common` plus the best compatible version folder), `require`, `loadAfter`, `loadBefore`, `incompatible`, duplicate Mod IDs, virtual Lua/script/asset paths, map dependencies, and overlapping `.lotheader` cells. Differing files are hashed only after a shared-path and file-size check; identical content is recorded as resolved information.

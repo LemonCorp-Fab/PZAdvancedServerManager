@@ -222,6 +222,8 @@ internal sealed class PzasmCli
                 profile.Kind,
                 profile.LocalMode,
                 profile.Location,
+                Provider = profile.Remote?.Provider,
+                PineServerId = profile.Remote?.ApiServerIdentifier,
                 SshHost = profile.Remote?.Host,
                 profile.Remote?.SshPort,
                 profile.Remote?.SshUser,
@@ -246,16 +248,24 @@ internal sealed class PzasmCli
             var existing = action == "configure-remote"
                 ? services.Servers.Get(name).Remote ?? throw new InvalidOperationException("configure-remote requires a remote server profile.")
                 : null;
+            var providerText = args.Get("provider") ?? existing?.Provider.ToString() ?? "RconSsh";
+            var provider = providerText.Equals("pine", StringComparison.OrdinalIgnoreCase)
+                ? RemoteServerProvider.PineHosting
+                : Enum.Parse<RemoteServerProvider>(providerText, true);
             var connection = new RemoteServerConnection
             {
                 Name = name,
+                Provider = provider,
+                ApiBaseUrl = PineHostingClient.DefaultApiBaseUrl,
+                ApiToken = ReadPineApiToken(args, existing?.ApiToken),
+                ApiServerIdentifier = args.Get("server-id") ?? existing?.ApiServerIdentifier ?? string.Empty,
                 Host = args.Get("ssh-host") ?? existing?.Host ?? string.Empty,
                 SshPort = args.GetInt("ssh-port") ?? existing?.SshPort ?? 22,
                 SshUser = args.Get("ssh-user") ?? existing?.SshUser ?? string.Empty,
                 SshPrivateKeyPath = args.Get("ssh-key") ?? existing?.SshPrivateKeyPath ?? string.Empty,
-                RemoteIniPath = args.Get("ini") ?? existing?.RemoteIniPath ?? string.Empty,
+                RemoteIniPath = args.Get("ini") ?? existing?.RemoteIniPath ?? (provider == RemoteServerProvider.PineHosting ? PineHostingClient.DefaultIniPath : string.Empty),
                 StartCommand = args.Get("start-command") ?? existing?.StartCommand ?? string.Empty,
-                RconHost = args.Get("rcon-host") ?? existing?.RconHost ?? throw new ArgumentException("Option --rcon-host requise."),
+                RconHost = args.Get("rcon-host") ?? existing?.RconHost ?? string.Empty,
                 RconPort = args.GetInt("rcon-port") ?? existing?.RconPort ?? 27015,
                 RconPassword = args.Get("rcon-password") ?? existing?.RconPassword ?? string.Empty,
                 AutoRestartAfterRconQuit = args.Has("no-auto-restart") ? false : args.Has("auto-restart") ? true : existing?.AutoRestartAfterRconQuit ?? true
@@ -263,12 +273,12 @@ internal sealed class PzasmCli
             if (action == "create-remote")
             {
                 var profile = await services.Servers.CreateRemoteAsync(connection, args.Has("create-config"));
-                Console.WriteLine($"Remote RCON profile created: {profile.Location}");
+                Console.WriteLine($"Remote {profile.Remote!.Provider} profile created: {profile.Location}");
             }
             else
             {
                 await services.Servers.UpdateRemoteAsync(connection);
-                Console.WriteLine($"Remote RCON profile updated: {name}");
+                Console.WriteLine($"Remote {connection.Provider} profile updated: {name}");
             }
             return 0;
         }
@@ -353,6 +363,16 @@ internal sealed class PzasmCli
                 }
             case "data-status":
                 {
+                    if (services.Servers.Get(name).IsPineHosting)
+                    {
+                        var server = await services.Servers.ReadPineServerAsync(name);
+                        var pineRuntime = await services.Servers.ReadRuntimeAsync(name);
+                        var providerBackups = await services.Servers.ListPineBackupsAsync(name);
+                        var pineResult = new { profile = name, provider = "PineHosting", server, pineRuntime.State, pineRuntime.IsRunning, backupCount = providerBackups.Count, backups = providerBackups };
+                        if (args.Has("json")) WriteJson(pineResult);
+                        else Console.WriteLine($"Pine: {server.Name} ({server.Identifier}) — {pineRuntime.State} — {providerBackups.Count}/{server.BackupLimit} sauvegarde(s)");
+                        return 0;
+                    }
                     var location = services.Servers.ResolveWorldDataLocation(name);
                     var status = services.WorldData.Inspect(location);
                     var adminAccount = services.WorldData.InspectInitialAdminAccount(location);
@@ -384,6 +404,15 @@ internal sealed class PzasmCli
                 }
             case "backups":
                 {
+                    if (services.Servers.Get(name).IsPineHosting)
+                    {
+                        var pineBackups = await services.Servers.ListPineBackupsAsync(name);
+                        if (args.Has("json")) WriteJson(pineBackups);
+                        else if (pineBackups.Count == 0) Console.WriteLine("Aucune sauvegarde Pine Hosting.");
+                        else foreach (var backup in pineBackups)
+                                Console.WriteLine($"{backup.Uuid}  {backup.CreatedAt:O}  {(backup.IsLocked ? "LOCKED" : ""),-8}  {ServerWorldDataStore.FormatBytes(backup.Bytes),10}  {backup.Name}");
+                        return 0;
+                    }
                     services.Servers.ResolveWorldDataLocation(name);
                     var backups = services.WorldData.List(name);
                     if (args.Has("json")) WriteJson(backups);
@@ -394,6 +423,13 @@ internal sealed class PzasmCli
                 }
             case "backup":
                 {
+                    if (services.Servers.Get(name).IsPineHosting)
+                    {
+                        var pineBackup = await services.Servers.CreatePineBackupAsync(name, args.Get("backup-name"), args.Has("lock"), args.Has("json") ? null : new CliOperationProgress());
+                        if (args.Has("json")) WriteJson(pineBackup);
+                        else Console.WriteLine($"Sauvegarde Pine créée : {pineBackup.Uuid} ({ServerWorldDataStore.FormatBytes(pineBackup.Bytes)})");
+                        return 0;
+                    }
                     await RequireServerOfflineAsync(services, name);
                     var location = services.Servers.ResolveWorldDataLocation(name);
                     var progress = args.Has("json") ? null : new CliOperationProgress();
@@ -405,6 +441,12 @@ internal sealed class PzasmCli
             case "restore":
                 {
                     if (!args.Has("yes")) return Fail("Restauration non exécutée. Ajoutez --yes pour confirmer le remplacement du monde et de la base de joueurs.", 3);
+                    if (services.Servers.Get(name).IsPineHosting)
+                    {
+                        await services.Servers.RestorePineBackupAsync(name, args.Require("backup"), !args.Has("no-backup"), args.Has("json") ? null : new CliOperationProgress());
+                        Console.WriteLine("Restauration Pine acceptée. Attendez sa finalisation avant de redémarrer le serveur.");
+                        return 0;
+                    }
                     await RequireServerOfflineAsync(services, name);
                     var location = services.Servers.ResolveWorldDataLocation(name);
                     var progress = args.Has("json") ? null : new CliOperationProgress();
@@ -421,6 +463,13 @@ internal sealed class PzasmCli
             case "reset-world":
                 {
                     if (!args.Has("yes")) return Fail("Remise à zéro non exécutée. Ajoutez --yes pour confirmer le fresh start du monde et des joueurs.", 3);
+                    if (services.Servers.Get(name).IsPineHosting)
+                    {
+                        var pineReset = await services.Servers.ResetPineWorldAsync(name, !args.Has("no-backup"), args.Has("json") ? null : new CliOperationProgress());
+                        if (args.Has("json")) WriteJson(pineReset);
+                        else Console.WriteLine(pineReset.SafetyBackup is null ? "Fresh start Pine terminé sans sauvegarde préalable." : $"Fresh start Pine terminé. Sauvegarde : {pineReset.SafetyBackup.Uuid}");
+                        return 0;
+                    }
                     await RequireServerOfflineAsync(services, name);
                     var location = services.Servers.ResolveWorldDataLocation(name);
                     var progress = args.Has("json") ? null : new CliOperationProgress();
@@ -434,12 +483,27 @@ internal sealed class PzasmCli
             case "delete-backup":
                 {
                     if (!args.Has("yes")) return Fail("Suppression non exécutée. Ajoutez --yes pour confirmer la suppression définitive de l'archive.", 3);
+                    if (services.Servers.Get(name).IsPineHosting)
+                    {
+                        await services.Servers.DeletePineBackupAsync(name, args.Require("backup"));
+                        Console.WriteLine("Sauvegarde Pine supprimée.");
+                        return 0;
+                    }
                     services.Servers.ResolveWorldDataLocation(name);
                     var backupId = args.Require("backup");
                     services.WorldData.Delete(name, backupId);
                     Console.WriteLine($"Sauvegarde supprimée : {backupId}");
                     return 0;
                 }
+            case "lock-backup":
+                if (!services.Servers.Get(name).IsPineHosting) return Fail("Le verrou fournisseur est disponible uniquement pour Pine Hosting.", 4);
+                await services.Servers.SetPineBackupLockAsync(name, args.Require("backup"), !args.Has("unlock"));
+                Console.WriteLine(args.Has("unlock") ? "Sauvegarde Pine déverrouillée." : "Sauvegarde Pine verrouillée.");
+                return 0;
+            case "download-backup":
+                if (!services.Servers.Get(name).IsPineHosting) return Fail("L'URL fournisseur est disponible uniquement pour Pine Hosting.", 4);
+                Console.WriteLine(await services.Servers.GetPineBackupDownloadUriAsync(name, args.Require("backup")));
+                return 0;
             default:
                 return Fail($"Sous-commande server inconnue : {action}");
         }
@@ -466,6 +530,23 @@ internal sealed class PzasmCli
         }
         var path = Path.GetFullPath(args.Require("admin-password-file"));
         if (!File.Exists(path)) throw new FileNotFoundException("Fichier de mot de passe administrateur introuvable.", path);
+        return File.ReadAllText(path).TrimEnd('\r', '\n');
+    }
+
+    private static string ReadPineApiToken(CliArguments args, string? existing)
+    {
+        var selected = new[] { "api-key", "api-key-file", "api-key-env" }.Where(args.Has).ToArray();
+        if (selected.Length > 1) throw new ArgumentException("Utilisez une seule source pour la clé API Pine.");
+        if (selected.Length == 0) return existing ?? string.Empty;
+        if (selected[0] == "api-key") return args.Require("api-key");
+        if (selected[0] == "api-key-env")
+        {
+            var variable = args.Require("api-key-env");
+            return Environment.GetEnvironmentVariable(variable)
+                ?? throw new InvalidOperationException($"La variable d'environnement {variable} n'est pas définie.");
+        }
+        var path = Path.GetFullPath(args.Require("api-key-file"));
+        if (!File.Exists(path)) throw new FileNotFoundException("Fichier de clé API Pine introuvable.", path);
         return File.ReadAllText(path).TrimEnd('\r', '\n');
     }
 
@@ -694,8 +775,9 @@ Chaque projet représente un pack global indépendant avec son propre Workshop I
   pzasm server list [--json]
   pzasm server create --name <profil> [--local-mode dedicated|hosted]
   pzasm server set-local-mode --name <profil> --local-mode dedicated|hosted
+  pzasm server create-remote --provider pine --name <profil> (--api-key <secret> | --api-key-file <fichier> | --api-key-env <variable>) --server-id <id> [--ini /.cache/Server/Zomboid.ini]
   pzasm server create-remote --name <profil> --rcon-host <host> --rcon-password <secret> [--rcon-port 27015] [--no-auto-restart] [--ssh-host <host> --ssh-user <user>] [--ini <path>] [--ssh-port 22] [--ssh-key <file>] [--start-command <command>] [--create-config]
-  pzasm server configure-remote --name <profil> [--rcon-host <host>] [--rcon-password <secret>] [--rcon-port 27015] [--auto-restart|--no-auto-restart] [--ssh-host <host> --ssh-user <user>] [--ini <path>] [--ssh-port 22] [--ssh-key <file>] [--start-command <command>]
+  pzasm server configure-remote --name <profil> [--provider pine --api-key <secret> --server-id <id>] [--rcon-host <host>] [--rcon-password <secret>] [--rcon-port 27015] [--auto-restart|--no-auto-restart] [--ssh-host <host> --ssh-user <user>] [--ini <path>] [--ssh-port 22] [--ssh-key <file>] [--start-command <command>]
   pzasm server delete-remote --name <profil> --yes
   pzasm server test-rcon --name <profil>
   pzasm server rcon --name <profil> --command <commande>
@@ -710,9 +792,11 @@ Chaque projet représente un pack global indépendant avec son propre Workshop I
   pzasm server data-status --name <profil> [--json]
   pzasm server backup --name <profil> [--json]
   pzasm server backups --name <profil> [--json]
-  pzasm server restore --name <profil> --backup <id> [--restore-config] --yes [--json]
+  pzasm server restore --name <profil> --backup <id> [--restore-config] [--no-backup] --yes [--json]
   pzasm server reset-world --name <profil> --yes [--no-backup] [--json]
   pzasm server delete-backup --name <profil> --backup <id> --yes
+  pzasm server lock-backup --name <profil-pine> --backup <uuid> [--unlock]
+  pzasm server download-backup --name <profil-pine> --backup <uuid>
   pzasm workshop search [--query <texte-ou-id>] [--sort trend|recent|subscribed|popular|relevance] [--tag <tag>] [--page 1] [--json]
   pzasm steamcmd status [--json]
   pzasm steamcmd install [--id <guid>] [--json]
@@ -768,7 +852,12 @@ internal sealed class CliServices
         var remoteStore = new RemoteServerConnectionStore(paths);
         var localStore = new LocalServerProfileStore(paths);
         var ssh = new SshRemoteServerService();
-        Servers = new ServerProfileService(paths, Environment, orchestration, remoteStore, localStore, ssh);
+        var pine = new PineHostingClient();
+        var remoteBackends = new RemoteServerBackendRouter([
+            new SshRconRemoteBackend(ssh, orchestration),
+            new PineHostingRemoteBackend(pine)
+        ]);
+        Servers = new ServerProfileService(paths, Environment, orchestration, remoteStore, localStore, remoteBackends, pine);
         WorldData = new ServerWorldDataStore(paths);
         var builder = new PackageBuildService(paths, Validator);
         WorkshopCatalog = new WorkshopCatalogService();

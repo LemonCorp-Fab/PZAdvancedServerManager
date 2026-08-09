@@ -57,14 +57,27 @@ public sealed partial class WorkshopCatalogService
 
     public async Task<IReadOnlyList<WorkshopCatalogItem>> GetDetailsAsync(IReadOnlyList<ulong> workshopIds, CancellationToken cancellationToken = default)
     {
-        var ids = workshopIds.Where(id => id != 0).Distinct().Take(50).ToArray();
+        var ids = workshopIds.Where(id => id != 0).Distinct().ToArray();
         if (ids.Length == 0) return [];
 
-        var values = new List<KeyValuePair<string, string>>(ids.Length + 1)
+        var batches = await Task.WhenAll(ids
+            .Chunk(50)
+            .Select(batch => GetDetailsBatchAsync(batch, cancellationToken)));
+        var byId = batches
+            .SelectMany(batch => batch)
+            .ToDictionary(item => item.WorkshopId);
+        return ids.Where(byId.ContainsKey).Select(id => byId[id]).ToArray();
+    }
+
+    private async Task<IReadOnlyList<WorkshopCatalogItem>> GetDetailsBatchAsync(IReadOnlyList<ulong> ids, CancellationToken cancellationToken)
+    {
+        if (ids.Count == 0) return [];
+
+        var values = new List<KeyValuePair<string, string>>(ids.Count + 1)
         {
-            new("itemcount", ids.Length.ToString(CultureInfo.InvariantCulture))
+            new("itemcount", ids.Count.ToString(CultureInfo.InvariantCulture))
         };
-        for (var index = 0; index < ids.Length; index++)
+        for (var index = 0; index < ids.Count; index++)
             values.Add(new($"publishedfileids[{index}]", ids[index].ToString(CultureInfo.InvariantCulture)));
 
         using var content = new FormUrlEncodedContent(values);

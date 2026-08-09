@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Text.RegularExpressions;
 using PZAdvancedServerManager.Core.Publishing;
 
 namespace PZAdvancedServerManager.Core.Tests;
@@ -36,6 +37,20 @@ public sealed class WorkshopCatalogTests
         Assert.Null(handler.LastBrowseUrl);
     }
 
+    [Fact]
+    public async Task DetailLookupBatchesLargePackWithoutDroppingWorkshopIds()
+    {
+        var handler = new BatchCatalogHandler();
+        var service = new WorkshopCatalogService(new HttpClient(handler));
+        var ids = Enumerable.Range(1, 121).Select(value => (ulong)value).ToArray();
+
+        var details = await service.GetDetailsAsync(ids);
+
+        Assert.Equal(121, details.Count);
+        Assert.Equal(ids, details.Select(item => item.WorkshopId));
+        Assert.Equal(3, handler.Requests);
+    }
+
     private sealed class CatalogHandler : HttpMessageHandler
     {
         public int Requests { get; private set; }
@@ -66,5 +81,25 @@ public sealed class WorkshopCatalogTests
         {
             Content = new StringContent(body, Encoding.UTF8, contentType)
         };
+    }
+
+    private sealed class BatchCatalogHandler : HttpMessageHandler
+    {
+        private int _requests;
+        public int Requests => _requests;
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _requests);
+            var body = await request.Content!.ReadAsStringAsync(cancellationToken);
+            var ids = Regex.Matches(body, @"publishedfileids%5B\d+%5D=(\d+)", RegexOptions.IgnoreCase)
+                .Select(match => match.Groups[1].Value)
+                .ToArray();
+            var items = string.Join(',', ids.Select(id => $"{{\"publishedfileid\":\"{id}\",\"result\":1,\"title\":\"Item {id}\",\"time_updated\":1700000000}}"));
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent($"{{\"response\":{{\"publishedfiledetails\":[{items}]}}}}", Encoding.UTF8, "application/json")
+            };
+        }
     }
 }

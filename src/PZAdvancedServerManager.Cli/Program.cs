@@ -767,13 +767,13 @@ internal sealed class CliServices
         Servers = new ServerProfileService(paths, Environment, orchestration, remoteStore, localStore, ssh);
         WorldData = new ServerWorldDataStore(paths);
         var builder = new PackageBuildService(paths, Validator);
-        SteamCmd = new SteamCmdService(Validator);
+        WorkshopCatalog = new WorkshopCatalogService();
+        SteamCmd = new SteamCmdService(Validator, WorkshopCatalog);
         MapPriority = new MapPriorityService();
         Lifecycle = new PackageLifecycleService(paths, Store, snapshots, builder, SteamCmd, Servers);
         Automation = new PackageAutomationService(paths, Store, Lifecycle);
         WorkshopImport = new WorkshopImportService(SteamCmd, discovery, Environment, Projects);
         SteamCmdInstaller = new SteamCmdInstaller(paths);
-        WorkshopCatalog = new WorkshopCatalogService();
     }
 
     public ApplicationPaths Paths { get; }

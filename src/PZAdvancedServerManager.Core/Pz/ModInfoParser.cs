@@ -1,13 +1,22 @@
+using System.Collections.Concurrent;
 using PZAdvancedServerManager.Core.Domain;
 
 namespace PZAdvancedServerManager.Core.Pz;
 
 public static class ModInfoParser
 {
+    private static readonly ConcurrentDictionary<string, CacheEntry> Cache = new(PathComparer);
+
     public static ModInfo Parse(string path)
     {
+        var fullPath = Path.GetFullPath(path);
+        var file = new FileInfo(fullPath);
+        if (!file.Exists) throw new FileNotFoundException("Le fichier mod.info est introuvable.", fullPath);
+        var stamp = new FileStamp(file.Length, file.LastWriteTimeUtc.Ticks);
+        if (Cache.TryGetValue(fullPath, out var cached) && cached.Stamp == stamp) return cached.Info;
+
         var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var rawLine in File.ReadLines(path))
+        foreach (var rawLine in File.ReadLines(fullPath))
         {
             var line = rawLine.Trim();
             if (line.Length == 0 || line.StartsWith('#') || line.StartsWith("//", StringComparison.Ordinal))
@@ -21,7 +30,7 @@ public static class ModInfoParser
         }
 
         values.TryGetValue("require", out var required);
-        return new ModInfo
+        var info = new ModInfo
         {
             Name = Get(values, "name"),
             Id = Get(values, "id"),
@@ -32,6 +41,8 @@ public static class ModInfoParser
             Required = SplitList(required),
             Properties = values
         };
+        Cache[fullPath] = new CacheEntry(stamp, info);
+        return info;
     }
 
     private static string Get(IReadOnlyDictionary<string, string> values, string key) =>
@@ -43,6 +54,11 @@ public static class ModInfoParser
     private static string[] SplitList(string? value) => string.IsNullOrWhiteSpace(value)
         ? []
         : value.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    private static StringComparer PathComparer => OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+
+    private readonly record struct FileStamp(long Length, long LastWriteTimeUtcTicks);
+    private sealed record CacheEntry(FileStamp Stamp, ModInfo Info);
 }
 
 public static class PzVersionSelector

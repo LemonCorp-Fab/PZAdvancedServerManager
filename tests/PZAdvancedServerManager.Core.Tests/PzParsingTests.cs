@@ -23,6 +23,58 @@ public sealed class PzParsingTests : IDisposable
     }
 
     [Fact]
+    public void ModInfoParserReusesUnchangedManifestAndInvalidatesChangedFile()
+    {
+        var path = Write("cached-mod.info", "name=First\nid=cached");
+
+        var first = ModInfoParser.Parse(path);
+        var cached = ModInfoParser.Parse(path);
+        Assert.Same(first, cached);
+
+        File.WriteAllText(path, "name=Second version\nid=cached");
+        File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddSeconds(2));
+        var updated = ModInfoParser.Parse(path);
+
+        Assert.NotSame(first, updated);
+        Assert.Equal("Second version", updated.Name);
+    }
+
+    [Fact]
+    public void ReadsOnlyInstalledWorkshopManifestStates()
+    {
+        const string manifest = """
+            "AppWorkshop"
+            {
+                "WorkshopItemsInstalled"
+                {
+                    "123"
+                    {
+                        "size" "456"
+                        "timeupdated" "1700000000"
+                        "manifest" "installed-manifest"
+                    }
+                }
+                "WorkshopItemDetails"
+                {
+                    "123"
+                    {
+                        "timeupdated" "1700000000"
+                        "manifest" "installed-manifest"
+                        "latest_manifest" "newer-remote-manifest"
+                    }
+                }
+            }
+            """;
+
+        var state = Assert.Single(SteamWorkshopManifestReader.Parse(manifest)).Value;
+
+        Assert.Equal(123UL, state.WorkshopId);
+        Assert.Equal("installed-manifest", state.ManifestId);
+        Assert.Equal(1700000000, state.TimeUpdated);
+        Assert.Equal(456, state.Size);
+    }
+
+    [Fact]
     public void ServerConfigPreservesCommentsAndUnknownKeys()
     {
         var path = Write("server.ini", "# comment\nUnknownOption=keep\nMods=one;two\n");

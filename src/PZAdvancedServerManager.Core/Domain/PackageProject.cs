@@ -94,6 +94,7 @@ public sealed class PackageModReference
     public string PinnedSourceRoot { get; set; } = string.Empty;
     public DateTimeOffset? PinnedAt { get; set; }
     public string PinnedContentHash { get; set; } = string.Empty;
+    public string SourceUpdateToken { get; set; } = string.Empty;
     public string Version { get; set; } = string.Empty;
     public string SelectedVersionFolder { get; set; } = string.Empty;
     public string SourceUrl { get; set; } = string.Empty;

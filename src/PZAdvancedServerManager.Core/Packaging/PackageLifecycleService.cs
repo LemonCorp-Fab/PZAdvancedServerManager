@@ -138,15 +138,25 @@ public sealed class PackageLifecycleService(
     {
         if (targets.Count == 0)
             return new SteamCmdResult(0, "Aucun mod n’est configuré pour la mise à jour globale.", string.Empty);
-        var refresh = await steamCmd.RefreshSourcesAsync(project, targets, cancellationToken, progress);
-        if (refresh.Success)
+        var refresh = await steamCmd.RefreshSourcesIncrementalAsync(project, targets, cancellationToken, progress);
+        if (refresh.SteamCmd.Success)
         {
-            progress?.Report(new OperationProgress("snapshot", "Inspection des mod.info et remplacement atomique des snapshots sélectionnés."));
-            foreach (var target in targets) RefreshMetadata(project, target);
-            snapshots.Update(project, targets);
+            var changedWorkshopIds = refresh.ChangedReferenceIds.ToHashSet();
+            var localTargets = targets.Where(target => target.WorkshopId == 0).ToArray();
+            var changedTargets = targets
+                .Where(target => changedWorkshopIds.Contains(target.Id) || target.WorkshopId == 0)
+                .DistinctBy(target => target.Id)
+                .ToArray();
+            progress?.Report(new OperationProgress(
+                "snapshot",
+                changedTargets.Length == 0
+                    ? "Aucun contenu n'a changé; les snapshots et mod.info existants sont conservés."
+                    : $"Mise à jour atomique de {changedTargets.Length} snapshot(s); les sources inchangées sont conservées."));
+            foreach (var target in localTargets) RefreshMetadata(project, target);
+            snapshots.Update(project, changedTargets);
             store.Save(project);
         }
-        return refresh;
+        return refresh.SteamCmd;
     }
 
     private static void RefreshMetadata(PackageProject project, PackageModReference reference)

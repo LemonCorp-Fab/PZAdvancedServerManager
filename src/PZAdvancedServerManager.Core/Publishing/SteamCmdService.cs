@@ -7,7 +7,7 @@ using PZAdvancedServerManager.Core.Pz;
 
 namespace PZAdvancedServerManager.Core.Publishing;
 
-public sealed class SteamCmdService(PackageValidator validator)
+public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogService catalog)
 {
     public async Task<SteamCmdResult> UpdateDedicatedServerAsync(
         string steamCmdPath,
@@ -70,28 +70,134 @@ public sealed class SteamCmdService(PackageValidator validator)
     }
 
     public async Task<SteamCmdResult> RefreshSourcesAsync(PackageProject project, CancellationToken cancellationToken = default, IProgress<OperationProgress>? progress = null)
-        => await RefreshSourcesAsync(project, project.Mods.Where(x => x.Enabled).ToArray(), cancellationToken, progress);
+        => (await RefreshSourcesIncrementalAsync(project, project.Mods.Where(x => x.Enabled).ToArray(), cancellationToken, progress)).SteamCmd;
 
     public async Task<SteamCmdResult> RefreshSourcesAsync(PackageProject project, IReadOnlyCollection<PackageModReference> references, CancellationToken cancellationToken = default, IProgress<OperationProgress>? progress = null)
+        => (await RefreshSourcesIncrementalAsync(project, references, cancellationToken, progress)).SteamCmd;
+
+    public async Task<SteamWorkshopRefreshResult> RefreshSourcesIncrementalAsync(PackageProject project, IReadOnlyCollection<PackageModReference> references, CancellationToken cancellationToken = default, IProgress<OperationProgress>? progress = null)
     {
         var targets = references.DistinctBy(x => x.Id).ToArray();
         var workshopIds = targets.Where(x => x.WorkshopId != 0).Select(x => x.WorkshopId).Distinct().ToArray();
-        if (workshopIds.Length == 0) return new SteamCmdResult(0, "Aucune source Workshop à actualiser.", string.Empty);
+        if (workshopIds.Length == 0)
+            return new SteamWorkshopRefreshResult(
+                new SteamCmdResult(0, "Aucune source Workshop à actualiser.", string.Empty),
+                [], 0, 0, 0, 0);
         ValidateExecutable(project.Automation.SteamCmdPath);
 
-        var login = ResolveDownloadLogin(project);
-        var arguments = new List<string> { "+login", login };
-        foreach (var id in workshopIds)
+        var steamCmdRoot = Path.GetDirectoryName(project.Automation.SteamCmdPath)!;
+        var workshopRoot = Path.Combine(steamCmdRoot, "steamapps", "workshop");
+        var contentRoot = Path.Combine(workshopRoot, "content", PzasmConstants.ProjectZomboidSteamAppId);
+        var manifestPath = Path.Combine(workshopRoot, $"appworkshop_{PzasmConstants.ProjectZomboidSteamAppId}.acf");
+        var installedBefore = SteamWorkshopManifestReader.Read(manifestPath);
+
+        progress?.Report(new OperationProgress("workshop-check", $"Contrôle groupé de {workshopIds.Length} Workshop item(s) auprès de Steam."));
+        Dictionary<ulong, long> remoteUpdateTimes;
+        try
         {
-            arguments.Add("+workshop_download_item");
-            arguments.Add(PzasmConstants.ProjectZomboidSteamAppId);
-            arguments.Add(id.ToString());
-            arguments.Add("validate");
+            var details = await catalog.GetDetailsAsync(workshopIds, cancellationToken);
+            remoteUpdateTimes = details
+                .Where(item => item.UpdatedAt is not null)
+                .ToDictionary(item => item.WorkshopId, item => item.UpdatedAt!.Value.ToUnixTimeSeconds());
         }
-        arguments.Add("+quit");
-        var result = await RunAsync(project.Automation.SteamCmdPath, arguments, cancellationToken, progress: progress, timeout: TimeSpan.FromHours(1));
-        if (result.ExitCode == 0) RepointSourcesToSteamCmdCache(project, targets);
-        return result;
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            remoteUpdateTimes = [];
+            progress?.Report(new OperationProgress("workshop-check", $"Le contrôle groupé est indisponible ({exception.Message}). SteamCMD vérifiera tous les items dans une seule session."));
+        }
+
+        var pendingIds = workshopIds
+            .Where(id => !IsWorkshopItemCurrent(contentRoot, id, installedBefore, remoteUpdateTimes))
+            .ToArray();
+        var reusedCount = workshopIds.Length - pendingIds.Length;
+        progress?.Report(new OperationProgress("workshop-check", $"{reusedCount} item(s) déjà à jour; {pendingIds.Length} téléchargement(s) ou contrôle(s) SteamCMD requis."));
+
+        SteamCmdResult commandResult;
+        if (pendingIds.Length == 0)
+        {
+            commandResult = new SteamCmdResult(0, "Tous les Workshop items sont déjà à jour. SteamCMD n'a pas été lancé.", string.Empty);
+        }
+        else
+        {
+            var login = ResolveDownloadLogin(project);
+            var arguments = new List<string> { "+login", login };
+            foreach (var id in pendingIds)
+            {
+                arguments.Add("+workshop_download_item");
+                arguments.Add(PzasmConstants.ProjectZomboidSteamAppId);
+                arguments.Add(id.ToString());
+                if (installedBefore.ContainsKey(id) && !HasWorkshopContent(contentRoot, id)) arguments.Add("validate");
+            }
+            arguments.Add("+quit");
+            commandResult = await RunAsync(project.Automation.SteamCmdPath, arguments, cancellationToken, progress: progress, timeout: TimeSpan.FromHours(1));
+            if (!commandResult.Success)
+                return new SteamWorkshopRefreshResult(commandResult, [], workshopIds.Length, pendingIds.Length, reusedCount, 0);
+        }
+
+        var installedAfter = SteamWorkshopManifestReader.Read(manifestPath);
+        var unavailableIds = workshopIds
+            .Where(id => !installedAfter.TryGetValue(id, out var state) || string.IsNullOrWhiteSpace(state.ManifestId) || !HasWorkshopContent(contentRoot, id))
+            .ToArray();
+        if (unavailableIds.Length > 0)
+        {
+            var error = "SteamCMD n'a pas fourni de contenu exploitable pour les Workshop IDs : " + string.Join(", ", unavailableIds);
+            commandResult = new SteamCmdResult(-4, commandResult.StandardOutput, string.Join(Environment.NewLine, commandResult.StandardError, error));
+            return new SteamWorkshopRefreshResult(commandResult, [], workshopIds.Length, pendingIds.Length, reusedCount, 0);
+        }
+
+        var changedReferenceIds = new HashSet<Guid>();
+        var indexedItems = 0;
+        var missingMods = new List<string>();
+        foreach (var group in targets.Where(x => x.WorkshopId != 0).GroupBy(x => x.WorkshopId))
+        {
+            if (!installedAfter.TryGetValue(group.Key, out var state) || string.IsNullOrWhiteSpace(state.ManifestId)) continue;
+            var itemRoot = Path.Combine(contentRoot, group.Key.ToString());
+            if (!Directory.Exists(itemRoot)) continue;
+            var token = CreateSourceUpdateToken(state);
+            var referenceStates = group.ToDictionary(
+                reference => reference.Id,
+                reference => ClassifyReference(reference, token, state, itemRoot));
+            var needsIndex = referenceStates.Values.Any(status => status.RequiresIndex);
+            Dictionary<string, DiscoveredMod>? discoveredById = null;
+            if (needsIndex)
+            {
+                indexedItems++;
+                discoveredById = PzDiscoveryService
+                    .DiscoverWorkshopItemContent(itemRoot, group.Key, project.TargetPzVersion)
+                    .GroupBy(mod => mod.ModId, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(mods => mods.Key, mods => mods.First(), StringComparer.OrdinalIgnoreCase);
+            }
+
+            foreach (var reference in group)
+            {
+                var status = referenceStates[reference.Id];
+                if (status.RequiresSnapshot) changedReferenceIds.Add(reference.Id);
+                if (status.RequiresIndex)
+                {
+                    if (discoveredById is null || !discoveredById.TryGetValue(reference.ModId, out var discovered))
+                    {
+                        missingMods.Add($"{reference.ModId} (Workshop {reference.WorkshopId})");
+                        continue;
+                    }
+                    ApplyDiscoveredMod(reference, discovered);
+                }
+                reference.SourceUpdateToken = token;
+            }
+        }
+
+        if (missingMods.Count > 0)
+        {
+            var error = "Les Mod IDs suivants ne sont plus présents dans leur Workshop item : " + string.Join(", ", missingMods.Distinct(StringComparer.OrdinalIgnoreCase));
+            commandResult = new SteamCmdResult(-3, commandResult.StandardOutput, string.Join(Environment.NewLine, commandResult.StandardError, error));
+        }
+
+        var summary = $"Contrôle incrémental terminé : {workshopIds.Length} item(s) contrôlé(s), {reusedCount} réutilisé(s), {pendingIds.Length} transmis à SteamCMD, {indexedItems} réindexé(s), {changedReferenceIds.Count} snapshot(s) à remplacer.";
+        commandResult = new SteamCmdResult(
+            commandResult.ExitCode,
+            string.Join(Environment.NewLine, new[] { commandResult.StandardOutput, summary }.Where(value => !string.IsNullOrWhiteSpace(value))),
+            commandResult.StandardError,
+            commandResult.Interaction);
+        return new SteamWorkshopRefreshResult(commandResult, changedReferenceIds, workshopIds.Length, pendingIds.Length, reusedCount, indexedItems);
     }
 
     public async Task<SteamCmdResult> PublishAsync(PackageProject project, PackageBuildResult build, CancellationToken cancellationToken = default, IProgress<OperationProgress>? progress = null)
@@ -516,35 +622,80 @@ public sealed class SteamCmdService(PackageValidator validator)
             throw new InvalidOperationException("Le code Steam Guard doit contenir uniquement 4 à 12 lettres ou chiffres.");
     }
 
-    private static void RepointSourcesToSteamCmdCache(PackageProject project, IReadOnlyCollection<PackageModReference> references)
+    private static bool IsWorkshopItemCurrent(
+        string contentRoot,
+        ulong workshopId,
+        IReadOnlyDictionary<ulong, SteamWorkshopItemState> installed,
+        IReadOnlyDictionary<ulong, long> remoteUpdateTimes)
     {
-        var steamCmdRoot = Path.GetDirectoryName(project.Automation.SteamCmdPath)!;
-        var contentRoot = Path.Combine(steamCmdRoot, "steamapps", "workshop", "content", PzasmConstants.ProjectZomboidSteamAppId);
-        foreach (var reference in references.Where(x => x.WorkshopId != 0))
+        return remoteUpdateTimes.TryGetValue(workshopId, out var remoteUpdateTime) &&
+               installed.TryGetValue(workshopId, out var state) &&
+               !string.IsNullOrWhiteSpace(state.ManifestId) &&
+               state.TimeUpdated == remoteUpdateTime &&
+               HasWorkshopContent(contentRoot, workshopId);
+    }
+
+    private static bool HasWorkshopContent(string contentRoot, ulong workshopId)
+    {
+        var itemRoot = Path.Combine(contentRoot, workshopId.ToString());
+        return Directory.Exists(itemRoot) && Directory.EnumerateFileSystemEntries(itemRoot).Any();
+    }
+
+    private static string CreateSourceUpdateToken(SteamWorkshopItemState state) =>
+        $"steam-workshop:{state.WorkshopId}:{state.ManifestId}:{state.TimeUpdated}";
+
+    private static ReferenceRefreshStatus ClassifyReference(
+        PackageModReference reference,
+        string currentToken,
+        SteamWorkshopItemState state,
+        string itemRoot)
+    {
+        var sourceIsCurrentCache = Directory.Exists(reference.SourceModRoot) && IsPathWithin(reference.SourceModRoot, itemRoot);
+        var snapshotExists = Directory.Exists(reference.PinnedSourceRoot) && !string.IsNullOrWhiteSpace(reference.PinnedContentHash);
+        var tokenMatches = reference.SourceUpdateToken.Equals(currentToken, StringComparison.Ordinal);
+        var installedAt = state.TimeUpdated > 0 ? DateTimeOffset.FromUnixTimeSeconds(state.TimeUpdated) : DateTimeOffset.MaxValue;
+        var reusableLegacySnapshot = string.IsNullOrWhiteSpace(reference.SourceUpdateToken) &&
+                                     snapshotExists &&
+                                     sourceIsCurrentCache &&
+                                     reference.PinnedAt is not null &&
+                                     reference.PinnedAt.Value >= installedAt;
+        var sourceChanged = !tokenMatches && !reusableLegacySnapshot;
+        return new ReferenceRefreshStatus(
+            RequiresIndex: !sourceIsCurrentCache || sourceChanged,
+            RequiresSnapshot: !snapshotExists || sourceChanged);
+    }
+
+    private static bool IsPathWithin(string path, string parent)
+    {
+        try
         {
-            var modsRoot = Path.Combine(contentRoot, reference.WorkshopId.ToString(), "mods");
-            if (!Directory.Exists(modsRoot)) continue;
-            foreach (var candidate in Directory.EnumerateDirectories(modsRoot))
-            {
-                var manifest = PzVersionSelector.SelectManifest(candidate, project.TargetPzVersion, out var selected);
-                if (string.IsNullOrWhiteSpace(manifest)) continue;
-                var info = ModInfoParser.Parse(manifest);
-                if (!info.Id.Equals(reference.ModId, StringComparison.OrdinalIgnoreCase)) continue;
-                var previousAuthor = reference.Author;
-                reference.SourceModRoot = candidate;
-                reference.Name = string.IsNullOrWhiteSpace(info.Name) ? reference.Name : info.Name;
-                reference.Author = string.IsNullOrWhiteSpace(info.Author) ? reference.Author : info.Author;
-                reference.Version = info.Version;
-                reference.SelectedVersionFolder = selected;
-                reference.RequiredModIds = info.Required;
-                if (!string.IsNullOrWhiteSpace(reference.Author) &&
-                    (string.IsNullOrWhiteSpace(reference.Permission.RightsHolder) ||
-                     reference.Permission.Status == PermissionStatus.Unknown && reference.Permission.RightsHolder.Equals(previousAuthor, StringComparison.OrdinalIgnoreCase)))
-                    reference.Permission.RightsHolder = reference.Author;
-                break;
-            }
+            var relative = Path.GetRelativePath(Path.GetFullPath(parent), Path.GetFullPath(path));
+            return !Path.IsPathRooted(relative) && relative != ".." && !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal);
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
         }
     }
+
+    private static void ApplyDiscoveredMod(PackageModReference reference, DiscoveredMod discovered)
+    {
+        var previousAuthor = reference.Author;
+        reference.SourceModRoot = discovered.ModRoot;
+        reference.SourceFolderName = Path.GetFileName(Path.TrimEndingDirectorySeparator(discovered.ModRoot));
+        reference.Name = string.IsNullOrWhiteSpace(discovered.Name) ? reference.Name : discovered.Name;
+        reference.Author = string.IsNullOrWhiteSpace(discovered.Author) ? reference.Author : discovered.Author;
+        reference.Version = discovered.Version;
+        reference.SelectedVersionFolder = discovered.SelectedVersionFolder;
+        reference.RequiredModIds = discovered.RequiredModIds;
+        reference.MapFolders = discovered.MapFolders;
+        if (!string.IsNullOrWhiteSpace(reference.Author) &&
+            (string.IsNullOrWhiteSpace(reference.Permission.RightsHolder) ||
+             reference.Permission.Status == PermissionStatus.Unknown && reference.Permission.RightsHolder.Equals(previousAuthor, StringComparison.OrdinalIgnoreCase)))
+            reference.Permission.RightsHolder = reference.Author;
+    }
+
+    private readonly record struct ReferenceRefreshStatus(bool RequiresIndex, bool RequiresSnapshot);
 
     private static void ValidateExecutable(string path)
     {
@@ -618,6 +769,14 @@ public sealed record SteamCmdResult(int ExitCode, string StandardOutput, string 
     public bool Success => ExitCode == 0;
     public string CombinedOutput => string.Join(Environment.NewLine, new[] { StandardOutput, StandardError }.Where(x => !string.IsNullOrWhiteSpace(x)));
 }
+
+public sealed record SteamWorkshopRefreshResult(
+    SteamCmdResult SteamCmd,
+    IReadOnlyCollection<Guid> ChangedReferenceIds,
+    int CheckedWorkshopItems,
+    int SteamCmdWorkshopItems,
+    int ReusedWorkshopItems,
+    int IndexedWorkshopItems);
 
 public sealed class SteamCmdInteractionRequiredException(SteamCmdInteraction interaction, string message) : Exception(message)
 {

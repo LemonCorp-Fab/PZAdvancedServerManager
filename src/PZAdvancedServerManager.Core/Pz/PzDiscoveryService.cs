@@ -49,6 +49,9 @@ public sealed partial class PzDiscoveryService(ApplicationPaths paths)
     }
 
     public IReadOnlyList<DiscoveredMod> DiscoverWorkshopItem(string itemRoot, ulong workshopId, string targetVersion = PzasmConstants.DefaultTargetVersion)
+        => DiscoverWorkshopItemContent(itemRoot, workshopId, targetVersion);
+
+    public static IReadOnlyList<DiscoveredMod> DiscoverWorkshopItemContent(string itemRoot, ulong workshopId, string targetVersion = PzasmConstants.DefaultTargetVersion)
     {
         var modsRoot = Path.Combine(itemRoot, "mods");
         if (!Directory.Exists(modsRoot)) modsRoot = Path.Combine(itemRoot, "Contents", "mods");

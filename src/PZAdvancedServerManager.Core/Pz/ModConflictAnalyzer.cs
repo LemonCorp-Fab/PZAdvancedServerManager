@@ -442,7 +442,7 @@ public sealed class ModConflictAnalyzer(MapPriorityService mapPriority)
                 TypeLabel: group.Key.TypeLabel,
                 Risk: group.Key.Identical ? ModConflictRisk.Low : group.Key.Risk,
                 PrimaryEvidence: orderedPaths[0].VirtualPath,
-                Files: orderedPaths[0].Owners.Select(owner => new ModConflictFileEvidence(owner.Mod.Id, owner.Mod.ModId, orderedPaths[0].VirtualPath, owner.Path)).ToArray()));
+                Files: orderedPaths.SelectMany(path => path.Owners.Select(owner => new ModConflictFileEvidence(owner.Mod.Id, owner.Mod.ModId, path.VirtualPath, owner.Path))).ToArray()));
         }
         return compared;
     }

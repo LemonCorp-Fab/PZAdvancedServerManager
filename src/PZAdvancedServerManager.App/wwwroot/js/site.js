@@ -1314,5 +1314,108 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
         });
     });
 
+    document.querySelectorAll('[data-diff-workspace]').forEach(workspace => {
+        const modeButtons = Array.from(workspace.querySelectorAll('[data-diff-mode]'));
+        const panels = Array.from(workspace.querySelectorAll('[data-diff-panel]'));
+        const onlyChanges = workspace.querySelector('[data-diff-only-changes]');
+        const wrapLines = workspace.querySelector('[data-diff-wrap]');
+        const search = workspace.querySelector('[data-diff-search]');
+        const searchCount = workspace.querySelector('[data-diff-search-count]');
+        const currentChangeLabel = workspace.querySelector('[data-diff-current-change]');
+        const leftSelect = workspace.querySelector('[data-diff-left]');
+        const rightSelect = workspace.querySelector('[data-diff-right]');
+        const selectorForm = workspace.querySelector('[data-diff-selector-form]');
+        let activeMode = localStorage.getItem('pzasm-diff-mode') === 'unified' ? 'unified' : 'side';
+        let currentChange = 0;
+
+        const activePanel = () => panels.find(panel => panel.dataset.diffPanel === activeMode);
+        const rowsFor = panel => Array.from(panel?.querySelectorAll('[data-diff-row]') || []);
+        const changeRows = () => {
+            const seen = new Set();
+            return rowsFor(activePanel()).filter(row => {
+                const value = Number.parseInt(row.dataset.diffChange || '', 10);
+                if (!value || seen.has(value)) return false;
+                seen.add(value);
+                return true;
+            });
+        };
+        const applyContext = () => panels.forEach(panel => {
+            const rows = rowsFor(panel);
+            if (!onlyChanges?.checked) {
+                rows.forEach(row => row.classList.remove('context-hidden'));
+                return;
+            }
+            const changed = rows.map((row, index) => row.dataset.diffChange ? index : -1).filter(index => index >= 0);
+            rows.forEach((row, index) => row.classList.toggle('context-hidden', !changed.some(change => Math.abs(change - index) <= 3)));
+        });
+        const applySearch = () => {
+            const query = (search?.value || '').trim().toLocaleLowerCase();
+            let count = 0;
+            rowsFor(activePanel()).forEach(row => {
+                const matches = Boolean(query) && row.textContent.toLocaleLowerCase().includes(query);
+                row.classList.toggle('is-search-match', matches);
+                if (matches) count++;
+            });
+            if (searchCount) searchCount.textContent = query ? `${count} résultat(s)` : '';
+        };
+        const activateMode = mode => {
+            activeMode = mode === 'unified' ? 'unified' : 'side';
+            panels.forEach(panel => panel.hidden = panel.dataset.diffPanel !== activeMode);
+            modeButtons.forEach(button => button.classList.toggle('active', button.dataset.diffMode === activeMode));
+            localStorage.setItem('pzasm-diff-mode', activeMode);
+            currentChange = 0;
+            if (currentChangeLabel) currentChangeLabel.textContent = '0';
+            applySearch();
+        };
+        const navigateChange = direction => {
+            const rows = changeRows();
+            if (!rows.length) return;
+            currentChange = currentChange <= 0
+                ? direction > 0 ? 1 : rows.length
+                : ((currentChange - 1 + direction + rows.length) % rows.length) + 1;
+            panels.forEach(panel => rowsFor(panel).forEach(row => row.classList.remove('is-current-change')));
+            const target = rows[currentChange - 1];
+            const changeId = target.dataset.diffChange;
+            rowsFor(activePanel()).filter(row => row.dataset.diffChange === changeId).forEach(row => row.classList.add('is-current-change'));
+            target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+            if (currentChangeLabel) currentChangeLabel.textContent = String(currentChange);
+        };
+
+        modeButtons.forEach(button => button.addEventListener('click', () => activateMode(button.dataset.diffMode)));
+        onlyChanges?.addEventListener('change', applyContext);
+        wrapLines?.addEventListener('change', () => workspace.classList.toggle('wrap-lines', wrapLines.checked));
+        search?.addEventListener('input', applySearch);
+        search?.addEventListener('keydown', event => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            const matches = rowsFor(activePanel()).filter(row => row.classList.contains('is-search-match'));
+            if (!matches.length) return;
+            const current = matches.findIndex(row => row.classList.contains('is-current-search'));
+            matches.forEach(row => row.classList.remove('is-current-search'));
+            const target = matches[(current + 1) % matches.length];
+            target.classList.add('is-current-search');
+            target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+        });
+        workspace.querySelector('[data-diff-previous]')?.addEventListener('click', () => navigateChange(-1));
+        workspace.querySelector('[data-diff-next]')?.addEventListener('click', () => navigateChange(1));
+        workspace.querySelector('[data-diff-swap]')?.addEventListener('click', () => {
+            if (!leftSelect || !rightSelect || !selectorForm) return;
+            [leftSelect.value, rightSelect.value] = [rightSelect.value, leftSelect.value];
+            selectorForm.requestSubmit();
+        });
+        [leftSelect, rightSelect].forEach(select => select?.addEventListener('change', () => {
+            if (!leftSelect || !rightSelect || leftSelect.value !== rightSelect.value) return;
+            const alternative = Array.from(rightSelect.options).find(option => option.value !== leftSelect.value);
+            if (alternative) rightSelect.value = alternative.value;
+        }));
+        document.addEventListener('keydown', event => {
+            if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement || event.target instanceof HTMLTextAreaElement) return;
+            if (event.key === ']' || event.key === 'j') navigateChange(1);
+            if (event.key === '[' || event.key === 'k') navigateChange(-1);
+        });
+        activateMode(activeMode);
+        applyContext();
+    });
+
     window.addEventListener('pageshow', resetLoading);
 })();

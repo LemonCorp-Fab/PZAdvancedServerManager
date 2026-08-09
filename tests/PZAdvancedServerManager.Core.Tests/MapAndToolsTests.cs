@@ -57,6 +57,8 @@ public sealed class MapAndToolsTests : IDisposable
         var libraryRoot = CreateConflictMod("library", "library", "return 'library'");
         WriteConflictFile(appRoot, Path.Combine("lua", "shared", "Translate", "FR", "UI.json"), "{\"UI_Test\":\"Application\"}");
         WriteConflictFile(libraryRoot, Path.Combine("lua", "shared", "Translate", "FR", "UI.json"), "{\"UI_Test\":\"Library\"}");
+        WriteConflictFile(appRoot, Path.Combine("lua", "shared", "Translate", "FR", "Tooltip.json"), "{\"Tooltip_Test\":\"Application\"}");
+        WriteConflictFile(libraryRoot, Path.Combine("lua", "shared", "Translate", "FR", "Tooltip.json"), "{\"Tooltip_Test\":\"Library\"}");
         var legacyRoot = Path.Combine(_root, "legacy");
         Directory.CreateDirectory(Path.Combine(legacyRoot, "media", "lua", "client"));
         File.WriteAllText(Path.Combine(legacyRoot, "mod.info"), "name=Legacy\nid=legacy\n");
@@ -74,12 +76,53 @@ public sealed class MapAndToolsTests : IDisposable
         var translationConflict = Assert.Single(analysis.Issues, issue => issue.Code == "FILE_COLLISION" && issue.EffectiveTypeLabel == "Traductions");
         Assert.Equal(ModConflictRisk.Low, translationConflict.Risk);
         Assert.Equal(ModConflictSeverity.Information, translationConflict.Severity);
-        Assert.Equal("lua/shared/translate/fr/ui.json", translationConflict.PrimaryEvidence);
-        Assert.Equal(2, translationConflict.FileEvidence.Count);
+        Assert.Equal("lua/shared/translate/fr/tooltip.json", translationConflict.PrimaryEvidence);
+        Assert.Equal(4, translationConflict.FileEvidence.Count);
+        Assert.Equal(2, translationConflict.FileEvidence.Select(evidence => evidence.VirtualPath).Distinct(StringComparer.OrdinalIgnoreCase).Count());
         Assert.All(translationConflict.FileEvidence, evidence => Assert.True(File.Exists(evidence.PhysicalPath)));
         Assert.Contains(analysis.TypeSummaries, summary => summary.TypeLabel == "Traductions" && summary.Risk == ModConflictRisk.Low && summary.Information == 1);
         Assert.Equal(library.Id, analysis.RecommendedModOrder[0]);
         Assert.Contains(analysis.Issues, issue => issue.Code == "MOD_ORDER");
+    }
+
+    [Fact]
+    public void TextConflictDiff_AlignsChangesAndHighlightsModifiedSegments()
+    {
+        var left = Path.Combine(_root, "left.lua");
+        var right = Path.Combine(_root, "right.lua");
+        Directory.CreateDirectory(_root);
+        File.WriteAllText(left, "start\nvalue = one\nkeep\nremoved\nend");
+        File.WriteAllText(right, "start\nvalue = two\nkeep\nadded-a\nadded-b\nend");
+
+        var diff = new TextConflictDiffService().Compare(left, right);
+
+        Assert.Equal(2, diff.ChangeCount);
+        Assert.Equal(2, diff.ModifiedLines);
+        Assert.Equal(1, diff.AddedLines);
+        Assert.Equal(0, diff.RemovedLines);
+        var valueChange = Assert.Single(diff.Rows, row => row.Left?.Text == "value = one" && row.Right?.Text == "value = two");
+        Assert.Equal("value = ", valueChange.Left!.Prefix);
+        Assert.Equal("one", valueChange.Left.Changed);
+        Assert.Equal("two", valueChange.Right!.Changed);
+        Assert.False(diff.UsedFallback);
+    }
+
+    [Fact]
+    public void TextConflictDiff_CanIgnoreWhitespaceAndRejectsBinaryTextExtensions()
+    {
+        var left = Path.Combine(_root, "spacing.txt");
+        var right = Path.Combine(_root, "spacing-other.txt");
+        var binary = Path.Combine(_root, "binary.txt");
+        Directory.CreateDirectory(_root);
+        File.WriteAllText(left, "value = 1\n");
+        File.WriteAllText(right, "  value   =   1  \n");
+        File.WriteAllBytes(binary, [0, 1, 2, 3]);
+        var service = new TextConflictDiffService();
+
+        var diff = service.Compare(left, right, ignoreWhitespace: true);
+
+        Assert.Equal(0, diff.ChangeCount);
+        Assert.Throws<InvalidDataException>(() => service.Compare(left, binary));
     }
 
     [Fact]

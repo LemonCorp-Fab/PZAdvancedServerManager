@@ -423,6 +423,16 @@
                         _ => "Critique"
                     };
                     var primaryFileFormId = $"open-conflict-file-{Model.ConflictPage}-{issueIndex}-0";
+                    var comparableTextPaths = issue.FileEvidence
+                        .Where(file => TextConflictDiffService.IsSupportedPath(file.PhysicalPath)
+                            && System.IO.File.Exists(file.PhysicalPath)
+                            && new FileInfo(file.PhysicalPath).Length <= TextConflictDiffService.MaximumFileBytes)
+                        .GroupBy(file => file.VirtualPath, StringComparer.OrdinalIgnoreCase)
+                        .Count(group => group.Select(file => file.ModReferenceId).Distinct().Count() >= 2);
+                    var primaryFileEntries = issue.FileEvidence
+                        .Select((file, index) => (File: file, Index: index))
+                        .Where(entry => entry.File.VirtualPath.Equals(issue.PrimaryEvidence, StringComparison.OrdinalIgnoreCase))
+                        .ToArray();
                     <details class="conflict-issue severity-@issue.Severity.ToString().ToLowerInvariant() risk-@issue.Risk.ToString().ToLowerInvariant() @(issue.IsResolved ? "is-resolved" : "")" open="@(issue.Severity == ModConflictSeverity.Error && !issue.IsResolved ? "open" : null)">
                         <summary>
                             <span class="conflict-severity-mark">@(issue.IsResolved ? "✓" : issue.Severity == ModConflictSeverity.Error ? "!" : issue.Severity == ModConflictSeverity.Warning ? "△" : "i")</span>
@@ -437,7 +447,11 @@
                             <span class="conflict-summary-actions">
                                 <span class="conflict-risk-badge">Risque @riskLabel</span>
                                 <span class="conflict-participant-count">@issue.ModIds.Count mod(s)</span>
-                                @if (issue.FileEvidence.Count > 0)
+                                @if (comparableTextPaths > 0)
+                                {
+                                    <a class="button primary compact conflict-diff-header" asp-page="/Projects/ConflictDiff" asp-route-id="@Model.Project.Id" asp-route-conflictKey="@issue.Key" data-summary-action>Voir le diff</a>
+                                }
+                                @if (primaryFileEntries.Length > 0)
                                 {
                                     <button class="button secondary compact conflict-open-header" type="submit" form="@primaryFileFormId" data-summary-action>Ouvrir le fichier</button>
                                 }
@@ -453,13 +467,14 @@
                             {
                                 <details class="conflict-evidence"><summary>Afficher les preuves (@issue.Evidence.Count)</summary><div>@foreach (var evidence in issue.Evidence) { if (!string.IsNullOrWhiteSpace(evidence)) { <code>@evidence</code> } }</div></details>
                             }
-                            @if (issue.FileEvidence.Count > 0)
+                            @if (primaryFileEntries.Length > 0)
                             {
                                 <div class="conflict-file-locations">
                                     <span><strong>Copies physiques du fichier en conflit</strong><small>Ouvrez chaque version pour comparer le contenu exact fourni par les mods.</small></span>
-                                    @for (var fileIndex = 0; fileIndex < issue.FileEvidence.Count; fileIndex++)
+                                    @foreach (var entry in primaryFileEntries)
                                     {
-                                        var file = issue.FileEvidence[fileIndex];
+                                        var file = entry.File;
+                                        var fileIndex = entry.Index;
                                         var formId = $"open-conflict-file-{Model.ConflictPage}-{issueIndex}-{fileIndex}";
                                         <div class="conflict-file-location">
                                             <span><b>@file.ModId</b><code title="@file.PhysicalPath">@file.PhysicalPath</code></span>

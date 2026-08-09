@@ -1,0 +1,142 @@
+@page "{id:guid}"
+@model PZAdvancedServerManager.App.Pages.Projects.ConflictDiffModel
+@using PZAdvancedServerManager.Core.Pz
+@{
+    ViewData["Title"] = $"Diff — {Model.Conflict.EffectiveTypeLabel}";
+    var leftSource = Model.Source(Model.SelectedLeft);
+    var rightSource = Model.Source(Model.SelectedRight);
+    var riskLabel = Model.Conflict.Risk switch
+    {
+        ModConflictRisk.Low => "Faible",
+        ModConflictRisk.Moderate => "Modéré",
+        ModConflictRisk.High => "Élevé",
+        _ => "Critique"
+    };
+    static string FormatBytes(long bytes) => bytes >= 1024 * 1024 ? $"{bytes / (1024d * 1024):0.00} Mio" : $"{bytes / 1024d:0.0} Kio";
+}
+
+<section class="diff-page" data-diff-workspace>
+    <a class="back-link" asp-page="/Projects/Edit" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="all" asp-route-conflictType="@Model.Conflict.EffectiveTypeLabel" asp-fragment="conflict-workbench">← Retour au conflit</a>
+
+    <header class="diff-hero risk-@Model.Conflict.Risk.ToString().ToLowerInvariant()">
+        <div class="diff-hero-copy">
+            <span class="eyebrow">COMPARATEUR DE CONFLIT TEXTE</span>
+            <h1>@Model.Conflict.Title</h1>
+            <p>Comparez les copies exactes fournies par les mods sans modifier leurs snapshots. Les changements de contenu sont alignés ligne par ligne et surlignés dans la ligne.</p>
+            <div class="diff-proof"><span>PREUVE</span><code title="@Model.SelectedPath">@Model.SelectedPath</code></div>
+        </div>
+        <div class="diff-hero-badges">
+            <span>@Model.Conflict.EffectiveTypeLabel</span>
+            <span class="risk">Risque @riskLabel</span>
+            <span>@Model.Sources.Count copies texte</span>
+        </div>
+    </header>
+
+    <form method="get" class="diff-source-picker" data-diff-selector-form data-loading-title="Calcul du diff…" data-loading-detail="Lecture sécurisée des deux copies, alignement des lignes et calcul des changements.">
+        <input type="hidden" name="conflictKey" value="@Model.Conflict.Key" />
+        <label class="diff-path-picker">
+            <span>FICHIER VIRTUEL EN CONFLIT</span>
+            <select name="virtualPath" aria-label="Fichier conflictuel">
+                @foreach (var path in Model.Paths)
+                {
+                    <option value="@path.VirtualPath" selected="@(path.VirtualPath.Equals(Model.SelectedPath, StringComparison.OrdinalIgnoreCase) ? "selected" : null)">@path.VirtualPath · @path.Copies copies</option>
+                }
+            </select>
+            <small>@Model.Paths.Count fichier(s) texte comparable(s) dans ce diagnostic</small>
+        </label>
+        <label>
+            <span class="diff-side-label removed">VERSION A · BASE</span>
+            <select name="left" data-diff-left aria-label="Mod de gauche">
+                @foreach (var source in Model.Sources)
+                {
+                    <option value="@source.ModReferenceId" selected="@(source.ModReferenceId == Model.SelectedLeft ? "selected" : null)">@source.ModId</option>
+                }
+            </select>
+            <small title="@leftSource.PhysicalPath">@leftSource.PhysicalPath</small>
+        </label>
+        <button class="diff-swap-button" type="button" data-diff-swap aria-label="Inverser les versions" title="Inverser les versions">⇄</button>
+        <label>
+            <span class="diff-side-label added">VERSION B · COMPARAISON</span>
+            <select name="right" data-diff-right aria-label="Mod de droite">
+                @foreach (var source in Model.Sources)
+                {
+                    <option value="@source.ModReferenceId" selected="@(source.ModReferenceId == Model.SelectedRight ? "selected" : null)">@source.ModId</option>
+                }
+            </select>
+            <small title="@rightSource.PhysicalPath">@rightSource.PhysicalPath</small>
+        </label>
+        <label class="diff-ignore-option"><input type="checkbox" name="ignoreWhitespace" value="true" checked="@(Model.IgnoreWhitespace ? "checked" : null)" /><span><strong>Ignorer les espaces</strong><small>Compare l'indentation et les espaces comme équivalents.</small></span></label>
+        <button class="button primary" type="submit">Comparer ces versions</button>
+    </form>
+
+    <section class="diff-summary" aria-label="Résumé des changements">
+        <article><span class="diff-summary-mark modified">±</span><strong>@Model.Diff.ModifiedLines</strong><small>lignes modifiées</small></article>
+        <article><span class="diff-summary-mark added">+</span><strong>@Model.Diff.AddedLines</strong><small>lignes ajoutées</small></article>
+        <article><span class="diff-summary-mark removed">−</span><strong>@Model.Diff.RemovedLines</strong><small>lignes supprimées</small></article>
+        <article><span class="diff-summary-mark neutral">≡</span><strong>@Model.Diff.UnchangedLines</strong><small>lignes identiques</small></article>
+        <article class="diff-change-total"><span class="diff-summary-mark changes">Δ</span><strong>@Model.Diff.ChangeCount</strong><small>blocs de changements</small></article>
+    </section>
+
+    @if (Model.Diff.Left.Truncated || Model.Diff.Right.Truncated || Model.Diff.UsedFallback)
+    {
+        <div class="diff-analysis-notice">
+            <strong>Comparaison volumineuse</strong>
+            <span>@if (Model.Diff.Left.Truncated || Model.Diff.Right.Truncated) { <text>La vue est limitée aux @TextConflictDiffService.MaximumLines.ToString("N0") premières lignes de chaque fichier. </text> }@if (Model.Diff.UsedFallback) { <text>Un alignement borné a été utilisé pour garder l'interface réactive.</text> }</span>
+        </div>
+    }
+
+    <section class="diff-editor-shell">
+        <div class="diff-toolbar">
+            <div class="diff-view-switch" role="group" aria-label="Mode d'affichage">
+                <button class="active" type="button" data-diff-mode="side">Côte à côte</button>
+                <button type="button" data-diff-mode="unified">Vue unifiée</button>
+            </div>
+            <label class="diff-toolbar-toggle"><input type="checkbox" data-diff-only-changes /><span>Changements + contexte</span></label>
+            <label class="diff-toolbar-toggle"><input type="checkbox" data-diff-wrap /><span>Retour à la ligne</span></label>
+            <label class="diff-search"><span class="visually-hidden">Rechercher dans le diff</span><input type="search" placeholder="Rechercher dans les lignes…" data-diff-search /><small data-diff-search-count></small></label>
+            <div class="diff-change-navigation">
+                <button type="button" data-diff-previous title="Changement précédent">↑</button>
+                <span><strong data-diff-current-change>0</strong> / @Model.Diff.ChangeCount</span>
+                <button type="button" data-diff-next title="Changement suivant">↓</button>
+            </div>
+        </div>
+
+        <div class="diff-file-headings">
+            <div><span class="removed">A</span><strong>@leftSource.ModId</strong><small>@Model.Diff.Left.TotalLines.ToString("N0") lignes · @FormatBytes(Model.Diff.Left.Bytes) · @Model.Diff.Left.EncodingName</small></div>
+            <div><span class="added">B</span><strong>@rightSource.ModId</strong><small>@Model.Diff.Right.TotalLines.ToString("N0") lignes · @FormatBytes(Model.Diff.Right.Bytes) · @Model.Diff.Right.EncodingName</small></div>
+        </div>
+
+        <div class="diff-table diff-side-view" data-diff-panel="side">
+            @foreach (var row in Model.Diff.Rows)
+            {
+                <div class="diff-side-row @(row.ChangeIndex is null ? "is-unchanged" : "is-change")" data-diff-row data-diff-change="@row.ChangeIndex">
+                    <span class="diff-line-number">@(row.Left?.LineNumber?.ToString() ?? "")</span>
+                    <code class="diff-code kind-@(row.Left?.Kind.ToString().ToLowerInvariant() ?? "empty")">@if (row.Left is not null) { if (row.Left.Kind == TextDiffKind.Modified) { <span>@row.Left.Prefix</span><mark>@row.Left.Changed</mark><span>@row.Left.Suffix</span> } else { <span>@row.Left.Text</span> } }</code>
+                    <span class="diff-line-number">@(row.Right?.LineNumber?.ToString() ?? "")</span>
+                    <code class="diff-code kind-@(row.Right?.Kind.ToString().ToLowerInvariant() ?? "empty")">@if (row.Right is not null) { if (row.Right.Kind == TextDiffKind.Modified) { <span>@row.Right.Prefix</span><mark>@row.Right.Changed</mark><span>@row.Right.Suffix</span> } else { <span>@row.Right.Text</span> } }</code>
+                </div>
+            }
+        </div>
+
+        <div class="diff-table diff-unified-view" data-diff-panel="unified" hidden>
+            @foreach (var row in Model.Diff.Rows)
+            {
+                if (row.ChangeIndex is null && row.Left is not null)
+                {
+                    <div class="diff-unified-row is-unchanged" data-diff-row><span class="diff-line-number">@row.Left.LineNumber</span><span class="diff-line-number">@row.Right?.LineNumber</span><span class="diff-sign"> </span><code class="diff-code kind-unchanged"><span>@row.Left.Text</span></code></div>
+                }
+                else
+                {
+                    if (row.Left is not null)
+                    {
+                        <div class="diff-unified-row is-change" data-diff-row data-diff-change="@row.ChangeIndex"><span class="diff-line-number">@row.Left.LineNumber</span><span class="diff-line-number"></span><span class="diff-sign removed">−</span><code class="diff-code kind-removed">@if (row.Left.Kind == TextDiffKind.Modified) { <span>@row.Left.Prefix</span><mark>@row.Left.Changed</mark><span>@row.Left.Suffix</span> } else { <span>@row.Left.Text</span> }</code></div>
+                    }
+                    if (row.Right is not null)
+                    {
+                        <div class="diff-unified-row is-change" data-diff-row data-diff-change="@row.ChangeIndex"><span class="diff-line-number"></span><span class="diff-line-number">@row.Right.LineNumber</span><span class="diff-sign added">+</span><code class="diff-code kind-added">@if (row.Right.Kind == TextDiffKind.Modified) { <span>@row.Right.Prefix</span><mark>@row.Right.Changed</mark><span>@row.Right.Suffix</span> } else { <span>@row.Right.Text</span> }</code></div>
+                    }
+                }
+            }
+        </div>
+    </section>
+</section>

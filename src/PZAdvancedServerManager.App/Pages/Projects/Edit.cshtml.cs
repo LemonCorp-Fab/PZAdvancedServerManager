@@ -30,6 +30,8 @@ public class EditModel(
     public IReadOnlyList<DiscoveredMod> InstalledMods { get; private set; } = [];
     public PackageValidationResult Validation { get; private set; } = new();
     public string WorkshopDescription { get; private set; } = string.Empty;
+    public int WorkshopDescriptionUtf8Bytes { get; private set; }
+    public bool WorkshopDescriptionIsCompact { get; private set; }
     public IReadOnlyList<string> ServerConfigNames { get; private set; } = [];
     public MapOrderAnalysis MapAnalysis { get; private set; } = new([], []);
     public SteamCmdStatus SteamCmdStatus { get; private set; } = new(false, string.Empty, string.Empty, null, 0);
@@ -698,7 +700,10 @@ public class EditModel(
             project.Automation.SteamCmdPath = SteamCmdStatus.ExecutablePath;
         InstalledMods = environment.GetMods(project.TargetPzVersion, refresh);
         Validation = validator.Validate(project);
-        WorkshopDescription = WorkshopDescriptionGenerator.Generate(project);
+        var workshopDescription = WorkshopDescriptionGenerator.GenerateResult(project);
+        WorkshopDescription = workshopDescription.Text;
+        WorkshopDescriptionUtf8Bytes = workshopDescription.Utf8Bytes;
+        WorkshopDescriptionIsCompact = workshopDescription.IsCompact;
         ServerConfigNames = servers.List().Select(x => x.Name).ToList();
         MapAnalysis = mapPriority.Analyze(project);
         var preview = ResolvePreviewPath(project);

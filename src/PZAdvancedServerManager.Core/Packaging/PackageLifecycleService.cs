@@ -85,7 +85,7 @@ public sealed class PackageLifecycleService(
             if (serverWasRunning && !servers.CanCoordinateRestart(serverName))
                 throw new InvalidOperationException("Ce profil distant ne peut pas redémarrer Project Zomboid. Configurez une relance automatique après RCON quit ou une commande SSH de démarrage.");
             if (serverWasRunning)
-                progress?.Report(new OperationProgress("server", "Serveur coordonné détecté : il restera actif pendant toute la préparation et tout l'upload."));
+                progress?.Report(new OperationProgress("server-preflight", "Serveur coordonné détecté : il restera actif pendant toute la préparation et tout l'upload."));
         }
 
         progress?.Report(new OperationProgress("publish", "Connexion au compte éditeur et envoi incrémental vers Steam Workshop. Le serveur reste en ligne."));

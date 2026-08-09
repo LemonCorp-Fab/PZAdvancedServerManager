@@ -995,11 +995,33 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
         const controller = new AbortController();
         activeController = controller;
         const phaseIndexes = new Map();
+        const configuredPhaseIndexes = new Map();
+        const phaseMap = source.dataset.loadingPhaseMap || form.dataset.loadingPhaseMap || '';
+        phaseMap.split(',').forEach(entry => {
+            const separator = entry.lastIndexOf(':');
+            if (separator <= 0) return;
+            const phase = entry.slice(0, separator).trim();
+            const index = Number.parseInt(entry.slice(separator + 1).trim(), 10);
+            if (phase && Number.isInteger(index)) configuredPhaseIndexes.set(phase, index);
+        });
         let nextPhaseIndex = 0;
+        let latestPhaseIndex = 0;
         const update = record => {
             if (record.type === 'progress') {
-                if (!phaseIndexes.has(record.phase)) phaseIndexes.set(record.phase, Math.min(nextPhaseIndex++, Math.max(activeRows.size - 1, 0)));
-                markStep(phaseIndexes.get(record.phase), record.message);
+                const maximumIndex = Math.max(activeRows.size - 1, 0);
+                if (!phaseIndexes.has(record.phase)) {
+                    const configuredIndex = configuredPhaseIndexes.get(record.phase);
+                    const candidate = Number.isInteger(configuredIndex)
+                        ? configuredIndex
+                        : configuredPhaseIndexes.size > 0
+                            ? latestPhaseIndex
+                            : nextPhaseIndex++;
+                    latestPhaseIndex = Math.max(latestPhaseIndex, Math.min(candidate, maximumIndex));
+                    phaseIndexes.set(record.phase, latestPhaseIndex);
+                }
+                const targetIndex = Math.max(phaseIndexes.get(record.phase), latestPhaseIndex);
+                phaseIndexes.set(record.phase, targetIndex);
+                markStep(targetIndex, record.message);
                 if (record.phase === 'mobileapproval') showMobileApproval(form, button, record.message);
             } else if (record.type === 'done') {
                 overlay.classList.remove('requires-interaction', 'awaiting-mobile-approval');

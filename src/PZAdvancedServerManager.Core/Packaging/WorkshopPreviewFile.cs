@@ -4,14 +4,15 @@ namespace PZAdvancedServerManager.Core.Packaging;
 
 public static class WorkshopPreviewFile
 {
-    public const long MaximumBytes = 1024 * 1024;
+    public const long MinimumBytes = 16;
+    public const long MaximumBytes = 999_999;
 
     public static string Validate(string path)
     {
         if (!File.Exists(path)) throw new FileNotFoundException("L'image Workshop est introuvable.", path);
         var length = new FileInfo(path).Length;
-        if (length == 0) throw new InvalidDataException("L'image Workshop est vide.");
-        if (length > MaximumBytes) throw new InvalidDataException("L'image Workshop dépasse 1 Mio. Réduisez-la avant de construire le pack.");
+        if (length < MinimumBytes) throw new InvalidDataException("L'image Workshop est vide ou trop petite pour être acceptée par Steam.");
+        if (length > MaximumBytes) throw new InvalidDataException("L'image Workshop doit rester strictement inférieure à 1 Mo. Réduisez-la avant de construire le pack.");
 
         using var stream = File.OpenRead(path);
         Span<byte> header = stackalloc byte[32];

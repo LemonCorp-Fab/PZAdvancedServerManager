@@ -640,6 +640,21 @@
         ,['Outil indépendant — Project Zomboid et Steam appartiennent à leurs détenteurs respectifs.', 'Independent tool — Project Zomboid and Steam belong to their respective owners.', 'Herramienta independiente: Project Zomboid y Steam pertenecen a sus respectivos propietarios.', 'Unabhängiges Werkzeug — Project Zomboid und Steam gehören ihren jeweiligen Rechteinhabern.', 'Ferramenta independente — Project Zomboid e Steam pertencem aos seus respectivos proprietários.', '独立工具——Project Zomboid 与 Steam 的权利归各自所有者。']
     ];
 
+    rows.push(
+        ['Mode compact exhaustif', 'Exhaustive compact mode', 'Modo compacto exhaustivo', 'Vollständiger Kompaktmodus', 'Modo compacto completo', '完整紧凑模式'],
+        ['Prévalidation des limites, calcul du manifeste, envoi différentiel Steam et coordination post-publication éventuelle.', 'Limit preflight, manifest calculation, differential Steam upload, and optional post-publication coordination.', 'Prevalidación de límites, cálculo del manifiesto, subida diferencial a Steam y coordinación posterior opcional.', 'Grenzwerte vorprüfen, Manifest berechnen, differenziell zu Steam hochladen und optional danach koordinieren.', 'Pré-validação de limites, cálculo do manifesto, envio diferencial à Steam e coordenação posterior opcional.', '预先验证限制、计算清单、差异上传至 Steam，并可在发布后协调服务器。'],
+        ['Validation et construction', 'Validation and build', 'Validación y construcción', 'Validierung und Build', 'Validação e build', '验证并构建'],
+        ['Prévalidation des limites Steam', 'Steam limit preflight', 'Prevalidación de límites de Steam', 'Steam-Grenzwerte vorprüfen', 'Pré-validação dos limites da Steam', '预先验证 Steam 限制'],
+        ['Inventaire des fichiers', 'File inventory', 'Inventario de archivos', 'Dateiinventar', 'Inventário de arquivos', '文件清单'],
+        ['Calcul du manifeste et du delta', 'Manifest and delta calculation', 'Cálculo del manifiesto y del delta', 'Manifest- und Delta-Berechnung', 'Cálculo do manifesto e do delta', '计算清单与差异'],
+        ['Upload des chunks et de la preview', 'Chunk and preview upload', 'Subida de chunks y vista previa', 'Chunks und Vorschau hochladen', 'Envio dos chunks e da prévia', '上传数据块与预览图'],
+        ['Commit Workshop et confirmation', 'Workshop commit and confirmation', 'Commit y confirmación del Workshop', 'Workshop-Commit und Bestätigung', 'Commit e confirmação do Workshop', '提交并确认创意工坊更新'],
+        ['Délai de sécurité (minimum 5 min)', 'Safety delay (minimum 5 min)', 'Espera de seguridad (mínimo 5 min)', 'Sicherheitsfrist (mindestens 5 Min.)', 'Atraso de segurança (mínimo de 5 min)', '安全等待（至少 5 分钟）'],
+        ['Coordination du serveur', 'Server coordination', 'Coordinación del servidor', 'Serverkoordination', 'Coordenação do servidor', '服务器协调'],
+        ['Finalisation', 'Finalization', 'Finalización', 'Abschluss', 'Finalização', '完成'],
+        ['PNG, JPEG ou GIF valide, strictement inférieur à 1 Mo. Sans image, le manager injecte automatiquement la preview de marque affichée ici.', 'Valid PNG, JPEG, or GIF, strictly under 1 MB. Without an image, the manager automatically injects the branded preview shown here.', 'PNG, JPEG o GIF válido, estrictamente inferior a 1 MB. Sin imagen, el gestor inserta automáticamente la vista de marca mostrada aquí.', 'Gültiges PNG, JPEG oder GIF, strikt unter 1 MB. Ohne Bild fügt der Manager automatisch die hier gezeigte Markenvorschau ein.', 'PNG, JPEG ou GIF válido, estritamente abaixo de 1 MB. Sem imagem, o gerenciador insere automaticamente a prévia de marca exibida aqui.', '有效的 PNG、JPEG 或 GIF，必须严格小于 1 MB。若未提供图片，管理器会自动使用此处显示的品牌预览图。']
+    );
+
     const dictionaries = Object.fromEntries(languages.map((language, index) => [language, new Map(rows.map(row => [row[0], row[index]]))]));
     const textOriginals = new WeakMap();
     const attributeOriginals = new WeakMap();
@@ -652,6 +667,7 @@
         if (dictionary.has(value)) return dictionary.get(value);
         if (activeLanguage === 'fr') return value;
         const patterns = [
+            [/^([\d\s\u00a0]+) \/ 8 000 octets$/, ['$1 / 8,000 bytes', '$1 / 8.000 bytes', '$1 / 8.000 Byte', '$1 / 8.000 bytes', '$1 / 8,000 字节']],
             [/^(\d+) mod\(s\) sélectionné\(s\)$/, ['$1 mod(s) selected', '$1 mod(s) seleccionado(s)', '$1 Mod(s) ausgewählt', '$1 mod(s) selecionado(s)', '已选择 $1 个模组']],
             [/^(\d+) archive\(s\)$/, ['$1 archive(s)', '$1 copia(s)', '$1 Backup(s)', '$1 backup(s)', '$1 个备份']],
             [/^Page (\d+)$/, ['Page $1', 'Página $1', 'Seite $1', 'Página $1', '第 $1 页']],

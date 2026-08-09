@@ -444,7 +444,7 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
         string contentFingerprint,
         string previewToken) => Fingerprint(new
         {
-            engine = "incremental-build-v4",
+            engine = "incremental-build-v5",
             contentFingerprint,
             previewToken,
             project.PublishedWorkshopId,

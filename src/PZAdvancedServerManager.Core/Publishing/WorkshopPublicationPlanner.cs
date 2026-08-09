@@ -54,6 +54,12 @@ public static class WorkshopPublicationPlanner
             throw new FileNotFoundException("La preview Workshop du build est introuvable.", build.WorkshopPreviewPath);
 
         var description = NormalizeNewLines(WorkshopDescriptionGenerator.Generate(project));
+        var titleBytes = Encoding.UTF8.GetByteCount(project.Name);
+        var descriptionBytes = Encoding.UTF8.GetByteCount(description);
+        if (titleBytes > PzasmConstants.SteamWorkshopTitleMaximumUtf8Bytes)
+            throw new InvalidOperationException($"Le titre Workshop fait {titleBytes:N0} octets UTF-8; Steam en accepte au maximum {PzasmConstants.SteamWorkshopTitleMaximumUtf8Bytes:N0}.");
+        if (descriptionBytes >= PzasmConstants.SteamWorkshopDescriptionMaximumUtf8Bytes)
+            throw new InvalidOperationException($"La description Workshop fait {descriptionBytes:N0} octets UTF-8; Steam exige moins de {PzasmConstants.SteamWorkshopDescriptionMaximumUtf8Bytes:N0}.");
         var metadataFingerprint = Fingerprint(new
         {
             project.Name,

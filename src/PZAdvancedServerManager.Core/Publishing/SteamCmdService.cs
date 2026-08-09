@@ -259,13 +259,18 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
         {
             if (File.Exists(temporaryVdfPath)) File.Delete(temporaryVdfPath);
         }
+        progress?.Report(new OperationProgress("prevalidation", "Contrôle local des limites Steam, des chemins du build et de la preview avant tout calcul du manifeste."));
         ValidatePublishPayload(build, publishVdfPath, plan.IncludeContent, plan.IncludePreview);
+        progress?.Report(plan.IncludeContent
+            ? new OperationProgress("manifest-scan", "Prévalidation réussie. Steam peut maintenant inventorier le contenu et calculer le delta.")
+            : new OperationProgress("workshop-commit", "Prévalidation réussie. Aucun scan du contenu n'est requis pour cette mise à jour."));
 
         var workshopLogPath = GetWorkshopLogPath(project.Automation.SteamCmdPath);
         var workshopLogOffset = GetFileLength(workshopLogPath);
+        var depotBuildLogPath = GetDepotBuildLogPath(project.Automation.SteamCmdPath);
         var submittedAt = DateTimeOffset.UtcNow;
         var result = await RunAsync(project.Automation.SteamCmdPath,
-            ["+login", project.Automation.SteamUsername, "+workshop_build_item", publishVdfPath, "+quit"], cancellationToken, progress: progress, timeout: TimeSpan.FromHours(12));
+            ["+login", project.Automation.SteamUsername, "+workshop_build_item", publishVdfPath, "+quit"], cancellationToken, progress: progress, timeout: TimeSpan.FromHours(12), workshopBuildLogPath: depotBuildLogPath);
         var id = ApplyPublishedFileId(project, publishVdfPath);
         result = ValidateWorkshopSubmissionResult(result, id, ReadAppendedLog(workshopLogPath, workshopLogOffset));
         WorkshopRemoteState? confirmedRemote = null;
@@ -354,6 +359,9 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
         var vdf = File.ReadAllText(vdfPath);
         var mappedContent = ReadVdfString(vdf, "contentfolder");
         var mappedPreview = ReadVdfString(vdf, "previewfile");
+        var mappedTitle = ReadVdfString(vdf, "title");
+        var mappedDescription = ReadVdfString(vdf, "description");
+        var mappedVisibility = ReadVdfString(vdf, "visibility");
         var expectedContent = Path.GetFullPath(build.WorkshopContentRoot);
         var expectedPreview = Path.GetFullPath(build.WorkshopPreviewPath);
         var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
@@ -375,9 +383,29 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
                 !Path.GetFullPath(mappedPreview).Equals(expectedPreview, comparison) ||
                 !File.Exists(mappedPreview))
                 throw new InvalidOperationException($"Le previewfile du manifeste SteamCMD ne correspond pas au build actuel ou n’existe plus : {mappedPreview ?? "non renseigné"}. Reconstruisez le pack avant de publier.");
+            var previewBytes = new FileInfo(mappedPreview).Length;
+            if (previewBytes < WorkshopPreviewFile.MinimumBytes || previewBytes > WorkshopPreviewFile.MaximumBytes)
+                throw new InvalidOperationException($"La preview Workshop fait {previewBytes:N0} octets. Steam exige une image d'au moins {WorkshopPreviewFile.MinimumBytes} octets et strictement inférieure à 1 Mo.");
         }
         else if (!string.IsNullOrWhiteSpace(mappedPreview))
             throw new InvalidOperationException("Le manifeste différentiel contient une preview alors que son empreinte n'a pas changé.");
+
+        if (mappedTitle is not null)
+        {
+            var titleBytes = Encoding.UTF8.GetByteCount(mappedTitle);
+            if (string.IsNullOrWhiteSpace(mappedTitle))
+                throw new InvalidOperationException("Le titre Workshop est vide. La publication n'a pas été lancée.");
+            if (titleBytes > PzasmConstants.SteamWorkshopTitleMaximumUtf8Bytes)
+                throw new InvalidOperationException($"Le titre Workshop fait {titleBytes:N0} octets UTF-8; Steam en accepte au maximum {PzasmConstants.SteamWorkshopTitleMaximumUtf8Bytes:N0}. Raccourcissez le nom du pack avant de publier.");
+        }
+        if (mappedDescription is not null)
+        {
+            var descriptionBytes = Encoding.UTF8.GetByteCount(mappedDescription);
+            if (descriptionBytes >= PzasmConstants.SteamWorkshopDescriptionMaximumUtf8Bytes)
+                throw new InvalidOperationException($"La description Workshop fait {descriptionBytes:N0} octets UTF-8; Steam exige moins de {PzasmConstants.SteamWorkshopDescriptionMaximumUtf8Bytes:N0}. La publication a été arrêtée avant le calcul du manifeste.");
+        }
+        if (mappedVisibility is not null && (!int.TryParse(mappedVisibility, out var visibility) || visibility is < 0 or > 3))
+            throw new InvalidOperationException($"La visibilité Workshop '{mappedVisibility}' est invalide. La publication n'a pas été lancée.");
     }
 
     private async Task<WorkshopRemoteState?> WaitForRemoteConfirmationAsync(
@@ -413,24 +441,33 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
 
     public static SteamCmdResult ValidateWorkshopSubmissionResult(SteamCmdResult result, ulong workshopId, string workshopActivityLog)
     {
-        if (!result.Success) return result;
         var combined = string.Join('\n', result.StandardOutput, result.StandardError, workshopActivityLog);
         var escapedId = workshopId == 0 ? "\\d+" : Regex.Escape(workshopId.ToString());
+        var completion = Regex.Match(combined, $"Upload finished for workshop item\\s+{escapedId}\\s*:\\s*([^\\r\\n]+)", RegexOptions.IgnoreCase);
+        var completionFailure = completion.Success && !completion.Groups[1].Value.Trim().Equals("OK", StringComparison.OrdinalIgnoreCase);
         var explicitFailure = Regex.IsMatch(combined, $"Upload workshop item\\s+{escapedId}\\s+failed", RegexOptions.IgnoreCase) ||
+                              completionFailure ||
                               Regex.IsMatch(combined, "(?:ERROR!.*Failed to update workshop item|Update canceled:.*workshop|Build for workshop item has no content)", RegexOptions.IgnoreCase);
         var explicitSuccess = workshopId != 0 &&
                               (Regex.IsMatch(combined, $"Upload finished for workshop item\\s+{escapedId}\\s*:\\s*OK", RegexOptions.IgnoreCase) ||
                                Regex.IsMatch(combined, $"Success\\.\\s*(?:Published new Workshop item|Updated item)\\D*{escapedId}", RegexOptions.IgnoreCase));
-        if (explicitSuccess && !explicitFailure) return result;
+        if (result.Success && explicitSuccess && !explicitFailure) return result;
+        if (!result.Success && !explicitFailure) return result;
 
+        var invalidParameter = Regex.IsMatch(combined, "Invalid Parameter", RegexOptions.IgnoreCase);
         var reason = explicitFailure
-            ? "SteamCMD a signalé explicitement l'échec de l'envoi Workshop."
+            ? invalidParameter
+                ? "Steam a refusé un paramètre au commit final. Vérifiez en priorité les limites UTF-8 du titre et de la description, la visibilité et la preview; les nouvelles publications sont désormais prévalidées avant le scan."
+                : "SteamCMD a signalé explicitement l'échec de l'envoi Workshop."
             : "SteamCMD s'est fermé sans confirmation explicite de fin d'upload Workshop; l'opération reste non confirmée.";
         return new SteamCmdResult(-4, result.StandardOutput, string.Join(Environment.NewLine, result.StandardError, reason), result.Interaction);
     }
 
     private static string GetWorkshopLogPath(string steamCmdPath) =>
         Path.Combine(Path.GetDirectoryName(steamCmdPath) ?? string.Empty, "logs", "workshop_log.txt");
+
+    private static string GetDepotBuildLogPath(string steamCmdPath) =>
+        Path.Combine(Path.GetDirectoryName(steamCmdPath) ?? string.Empty, "workshopbuilds", $"depot_build_{PzasmConstants.ProjectZomboidSteamAppId}.log");
 
     private static long GetFileLength(string path)
     {
@@ -468,9 +505,58 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
     {
         var match = Regex.Match(vdf, $"\\\"{Regex.Escape(key)}\\\"\\s+\\\"((?:\\\\.|[^\\\"])*)\\\"", RegexOptions.IgnoreCase);
         if (!match.Success) return null;
-        return match.Groups[1].Value
-            .Replace("\\\\", "\\", StringComparison.Ordinal)
-            .Replace("\\\"", "\"", StringComparison.Ordinal);
+        return UnescapeVdfString(match.Groups[1].Value);
+    }
+
+    private static string UnescapeVdfString(string value)
+    {
+        var builder = new StringBuilder(value.Length);
+        for (var index = 0; index < value.Length; index++)
+        {
+            if (value[index] != '\\' || index + 1 >= value.Length)
+            {
+                builder.Append(value[index]);
+                continue;
+            }
+            index++;
+            builder.Append(value[index] switch
+            {
+                'n' => '\n',
+                'r' => '\r',
+                't' => '\t',
+                '\\' => '\\',
+                '"' => '"',
+                _ => value[index]
+            });
+        }
+        return builder.ToString();
+    }
+
+    public static OperationProgress? ParseWorkshopBuildProgress(string line)
+    {
+        if (line.Contains("Building file listing", StringComparison.OrdinalIgnoreCase))
+            return new OperationProgress("manifest-scan", "Inventaire des fichiers du package par Steam.");
+        var files = Regex.Match(line, "Found\\s+(\\d+)\\s+files\\s+\\(([^)]+)\\)", RegexOptions.IgnoreCase);
+        if (files.Success)
+            return new OperationProgress("manifest-scan", $"Inventaire terminé : {int.Parse(files.Groups[1].Value):N0} fichiers, {files.Groups[2].Value} à analyser.");
+        var baseline = Regex.Match(line, "Building depot\\s+\\d+,\\s+baseline manifest\\s+(\\d+)\\s+\\((\\d+) files\\)", RegexOptions.IgnoreCase);
+        if (baseline.Success)
+            return new OperationProgress("manifest-hash", $"Comparaison avec le manifeste Steam {baseline.Groups[1].Value} ({int.Parse(baseline.Groups[2].Value):N0} fichiers de référence).");
+        var chunks = Regex.Match(line, "Found\\s+(\\d+)\\s+new chunks\\s+\\(\\s*(\\d+)\\s+used previously\\s*\\).*?took\\s+(.+)$", RegexOptions.IgnoreCase);
+        if (chunks.Success)
+            return new OperationProgress("manifest-delta", $"Delta calculé en {chunks.Groups[3].Value.Trim()} : {int.Parse(chunks.Groups[1].Value):N0} chunks analysés, {int.Parse(chunks.Groups[2].Value):N0} déjà réutilisés.");
+        if (line.Contains("Summary:", StringComparison.OrdinalIgnoreCase))
+            return new OperationProgress("manifest-delta", Regex.Replace(line[(line.IndexOf("Summary:", StringComparison.OrdinalIgnoreCase) + 8)..].Trim(), "\\s+", " "));
+        var manifest = Regex.Match(line, "Uploading new manifest.+?([\\d,]+) bytes", RegexOptions.IgnoreCase);
+        if (manifest.Success)
+            return new OperationProgress("workshop-upload", $"Envoi du manifeste ({manifest.Groups[1].Value} octets).");
+        var upload = Regex.Match(line, "Uploading\\s+(\\d+)\\s+out of\\s+(\\d+)\\s+missing chunks", RegexOptions.IgnoreCase);
+        if (upload.Success)
+            return new OperationProgress("workshop-upload", $"Envoi des chunks absents : {upload.Groups[1].Value}/{upload.Groups[2].Value}.", int.Parse(upload.Groups[1].Value), int.Parse(upload.Groups[2].Value));
+        var success = Regex.Match(line, "Success! New manifestID\\s+(\\d+)\\s+created and\\s+(\\d+)\\s+new chunks uploaded", RegexOptions.IgnoreCase);
+        if (success.Success)
+            return new OperationProgress("workshop-upload", $"Manifeste {success.Groups[1].Value} créé; {int.Parse(success.Groups[2].Value):N0} nouveau(x) chunk(s) envoyé(s).");
+        return null;
     }
 
     private static async Task<SteamCmdResult> RunAsync(
@@ -480,7 +566,8 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
         SteamCredentials? credentials = null,
         IProgress<OperationProgress>? progress = null,
         TimeSpan? timeout = null,
-        string? authenticationUsername = null)
+        string? authenticationUsername = null,
+        string? workshopBuildLogPath = null)
     {
         var start = new ProcessStartInfo(executable)
         {
@@ -498,6 +585,7 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
         var connectionLogPath = Path.Combine(start.WorkingDirectory, "logs", "connection_log.txt");
         var consoleLogOffset = File.Exists(consoleLogPath) ? new FileInfo(consoleLogPath).Length : 0;
         var connectionLogOffset = File.Exists(connectionLogPath) ? new FileInfo(connectionLogPath).Length : 0;
+        var workshopBuildLogOffset = string.IsNullOrWhiteSpace(workshopBuildLogPath) ? 0 : GetFileLength(workshopBuildLogPath);
         using var process = new Process { StartInfo = start };
         process.Start();
         using var timeoutCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -516,6 +604,7 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
         var mobileApprovalPending = false;
         var mobileApprovalExpired = false;
         var lastMobileApprovalProgress = DateTimeOffset.MinValue;
+        var lastClassifiedProgress = string.Empty;
         var interaction = SteamCmdInteraction.None;
         string? interventionError = null;
 
@@ -552,7 +641,17 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
 
                 var message = Regex.Replace(chunk, "\\s+", " ").Trim();
                 if (exposeRawOutput && message.Length > 0 && !SteamCmdPromptClassifier.IsSecretPrompt(message))
-                    progress?.Report(new OperationProgress("steamcmd", message.Length <= 500 ? message : message[^500..]));
+                {
+                    var classified = ClassifySteamCmdProgress(promptWindow);
+                    var classificationKey = classified is null ? string.Empty : classified.Phase + "\n" + classified.Message;
+                    if (classified is not null && !classificationKey.Equals(lastClassifiedProgress, StringComparison.Ordinal))
+                    {
+                        lastClassifiedProgress = classificationKey;
+                        progress?.Report(classified);
+                    }
+                    else if (classified is null)
+                        progress?.Report(new OperationProgress("steamcmd", message.Length <= 500 ? message : message[^500..]));
+                }
 
                 if (!passwordSent && SteamCmdPromptClassifier.RequestsPassword(promptWindow))
                 {
@@ -680,6 +779,25 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
         var stderrTask = PumpAsync(process.StandardError, standardError);
         var consoleLogTask = TailLogAsync(consoleLogPath, consoleLogOffset, chunk => ObserveAsync(chunk, standardOutput), process, pumpCancellation.Token);
         var connectionLogTask = TailLogAsync(connectionLogPath, connectionLogOffset, chunk => ObserveAsync(chunk, null), process, pumpCancellation.Token);
+        var workshopProgressBuffer = new StringBuilder();
+        Task ObserveWorkshopBuildLogAsync(string chunk)
+        {
+            workshopProgressBuffer.Append(chunk);
+            while (true)
+            {
+                var text = workshopProgressBuffer.ToString();
+                var lineEnd = text.IndexOf('\n');
+                if (lineEnd < 0) break;
+                var line = text[..lineEnd].TrimEnd('\r');
+                workshopProgressBuffer.Remove(0, lineEnd + 1);
+                var parsed = ParseWorkshopBuildProgress(line);
+                if (parsed is not null) progress?.Report(parsed);
+            }
+            return Task.CompletedTask;
+        }
+        var workshopBuildLogTask = string.IsNullOrWhiteSpace(workshopBuildLogPath)
+            ? Task.CompletedTask
+            : TailLogAsync(workshopBuildLogPath, workshopBuildLogOffset, ObserveWorkshopBuildLogAsync, process, pumpCancellation.Token);
         var authenticationPromptTask = WatchAuthenticationPromptAsync();
         if (!string.IsNullOrWhiteSpace(authenticationUsername))
             progress?.Report(new OperationProgress("credentials", guardCodeBootstrap
@@ -694,7 +812,7 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
             if (!process.HasExited) process.Kill(entireProcessTree: true);
             await process.WaitForExitAsync(CancellationToken.None);
             pumpCancellation.Cancel();
-            try { await Task.WhenAll(stdoutTask, stderrTask, consoleLogTask, connectionLogTask, authenticationPromptTask); }
+            try { await Task.WhenAll(stdoutTask, stderrTask, consoleLogTask, connectionLogTask, workshopBuildLogTask, authenticationPromptTask); }
             catch (Exception exception) when (exception is OperationCanceledException or IOException) { }
             throw;
         }
@@ -705,8 +823,13 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
             interventionError = $"SteamCMD a dépassé le délai maximal de {(timeout ?? TimeSpan.FromMinutes(30)).TotalMinutes:N0} minutes et a été arrêté.";
         }
         pumpCancellation.Cancel();
-        try { await Task.WhenAll(stdoutTask, stderrTask, consoleLogTask, connectionLogTask, authenticationPromptTask); }
+        try { await Task.WhenAll(stdoutTask, stderrTask, consoleLogTask, connectionLogTask, workshopBuildLogTask, authenticationPromptTask); }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested && exception is (OperationCanceledException or IOException)) { }
+        if (workshopProgressBuffer.Length > 0)
+        {
+            var parsed = ParseWorkshopBuildProgress(workshopProgressBuffer.ToString());
+            if (parsed is not null) progress?.Report(parsed);
+        }
         if (!string.IsNullOrWhiteSpace(authenticationUsername) && !authenticationCompleted && interaction == SteamCmdInteraction.None && string.IsNullOrWhiteSpace(interventionError) && mobileApprovalPending)
         {
             interaction = SteamCmdInteraction.SteamGuardMobileApprovalExpired;
@@ -719,6 +842,19 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
         var error = standardError.ToString();
         if (!string.IsNullOrWhiteSpace(interventionError)) error = string.Join(Environment.NewLine, error, interventionError);
         return new SteamCmdResult(interventionError is null ? process.ExitCode : -1, standardOutput.ToString(), error, interaction);
+    }
+
+    private static OperationProgress? ClassifySteamCmdProgress(string message)
+    {
+        var candidates = new[]
+        {
+            (Index: message.LastIndexOf("Preparing update", StringComparison.OrdinalIgnoreCase), Progress: new OperationProgress("manifest-scan", "Steam prépare la comparaison du package avec le manifeste distant.")),
+            (Index: message.LastIndexOf("Uploading content", StringComparison.OrdinalIgnoreCase), Progress: new OperationProgress("workshop-upload", "Envoi du contenu différentiel vers Steam Workshop.")),
+            (Index: message.LastIndexOf("Uploading preview", StringComparison.OrdinalIgnoreCase), Progress: new OperationProgress("workshop-upload", "Envoi de la preview Workshop.")),
+            (Index: message.LastIndexOf("Committing update", StringComparison.OrdinalIgnoreCase), Progress: new OperationProgress("workshop-commit", "Validation finale des paramètres et rattachement du manifeste à l'item Workshop."))
+        };
+        var latest = candidates.Where(candidate => candidate.Index >= 0).OrderByDescending(candidate => candidate.Index).FirstOrDefault();
+        return latest.Index >= 0 ? latest.Progress : null;
     }
 
     private static async Task TailLogAsync(

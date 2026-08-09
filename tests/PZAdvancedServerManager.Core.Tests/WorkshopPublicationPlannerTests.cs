@@ -153,6 +153,36 @@ public sealed class WorkshopPublicationPlannerTests : IDisposable
     }
 
     [Fact]
+    public void OversizedDescriptionIsRejectedBeforeSteamCmd()
+    {
+        var build = CreateBuild();
+        var vdfPath = Path.Combine(build.BuildRoot, "oversized-description.vdf");
+        File.WriteAllText(vdfPath, $"\"workshopitem\"\n{{\n\"title\" \"Valid\"\n\"description\" \"{new string('x', PzasmConstants.SteamWorkshopDescriptionMaximumUtf8Bytes)}\"\n}}");
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            SteamCmdService.ValidatePublishPayload(build, vdfPath, requireContent: false, requirePreview: false));
+
+        Assert.Contains("avant le calcul du manifeste", exception.Message);
+    }
+
+    [Fact]
+    public void WorkshopBuildLogReportsConcreteManifestProgress()
+    {
+        var files = SteamCmdService.ParseWorkshopBuildProgress("[time]: Found 76719 files (10096 MB) for depot 108600");
+        var delta = SteamCmdService.ParseWorkshopBuildProgress("[time]: Found 46450 new chunks ( 60 used previously ) for depot 108600, took 2 minutes, 14 seconds");
+        var upload = SteamCmdService.ParseWorkshopBuildProgress("[time]: Uploading 4 out of 4 missing chunks.");
+
+        Assert.Equal("manifest-scan", files?.Phase);
+        Assert.Contains("76", files?.Message);
+        Assert.Contains("fichiers", files?.Message);
+        Assert.Equal("manifest-delta", delta?.Phase);
+        Assert.Contains("2 minutes, 14 seconds", delta?.Message);
+        Assert.Equal("workshop-upload", upload?.Phase);
+        Assert.Equal(4, upload?.Current);
+        Assert.Equal(4, upload?.Total);
+    }
+
+    [Fact]
     public void UnverifiedConfirmationCannotEnableFutureNoOp()
     {
         var (project, snapshot, remote) = ConfirmedState();
@@ -250,6 +280,20 @@ public sealed class WorkshopPublicationPlannerTests : IDisposable
     }
 
     [Fact]
+    public void InvalidParameterCompletionIsExplainedEvenWhenProcessFailed()
+    {
+        var processResult = new SteamCmdResult(1, "ERROR! Failed to update workshop item (Invalid Parameter)", string.Empty);
+
+        var result = SteamCmdService.ValidateWorkshopSubmissionResult(
+            processResult,
+            123456789,
+            "Upload finished for workshop item 123456789 : Invalid Parameter");
+
+        Assert.False(result.Success);
+        Assert.Contains("limites UTF-8", result.StandardError);
+    }
+
+    [Fact]
     public void ExactWorkshopUploadCompletionAcceptsExitZero()
     {
         var processResult = new SteamCmdResult(0, "Steam Console Client exited", string.Empty);
@@ -269,7 +313,7 @@ public sealed class WorkshopPublicationPlannerTests : IDisposable
         Directory.CreateDirectory(contents);
         File.WriteAllText(Path.Combine(contents, "payload.txt"), "payload");
         var preview = Path.Combine(buildRoot, "preview.png");
-        File.WriteAllText(preview, "preview");
+        File.WriteAllText(preview, new string('p', 32));
         return new PackageBuildResult
         {
             BuildRoot = buildRoot,

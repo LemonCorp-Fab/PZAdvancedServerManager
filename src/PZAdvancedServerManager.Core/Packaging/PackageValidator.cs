@@ -62,6 +62,9 @@ public sealed class PackageValidator
             if (!Directory.Exists(mod.PinnedSourceRoot))
                 result.Issues.Add(new("SOURCE_NOT_PINNED", $"La source de « {mod.Name} » sera figée dans le cache PZASM avant le prochain build.", false, mod.Id, ValidationScope.Warning));
 
+            if (!IsCompatibleWithTarget(buildSource, project.TargetPzVersion))
+                result.Issues.Add(new("B42_LEGACY", $"« {mod.Name} » ne fournit aucune version Build 42 compatible. Project Zomboid 42 ignore ses fichiers racine/legacy et signalera le Mod ID comme absent.", true, mod.Id));
+
             var pinnedValidationToken = Directory.Exists(mod.PinnedSourceRoot) ? mod.PinnedContentHash : string.Empty;
             if (string.IsNullOrWhiteSpace(pinnedValidationToken) ||
                 !pinnedValidationToken.Equals(mod.ValidatedContentHash, StringComparison.OrdinalIgnoreCase))
@@ -94,5 +97,20 @@ public sealed class PackageValidator
         }
 
         return result;
+    }
+
+    private static bool IsCompatibleWithTarget(string modRoot, string targetVersion)
+    {
+        if (!int.TryParse(targetVersion.Split('.', '-', '_').FirstOrDefault(), out var targetMajor) || targetMajor < 42) return true;
+        var manifest = PzVersionSelector.SelectManifest(modRoot, targetVersion, out var selectedFolder);
+        if (string.IsNullOrWhiteSpace(manifest)) return false;
+        if (int.TryParse(selectedFolder.Split('.', '-', '_').FirstOrDefault(), out var folderMajor) && folderMajor >= 42) return true;
+        var info = ModInfoParser.Parse(manifest);
+        foreach (var key in new[] { "pzversion", "versionMin", "versionMax" })
+        {
+            if (!info.Properties.TryGetValue(key, out var value)) continue;
+            if (int.TryParse(value.Trim().TrimStart('v', 'V').Split('.', '-', '_', ' ').FirstOrDefault(), out var major) && major >= 42) return true;
+        }
+        return false;
     }
 }

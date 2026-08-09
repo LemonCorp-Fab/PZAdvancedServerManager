@@ -36,6 +36,7 @@ builder.Services.AddSingleton<SteamCmdService>();
 builder.Services.AddSingleton<SteamCmdInstaller>();
 builder.Services.AddSingleton<WorkshopCatalogService>();
 builder.Services.AddSingleton<MapPriorityService>();
+builder.Services.AddSingleton<ModConflictAnalyzer>();
 builder.Services.AddSingleton<ServerOrchestrationService>();
 builder.Services.AddSingleton<RemoteServerConnectionStore>();
 builder.Services.AddSingleton<LocalServerProfileStore>();

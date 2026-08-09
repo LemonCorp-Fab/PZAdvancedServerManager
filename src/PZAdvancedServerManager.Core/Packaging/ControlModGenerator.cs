@@ -1,5 +1,6 @@
 using System.Text;
 using PZAdvancedServerManager.Core.Domain;
+using PZAdvancedServerManager.Core.Pz;
 
 namespace PZAdvancedServerManager.Core.Packaging;
 
@@ -27,7 +28,7 @@ public static class ControlModGenerator
     private static string CreateClient(PackageProject project)
     {
         var mods = string.Join(",\n", project.Mods.Where(x => x.Enabled).OrderBy(x => x.Order).ThenBy(x => x.Name).Select(x =>
-            $"    {{ id = {LuaString(x.ModId)}, name = {LuaString(x.Name)}, version = {LuaString(x.DisplayVersion)}, workshop = {LuaString(x.WorkshopId.ToString())}, localSource = {(x.WorkshopId == 0 ? "true" : "false")}, author = {LuaString(x.Author)} }}"));
+            $"    {{ id = {LuaString(x.ModId)}, name = {LuaString(x.Name)}, version = {LuaString(x.DisplayVersion)}, workshop = {LuaString(x.WorkshopId.ToString())}, localSource = {(x.WorkshopId == 0 ? "true" : "false")}, author = {LuaString(x.Author)}, profile = {LuaString(string.IsNullOrWhiteSpace(x.SelectedVersionFolder) ? "root / legacy" : x.SelectedVersionFolder)}, buildCompatible = {(IsBuildCompatible(project, x) ? "true" : "false")}, requires = {{ {string.Join(", ", x.RequiredModIds.Select(LuaString))} }} }}"));
         return $$"""
 require "ISUI/ISPanel"
 require "ISUI/ISScrollingListBox"
@@ -48,8 +49,17 @@ local PZASM_TEXT = {
     pt = { ready="Pronto", refresh="Atualizar", server="Estado servidor", broadcast="Divulgar estado do pack", close="Fechar", active="ATIVO", missing="AUSENTE", mods="mods ativos", localScan="verificação local concluída", requesting="Consultando servidor...", sending="Enviando anúncio...", denied="Permissão de administrador necessária", admin="FERRAMENTAS ADMIN", restart="Alterações de mods exigem reinício coordenado. Nenhum arquivo é recarregado a quente.", workshop="Workshop ID", author="Autor", version="Versão do pack", modId="Mod ID", source="Origem", localSource="Arquivos locais", unknown="Não informado", hudHint="Clique para abrir - arraste para mover", serverOnline="Servidor online", players="jogador(es)", expectedMods="mods esperados" },
     zh = { ready="就绪", refresh="刷新", server="服务器状态", broadcast="广播整合包状态", close="关闭", active="已启用", missing="缺失", mods="个模组已启用", localScan="本地检查完成", requesting="正在查询服务器...", sending="正在发送管理员广播...", denied="需要管理员权限", admin="管理员工具", restart="模组变更需要协调重启，不会热重载文件。", workshop="Workshop ID", author="作者", version="整合包版本", modId="Mod ID", source="来源", localSource="本地文件", unknown="未提供", hudHint="点击打开 - 拖动移动", serverOnline="服务器在线", players="玩家", expectedMods="预期模组" }
 }
+local PZASM_DIAGNOSTICS = {
+    fr = { inactive="INACTIF", reason="Diagnostic", legacy="Aucune version Build 42 compatible. Le dossier racine/legacy est ignoré par PZ 42.", undiscovered="Mod ID non découvert par Project Zomboid. Vérifiez mod.info et le dossier versionné.", dependency="Dépendance inactive", serverInactive="Absent de la liste active du serveur. Vérifiez Mods= et le journal serveur.", clientInactive="Présent sur le serveur mais inactif sur ce client. Vérifiez le téléchargement et le journal client.", installedInactive="Installé et compatible, mais non activé dans cette session.", serverUnknown="Non actif localement. Interrogez le serveur pour distinguer serveur et client.", profile="Profil PZ" },
+    en = { inactive="INACTIVE", reason="Diagnosis", legacy="No compatible Build 42 version. PZ 42 ignores the root/legacy mod files.", undiscovered="Mod ID was not discovered by Project Zomboid. Check mod.info and the versioned folder.", dependency="Inactive dependency", serverInactive="Missing from the server active list. Check Mods= and the server log.", clientInactive="Active on the server but inactive on this client. Check the download and client log.", installedInactive="Installed and compatible, but not enabled in this session.", serverUnknown="Not active locally. Query the server to distinguish server and client state.", profile="PZ profile" },
+    es = { inactive="INACTIVO", reason="Diagnóstico", legacy="No hay una versión compatible con Build 42. PZ 42 ignora los archivos raíz/legacy.", undiscovered="Project Zomboid no descubrió el Mod ID. Comprueba mod.info y la carpeta versionada.", dependency="Dependencia inactiva", serverInactive="Ausente de la lista activa del servidor. Comprueba Mods= y el registro.", clientInactive="Activo en el servidor pero inactivo en este cliente. Comprueba la descarga y el registro.", installedInactive="Instalado y compatible, pero no activado en esta sesión.", serverUnknown="No está activo localmente. Consulta el servidor para localizar la causa.", profile="Perfil PZ" },
+    de = { inactive="INAKTIV", reason="Diagnose", legacy="Keine kompatible Build-42-Version. PZ 42 ignoriert Root-/Legacy-Dateien.", undiscovered="Die Mod-ID wurde von Project Zomboid nicht erkannt. mod.info und Versionsordner prüfen.", dependency="Inaktive Abhängigkeit", serverInactive="Nicht in der aktiven Serverliste. Mods= und Serverprotokoll prüfen.", clientInactive="Auf dem Server aktiv, auf diesem Client inaktiv. Download und Clientprotokoll prüfen.", installedInactive="Installiert und kompatibel, aber in dieser Sitzung nicht aktiviert.", serverUnknown="Lokal nicht aktiv. Serverstatus abfragen, um die Ursache einzugrenzen.", profile="PZ-Profil" },
+    pt = { inactive="INATIVO", reason="Diagnóstico", legacy="Nenhuma versão compatível com Build 42. O PZ 42 ignora arquivos raiz/legacy.", undiscovered="O Mod ID não foi descoberto pelo Project Zomboid. Verifique mod.info e a pasta versionada.", dependency="Dependência inativa", serverInactive="Ausente da lista ativa do servidor. Verifique Mods= e o log.", clientInactive="Ativo no servidor, mas inativo neste cliente. Verifique o download e o log.", installedInactive="Instalado e compatível, mas não ativado nesta sessão.", serverUnknown="Não está ativo localmente. Consulte o servidor para localizar a causa.", profile="Perfil PZ" },
+    zh = { inactive="未启用", reason="诊断", legacy="没有兼容 Build 42 的版本。PZ 42 会忽略根目录/旧版文件。", undiscovered="Project Zomboid 未发现此 Mod ID。请检查 mod.info 和版本目录。", dependency="未启用的依赖", serverInactive="不在服务器启用列表中。请检查 Mods= 和服务器日志。", clientInactive="服务器已启用，但此客户端未启用。请检查下载和客户端日志。", installedInactive="已安装且兼容，但本次会话未启用。", serverUnknown="本地未启用。请查询服务器状态以定位原因。", profile="PZ 配置" }
+}
 local PZASM_WINDOW = nil
 local PZASM_HUD_BUTTON = nil
+local PZASM_SERVER_ACTIVE = nil
 
 local function pzasmLanguage()
     local value = "en"
@@ -68,6 +78,7 @@ local function pzasmLanguage()
 end
 
 local function pzasmText() return PZASM_TEXT[pzasmLanguage()] or PZASM_TEXT.en end
+local function pzasmDiagnosticText() return PZASM_DIAGNOSTICS[pzasmLanguage()] or PZASM_DIAGNOSTICS.en end
 
 local function pzasmIsAdmin()
     local ok, value = pcall(function() return string.lower(tostring(getAccessLevel() or "")) end)
@@ -105,8 +116,33 @@ end
 
 PZASMControlWindow = ISPanel:derive("PZASMControlWindow")
 
+local function pzasmInspectMod(mod, active)
+    local diagnostic = pzasmDiagnosticText()
+    local enabled = active and active:contains(mod.id) or false
+    if enabled then return true, true, "" end
+
+    local installed = false
+    pcall(function()
+        local info = getModInfoByID and getModInfoByID(mod.id) or nil
+        installed = info ~= nil
+    end)
+    local missingDependencies = {}
+    for _, dependencyId in ipairs(mod.requires or {}) do
+        if not active or not active:contains(dependencyId) then table.insert(missingDependencies, dependencyId) end
+    end
+
+    if not mod.buildCompatible then return false, installed, diagnostic.legacy end
+    if not installed then return false, false, diagnostic.undiscovered end
+    if #missingDependencies > 0 then return false, true, diagnostic.dependency .. ": " .. table.concat(missingDependencies, ", ") end
+    if PZASM_SERVER_ACTIVE ~= nil then
+        if PZASM_SERVER_ACTIVE[mod.id] then return false, true, diagnostic.clientInactive end
+        return false, true, diagnostic.serverInactive
+    end
+    return false, true, diagnostic.installedInactive .. " " .. diagnostic.serverUnknown
+end
+
 function PZASMControlWindow.drawModItem(list, y, item, alt)
-    local height = item.height or 112
+    local height = item.height or 136
     if (y + list:getYScroll() + height < 0) or (y + list:getYScroll() >= list.height) then
         return y + height
     end
@@ -115,8 +151,9 @@ function PZASMControlWindow.drawModItem(list, y, item, alt)
     local mod = entry.mod
     local text = pzasmText()
     local enabled = entry.enabled
-    local statusText = enabled and text.active or text.missing
-    local statusColor = enabled and { r=0.55, g=0.82, b=0.31 } or { r=0.91, g=0.34, b=0.28 }
+    local installed = entry.installed
+    local statusText = enabled and text.active or installed and pzasmDiagnosticText().inactive or text.missing
+    local statusColor = enabled and { r=0.55, g=0.82, b=0.31 } or installed and { r=0.95, g=0.66, b=0.18 } or { r=0.91, g=0.34, b=0.28 }
     local cardX = 4
     local cardY = y + 4
     local cardWidth = list:getWidth() - 18
@@ -144,6 +181,10 @@ function PZASMControlWindow.drawModItem(list, y, item, alt)
     pzasmDrawField(list, text.modId, tostring(mod.id), cardX + 18, cardY + 79)
     local source = mod.localSource and text.localSource or (text.workshop .. " " .. tostring(mod.workshop))
     pzasmDrawField(list, text.source, source, math.floor(cardX + cardWidth * 0.52), cardY + 79)
+    pzasmDrawField(list, pzasmDiagnosticText().profile, tostring(mod.profile or "?"), cardX + 18, cardY + 99)
+    if not enabled then
+        pzasmDrawField(list, pzasmDiagnosticText().reason, tostring(entry.reason or pzasmDiagnosticText().serverUnknown), cardX + 18, cardY + 119)
+    end
     return y + height
 end
 
@@ -169,7 +210,7 @@ function PZASMControlWindow:initialise()
     self.modList.backgroundColor = { r=0.025, g=0.038, b=0.029, a=0.72 }
     self.modList.borderColor = { r=0.23, g=0.34, b=0.24, a=0.85 }
     self.modList.drawBorder = true
-    self.modList.itemheight = 112
+    self.modList.itemheight = 136
     self.modList.doDrawItem = PZASMControlWindow.drawModItem
     self.modList.selected = -1
     self:addChild(self.modList)
@@ -215,10 +256,10 @@ function PZASMControlWindow:refresh()
     self.modList:clear()
     self.modList:setScrollHeight(0)
     for index, mod in ipairs(PZASM_MODS) do
-        local enabled = active and active:contains(mod.id)
+        local enabled, installed, reason = pzasmInspectMod(mod, active)
         if enabled then activeCount = activeCount + 1 end
-        local row = self.modList:addItem(mod.name, { mod = mod, enabled = enabled, order = index })
-        row.height = 112
+        local row = self.modList:addItem(mod.name, { mod = mod, enabled = enabled, installed = installed, reason = reason, order = index })
+        row.height = enabled and 116 or 144
     end
     self.modList:setYScroll(previousScroll)
     self.summary:setName(text.workshop .. " " .. PZASM_WORKSHOP_ID .. "   |   " .. tostring(activeCount) .. "/" .. tostring(#PZASM_MODS) .. " " .. text.mods .. "   |   F8")
@@ -337,6 +378,9 @@ local function pzasmServerCommand(module, command, args)
     if module ~= "PZASM_Control" then return end
     if command == "status" and PZASM_WINDOW then
         local text = pzasmText()
+        PZASM_SERVER_ACTIVE = {}
+        for modId in string.gmatch(tostring(args.activeMods or ""), "[^;]+") do PZASM_SERVER_ACTIVE[modId] = true end
+        PZASM_WINDOW:refresh()
         PZASM_WINDOW.status:setName(text.serverOnline .. " - " .. tostring(args.players or 0) .. " " .. text.players .. " - " .. tostring(args.expected or #PZASM_MODS) .. " " .. text.expectedMods)
     elseif command == "announcement" then
         if HaloTextHelper and getPlayer() then HaloTextHelper.addText(getPlayer(), tostring(args.message or "Pack status updated"), HaloTextHelper.getColorGreen()) end
@@ -353,6 +397,7 @@ Events.OnServerCommand.Add(pzasmServerCommand)
 
     private static string CreateServer(PackageProject project) => $$"""
 local PZASM_EXPECTED_MODS = {{project.Mods.Count(x => x.Enabled)}}
+local PZASM_EXPECTED_IDS = { {{string.Join(", ", project.Mods.Where(x => x.Enabled).OrderBy(x => x.Order).Select(x => LuaString(x.ModId)))}} }
 
 local function pzasmIsAdmin(player)
     if not player then return false end
@@ -365,10 +410,21 @@ local function pzasmPlayerCount()
     return ok and players and players:size() or 0
 end
 
+local function pzasmActiveModIds()
+    local active = getActivatedMods and getActivatedMods() or nil
+    local result = {}
+    if active then
+        for _, modId in ipairs(PZASM_EXPECTED_IDS) do
+            if active:contains(modId) then table.insert(result, modId) end
+        end
+    end
+    return table.concat(result, ";")
+end
+
 local function pzasmClientCommand(module, command, player, args)
     if module ~= "PZASM_Control" then return end
     if command == "status" then
-        sendServerCommand(player, "PZASM_Control", "status", { players = pzasmPlayerCount(), expected = PZASM_EXPECTED_MODS })
+        sendServerCommand(player, "PZASM_Control", "status", { players = pzasmPlayerCount(), expected = PZASM_EXPECTED_MODS, activeMods = pzasmActiveModIds() })
         return
     end
     if command == "broadcast" then
@@ -390,4 +446,21 @@ Events.OnClientCommand.Add(pzasmClientCommand)
         .Replace("\"", "\\\"", StringComparison.Ordinal)
         .Replace("\r", string.Empty, StringComparison.Ordinal)
         .Replace("\n", "\\n", StringComparison.Ordinal) + "\"";
+
+    private static bool IsBuildCompatible(PackageProject project, PackageModReference mod)
+    {
+        if (!int.TryParse(project.TargetPzVersion.Split('.', '-', '_').FirstOrDefault(), out var targetMajor) || targetMajor < 42) return true;
+        if (int.TryParse(mod.SelectedVersionFolder.Split('.', '-', '_').FirstOrDefault(), out var folderMajor) && folderMajor >= 42) return true;
+        if (!Directory.Exists(mod.BuildSourceRoot)) return false;
+        var manifest = PzVersionSelector.SelectManifest(mod.BuildSourceRoot, project.TargetPzVersion, out var selected);
+        if (string.IsNullOrWhiteSpace(manifest)) return false;
+        if (int.TryParse(selected.Split('.', '-', '_').FirstOrDefault(), out folderMajor) && folderMajor >= 42) return true;
+        var info = ModInfoParser.Parse(manifest);
+        foreach (var key in new[] { "pzversion", "versionMin", "versionMax" })
+        {
+            if (!info.Properties.TryGetValue(key, out var value)) continue;
+            if (int.TryParse(value.Trim().TrimStart('v', 'V').Split('.', '-', '_', ' ').FirstOrDefault(), out var major) && major >= 42) return true;
+        }
+        return false;
+    }
 }

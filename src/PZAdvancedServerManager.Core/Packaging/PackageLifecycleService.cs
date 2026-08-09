@@ -245,6 +245,9 @@ public sealed class PackageLifecycleService(
         reference.Version = info.Version;
         reference.SelectedVersionFolder = selected;
         reference.RequiredModIds = info.Required;
+        reference.LoadAfterModIds = info.LoadAfter;
+        reference.LoadBeforeModIds = info.LoadBefore;
+        reference.IncompatibleModIds = info.Incompatible;
         if (!string.IsNullOrWhiteSpace(reference.Author) &&
             (string.IsNullOrWhiteSpace(reference.Permission.RightsHolder) ||
              reference.Permission.Status == PermissionStatus.Unknown && reference.Permission.RightsHolder.Equals(previousAuthor, StringComparison.OrdinalIgnoreCase)))

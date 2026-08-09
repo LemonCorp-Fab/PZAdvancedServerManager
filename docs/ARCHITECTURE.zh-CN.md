@@ -87,3 +87,9 @@ SteamCMD 会打开独立的 Steam 会话，因此自动化应使用拥有 Projec
 本地配置具有明确的运行模式。**本地主机（Host）**配置从游戏客户端的 Host 菜单启动，使用 `zombie.network.GameServer -coop` 进程和 `coop-console.txt`；**本地独立服务器（Dedicated）**配置通过单独的 Steam 工具 Project Zomboid Dedicated Server（AppID 380870）启动，并使用 `server-console.txt`。两种模式会有意共享原生的 `Zomboid/Server/<名称>.ini` 文件，管理器仅单独保存所选用途。仅存在 `-coop` 辅助进程并不代表 Host 服务器在线：必须检测到有效的近期启动进度或就绪标记；之后出现启动失败时会将其忽略，避免误报冲突。
 
 如果 systemd、Docker、托管面板或其他监督程序会在 `quit` 后重启 Project Zomboid，仅 RCON 的配置也能协调发布：Workshop 上传先完成，随后管理器发送 `save` 和 `quit`。SSH 只用于可选的 INI 管理或显式的游戏启动命令。管理器会拒绝主机级别的 `reboot`、`shutdown` 和 `poweroff` 命令。为支持无人值守操作，RCON 密钥保存在管理器本地配置数据中，因此必须妥善保护该目录。
+
+## 兼容性与冲突处理工作台
+
+模组包编辑器和服务器部署视图共用一个带缓存的静态分析器。它会读取实际生效的 Build 42 结构（`common` 加最佳兼容版本目录）、`require`、`loadAfter`、`loadBefore`、`incompatible`、重复 Mod ID、Lua/脚本/资源虚拟路径、地图依赖以及重叠的 `.lotheader` 单元。只有在路径和文件大小相同后才会对不同文件计算哈希；完全相同的内容会记录为已解决信息。
+
+工作台会给出稳定的拓扑模组顺序和地图顺序，展示精确证据，并允许管理员选择优先内容、确认有意保留的冲突或禁用来源。手动优先级会成为明确的顺序约束，绝不会重写第三方源文件。服务器审计还会将模组包与 `WorkshopItems`、`Mods`、`Map` 和近期运行日志错误关联起来。静态分析无法证明任意 Lua 模组一定兼容，因此仍必须进行游戏内测试。

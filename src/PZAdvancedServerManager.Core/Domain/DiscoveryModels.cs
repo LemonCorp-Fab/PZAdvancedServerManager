@@ -24,6 +24,9 @@ public sealed class DiscoveredMod
     public string EffectiveManifestPath { get; init; } = string.Empty;
     public string SelectedVersionFolder { get; init; } = string.Empty;
     public string[] RequiredModIds { get; init; } = [];
+    public string[] LoadAfterModIds { get; init; } = [];
+    public string[] LoadBeforeModIds { get; init; } = [];
+    public string[] IncompatibleModIds { get; init; } = [];
     public string[] MapFolders { get; init; } = [];
     public DateTimeOffset SourceUpdatedAt { get; init; }
     public string WorkshopUrl => WorkshopId == 0 ? string.Empty : $"https://steamcommunity.com/sharedfiles/filedetails/?id={WorkshopId}";
@@ -38,6 +41,9 @@ public sealed class ModInfo
     public string Poster { get; init; } = string.Empty;
     public string Version { get; init; } = string.Empty;
     public string[] Required { get; init; } = [];
+    public string[] LoadAfter { get; init; } = [];
+    public string[] LoadBefore { get; init; } = [];
+    public string[] Incompatible { get; init; } = [];
     public IReadOnlyDictionary<string, string> Properties { get; init; } = new Dictionary<string, string>();
 }
 

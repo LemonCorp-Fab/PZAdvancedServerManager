@@ -51,6 +51,27 @@ public sealed class MapAndToolsTests : IDisposable
     }
 
     [Fact]
+    public void ModConflictAnalysis_DetectsCompatibilityDependenciesAndFileCollisions()
+    {
+        var appRoot = CreateConflictMod("app", "app", "return 'app'");
+        var libraryRoot = CreateConflictMod("library", "library", "return 'library'");
+        var legacyRoot = Path.Combine(_root, "legacy");
+        Directory.CreateDirectory(Path.Combine(legacyRoot, "media", "lua", "client"));
+        File.WriteAllText(Path.Combine(legacyRoot, "mod.info"), "name=Legacy\nid=legacy\n");
+        var app = new PackageModReference { ModId = "app", Name = "Application", SourceModRoot = appRoot, SelectedVersionFolder = "common", RequiredModIds = ["library"], Order = 0 };
+        var library = new PackageModReference { ModId = "library", Name = "Library", SourceModRoot = libraryRoot, SelectedVersionFolder = "common", Order = 1 };
+        var legacy = new PackageModReference { ModId = "legacy", Name = "Legacy", SourceModRoot = legacyRoot, Order = 2 };
+        var project = new PackageProject { TargetPzVersion = "42.20.2", Mods = [app, library, legacy] };
+
+        var analysis = new ModConflictAnalyzer(new MapPriorityService()).Analyze(project);
+
+        Assert.Contains(analysis.Issues, issue => issue.Code == "B42_LEGACY" && issue.ModIds.Contains("legacy"));
+        Assert.Contains(analysis.Issues, issue => issue.Code == "FILE_COLLISION" && issue.Category == ModConflictCategory.Lua);
+        Assert.Equal(library.Id, analysis.RecommendedModOrder[0]);
+        Assert.Contains(analysis.Issues, issue => issue.Code == "MOD_ORDER");
+    }
+
+    [Fact]
     public async Task SteamCmdInstaller_ExtractsPortableBootstrapIntoToolsRoot()
     {
         var paths = new ApplicationPaths(Path.Combine(_root, "data"));
@@ -77,6 +98,16 @@ public sealed class MapAndToolsTests : IDisposable
         File.WriteAllText(Path.Combine(large, "1_1.lotheader"), string.Empty);
         File.WriteAllText(Path.Combine(large, "1_2.lotheader"), string.Empty);
         File.WriteAllText(Path.Combine(road, "1_1.lotheader"), string.Empty);
+        return root;
+    }
+
+    private string CreateConflictMod(string folder, string id, string content)
+    {
+        var root = Path.Combine(_root, folder);
+        var luaRoot = Path.Combine(root, "common", "media", "lua", "shared");
+        Directory.CreateDirectory(luaRoot);
+        File.WriteAllText(Path.Combine(root, "common", "mod.info"), $"name={folder}\nid={id}\npzversion=42\n");
+        File.WriteAllText(Path.Combine(luaRoot, "shared-path.lua"), content);
         return root;
     }
 

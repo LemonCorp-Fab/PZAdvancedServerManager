@@ -25,6 +25,9 @@ public static class PackageProjectComposer
                 SelectedVersionFolder = current.SelectedVersionFolder,
                 SourceUrl = current.WorkshopUrl,
                 RequiredModIds = current.RequiredModIds,
+                LoadAfterModIds = current.LoadAfterModIds,
+                LoadBeforeModIds = current.LoadBeforeModIds,
+                IncompatibleModIds = current.IncompatibleModIds,
                 MapFolders = current.MapFolders,
                 Permission = new PermissionEvidence { RightsHolder = current.Author },
                 Order = project.Mods.Count

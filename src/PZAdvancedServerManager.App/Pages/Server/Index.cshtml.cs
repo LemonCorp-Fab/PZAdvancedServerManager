@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Threading.Channels;
 using PZAdvancedServerManager.Core.Domain;
 using PZAdvancedServerManager.Core.Infrastructure;
+using PZAdvancedServerManager.Core.Packaging;
 using PZAdvancedServerManager.Core.Publishing;
 using PZAdvancedServerManager.Core.Pz;
 
@@ -17,7 +18,8 @@ public class IndexModel(
     SteamCmdInstaller steamCmdInstaller,
     SteamCmdService steamCmd,
     ServerWorldDataStore worldData,
-    RconConsoleStore rconConsole) : PageModel
+    RconConsoleStore rconConsole,
+    ModConflictAnalyzer conflicts) : PageModel
 {
     public IReadOnlyList<ServerConfigEntry> Configs { get; private set; } = [];
     public IEnumerable<ServerConfigEntry> HostedConfigs => Configs.Where(config => config.IsHostedLocal);
@@ -26,6 +28,7 @@ public class IndexModel(
     public ServerConfigEntry? Selected { get; private set; }
     public ServerConfigSummary Summary { get; private set; } = new([], [], []);
     public IReadOnlyList<PackageProject> Projects { get; private set; } = [];
+    public ServerModAudit? ModAudit { get; private set; }
     public bool SelectedServerOnline { get; private set; }
     public bool SelectedRconAvailable { get; private set; }
     public ServerRuntimeSnapshot SelectedRuntime { get; private set; } = StoppedRuntime();
@@ -97,6 +100,7 @@ public class IndexModel(
                 RawContent = document.Render();
                 AllSettings = StructuredServerSettings.ParseIni(RawContent);
                 Summary = new ServerConfigSummary(document.GetList("WorkshopItems"), document.GetList("Mods"), document.GetList("Map"));
+                ModAudit = BuildModAudit(Projects, Summary);
                 PlayerPasswordConfigured = !string.IsNullOrEmpty(document.Get("Password"));
                 RconPasswordConfigured = !string.IsNullOrEmpty(document.Get("RCONPassword"));
                 Guided = GuidedServerForm.From(document);
@@ -119,6 +123,7 @@ public class IndexModel(
             SelectedRuntime = await servers.ReadRuntimeAsync(Selected.Name, cancellationToken);
             SelectedRconAvailable = SelectedRuntime.IsRconAuthenticated;
             SelectedServerOnline = SelectedRuntime.IsRunning;
+            if (ModAudit is not null) ModAudit = ModAudit with { RuntimeFindings = AnalyzeRuntimeModFindings(SelectedRuntime) };
         }
         catch (Exception exception) { ConnectionError = string.IsNullOrWhiteSpace(ConnectionError) ? exception.Message : ConnectionError + " " + exception.Message; }
         if (!Selected.IsRemote)
@@ -585,9 +590,63 @@ public class IndexModel(
         return RedirectToPage(new { name });
     }
 
+    public async Task<IActionResult> OnPostOptimizeAndApplyPackAsync(string name, Guid projectId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var project = projectStore.Get(projectId) ?? throw new InvalidOperationException("Pack introuvable.");
+            await EnsureConfigurationCanBeWrittenAsync(name, cancellationToken);
+            var analysis = conflicts.Analyze(project, refresh: true);
+            var rank = analysis.RecommendedModOrder.Select((modId, index) => (modId, index)).ToDictionary(item => item.modId, item => item.index);
+            var disabledRank = rank.Count;
+            foreach (var mod in project.Mods) mod.Order = rank.TryGetValue(mod.Id, out var position) ? position : disabledRank++;
+            project.Mods = project.Mods.OrderBy(mod => mod.Order).ToList();
+            project.MapOrder = analysis.RecommendedMapOrder.ToList();
+            projectStore.Save(project);
+            var result = await servers.ApplyPackageAsync(name, project, cancellationToken);
+            TempData["Message"] = $"Ordre recommand\u00e9 calcul\u00e9 puis appliqu\u00e9 au pack et au serveur. Sauvegarde INI : {result.BackupPath}";
+        }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
+        return RedirectToPage(new { name, view = "deployment" });
+    }
+
     public IReadOnlyList<string> Mods => Summary.Mods;
     public IReadOnlyList<string> WorkshopItems => Summary.WorkshopItems;
     public IReadOnlyList<string> Maps => Summary.Maps;
+
+    private ServerModAudit? BuildModAudit(IReadOnlyList<PackageProject> projects, ServerConfigSummary summary)
+    {
+        var workshopIds = summary.WorkshopItems.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var project = projects
+            .Where(candidate => candidate.PublishedWorkshopId != 0 && workshopIds.Contains(candidate.PublishedWorkshopId.ToString()))
+            .OrderByDescending(candidate => candidate.Mods.Count(mod => mod.Enabled && summary.Mods.Contains(mod.ModId, StringComparer.OrdinalIgnoreCase)))
+            .FirstOrDefault();
+        if (project is null) return null;
+
+        var expectedMods = project.Mods.Where(mod => mod.Enabled).OrderBy(mod => mod.Order).Select(mod => mod.ModId).ToList();
+        if (project.InjectConnectionNotice) expectedMods.Add(project.NoticeModId);
+        if (project.InjectInGameControl) expectedMods.Add(project.ControlModId);
+        var actualMods = summary.Mods.Where(value => !string.IsNullOrWhiteSpace(value)).ToList();
+        var missing = expectedMods.Where(modId => !actualMods.Contains(modId, StringComparer.OrdinalIgnoreCase)).ToArray();
+        var extra = actualMods.Where(modId => !expectedMods.Contains(modId, StringComparer.OrdinalIgnoreCase)).ToArray();
+        var commonActual = actualMods.Where(modId => expectedMods.Contains(modId, StringComparer.OrdinalIgnoreCase)).ToArray();
+        var commonExpected = expectedMods.Where(modId => actualMods.Contains(modId, StringComparer.OrdinalIgnoreCase)).ToArray();
+        var orderMatches = commonActual.SequenceEqual(commonExpected, StringComparer.OrdinalIgnoreCase);
+        var expectedMaps = project.MapOrder.Count > 0 ? project.MapOrder : conflicts.Analyze(project).RecommendedMapOrder.ToList();
+        var mapsMatch = summary.Maps.SequenceEqual(expectedMaps, StringComparer.OrdinalIgnoreCase);
+        return new ServerModAudit(project, conflicts.Analyze(project), expectedMods, missing, extra, orderMatches, mapsMatch, []);
+    }
+
+    private static IReadOnlyList<string> AnalyzeRuntimeModFindings(ServerRuntimeSnapshot runtime) => runtime.Output
+        .Select(line => line.Message.Trim())
+        .Where(message =>
+            message.Contains("loadModAndRequired", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("required mod", StringComparison.OrdinalIgnoreCase) && message.Contains("not found", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("Lua((MOD:", StringComparison.OrdinalIgnoreCase) && message.Contains("require(", StringComparison.OrdinalIgnoreCase) && message.Contains("failed", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("mod.info", StringComparison.OrdinalIgnoreCase) && (message.Contains("error", StringComparison.OrdinalIgnoreCase) || message.Contains("invalid", StringComparison.OrdinalIgnoreCase)))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .TakeLast(80)
+        .ToArray();
 
     private bool TryValidateHandlerModel<TModel>(TModel model, string prefix) where TModel : notnull
     {
@@ -754,6 +813,19 @@ public class IndexModel(
     };
 
     private static string Limit(string value, int length) => value.Length <= length ? value : value[^length..];
+
+    public sealed record ServerModAudit(
+        PackageProject Project,
+        ModConflictAnalysis Analysis,
+        IReadOnlyList<string> ExpectedMods,
+        IReadOnlyList<string> MissingMods,
+        IReadOnlyList<string> ExtraMods,
+        bool OrderMatches,
+        bool MapsMatch,
+        IReadOnlyList<string> RuntimeFindings)
+    {
+        public bool IsAligned => MissingMods.Count == 0 && ExtraMods.Count == 0 && OrderMatches && MapsMatch;
+    }
 
     public sealed class GuidedServerForm
     {

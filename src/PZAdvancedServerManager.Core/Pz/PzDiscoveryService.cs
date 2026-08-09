@@ -95,6 +95,9 @@ public sealed partial class PzDiscoveryService(ApplicationPaths paths)
                     EffectiveManifestPath = manifestPath,
                     SelectedVersionFolder = selectedFolder,
                     RequiredModIds = info.Required,
+                    LoadAfterModIds = info.LoadAfter,
+                    LoadBeforeModIds = info.LoadBefore,
+                    IncompatibleModIds = info.Incompatible,
                     MapFolders = mapFolders,
                     SourceUpdatedAt = new DateTimeOffset(Directory.GetLastWriteTimeUtc(modRoot), TimeSpan.Zero)
                 });

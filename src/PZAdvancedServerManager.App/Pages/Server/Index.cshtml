@@ -392,6 +392,40 @@
             @if (Model.SelectedServerOnline) { <p class="fine-print warning-text">Arrêtez proprement le serveur avant d’appliquer un pack.</p> }
         </section>
 
+        @if (Model.ModAudit is { } modAudit)
+        {
+            <section class="panel server-mod-audit" data-server-view="deployment" hidden>
+                <div class="conflict-workbench-heading">
+                    <div><span class="eyebrow">DIAGNOSTIC MODDING DU SERVEUR</span><h2>@modAudit.Project.Name</h2><p>Comparaison de l'INI avec le pack, puis analyse dynamique des versions, dépendances, collisions de fichiers et cartes.</p></div>
+                    <div class="conflict-scoreboard"><span class="error"><strong>@modAudit.Analysis.ErrorCount</strong><small>bloquants</small></span><span class="warning"><strong>@modAudit.Analysis.WarningCount</strong><small>à arbitrer</small></span><span class="resolved"><strong>@modAudit.Analysis.ResolvedCount</strong><small>résolus</small></span></div>
+                </div>
+                <div class="server-alignment-grid">
+                    <article class="@(modAudit.MissingMods.Count == 0 ? "ok" : "error")"><span>Mods manquants</span><strong>@modAudit.MissingMods.Count</strong><small>@(modAudit.MissingMods.Count == 0 ? "Tous les Mod IDs du pack sont présents." : string.Join(" · ", modAudit.MissingMods.Take(12)))</small></article>
+                    <article class="@(modAudit.ExtraMods.Count == 0 ? "ok" : "warning")"><span>Mods supplémentaires</span><strong>@modAudit.ExtraMods.Count</strong><small>@(modAudit.ExtraMods.Count == 0 ? "Aucun Mod ID étranger au pack." : string.Join(" · ", modAudit.ExtraMods.Take(12)))</small></article>
+                    <article class="@(modAudit.OrderMatches && !modAudit.Analysis.HasModOrderChange ? "ok" : "warning")"><span>Ordre des mods</span><strong>@(!modAudit.OrderMatches ? "DIFFÉRENT" : modAudit.Analysis.HasModOrderChange ? "OPTIMISABLE" : "COHÉRENT")</strong><small>@(!modAudit.OrderMatches ? "L'INI ne suit pas l'ordre actuel du pack." : modAudit.Analysis.HasModOrderChange ? "Le serveur suit le pack, mais les contraintes permettent un meilleur ordre." : "L'INI, le pack et les contraintes sont alignés.")</small></article>
+                    <article class="@(modAudit.MapsMatch && !modAudit.Analysis.HasMapOrderChange ? "ok" : "warning")"><span>Ordre des cartes</span><strong>@(!modAudit.MapsMatch ? "DIFFÉRENT" : modAudit.Analysis.HasMapOrderChange ? "OPTIMISABLE" : "COHÉRENT")</strong><small>@(!modAudit.MapsMatch ? "L'INI ne suit pas l'ordre actuel du pack." : modAudit.Analysis.HasMapOrderChange ? "Les connecteurs, lots ou priorités de cellules peuvent être mieux ordonnés." : "Connecteurs, lots et priorité Muldraugh vérifiés.")</small></article>
+                </div>
+                @if (modAudit.RuntimeFindings.Count > 0)
+                {
+                    <details class="runtime-mod-findings" open><summary><span>JOURNAL PZ</span><strong>@modAudit.RuntimeFindings.Count erreur(s) de chargement reliée(s) aux mods</strong></summary><div>@foreach (var finding in modAudit.RuntimeFindings) { <code>@finding</code> }</div></details>
+                }
+                @if (modAudit.Analysis.Issues.Count > 0)
+                {
+                    <div class="server-audit-issues">
+                    @foreach (var issue in modAudit.Analysis.Issues.Where(issue => !issue.IsResolved).Take(12))
+                    {
+                        <details class="conflict-issue severity-@issue.Severity.ToString().ToLowerInvariant()"><summary><span class="conflict-severity-mark">@(issue.Severity == ModConflictSeverity.Error ? "!" : issue.Severity == ModConflictSeverity.Warning ? "△" : "i")</span><span class="conflict-summary-copy"><strong>@issue.Title</strong><small>@issue.Category · @issue.Code</small></span><span class="conflict-participant-count">@issue.ModIds.Count mod(s)</span></summary><div class="conflict-issue-body"><p>@issue.Detail</p>@if (issue.ModIds.Count > 0) { <div class="conflict-mod-chips">@foreach (var modId in issue.ModIds) { <code>@modId</code> }</div> }@if (issue.Evidence.Count > 0) { <details class="conflict-evidence"><summary>Preuves techniques</summary><div>@foreach (var evidence in issue.Evidence) { <code>@evidence</code> }</div></details> }</div></details>
+                    }
+                    </div>
+                }
+                <div class="server-mod-audit-actions">
+                    <a class="button secondary" asp-page="/Projects/Edit" asp-route-id="@modAudit.Project.Id" asp-route-tab="mods">Ouvrir l'atelier de résolution</a>
+                    <form method="post" asp-page-handler="OptimizeAndApplyPack" asp-route-name="@Model.Selected.Name" data-loading-title="Optimisation et alignement du serveur…" data-loading-detail="Recalcul des contraintes, sauvegarde de l'INI puis application des listes optimisées." data-confirm-title="Optimiser puis aligner ce serveur ?" data-confirm-message="Le pack recevra l'ordre recommandé, puis WorkshopItems, Mods et Map seront réécrits dans l'INI après sauvegarde. Les collisions ambiguës sans gagnant resteront signalées." data-confirm-action="Optimiser et aligner"><input type="hidden" name="projectId" value="@modAudit.Project.Id" /><button class="button primary" type="submit" disabled="@Model.SelectedServerOnline">Optimiser et aligner l'INI</button></form>
+                </div>
+                @if (Model.SelectedServerOnline) { <p class="fine-print warning-text">L'analyse reste disponible, mais l'écriture de l'INI exige l'arrêt propre du serveur.</p> }
+            </section>
+        }
+
         <div class="workspace server-workspace" data-server-view="configuration" hidden data-tabs="server-editor-@Model.Selected.Name">
             <nav class="workspace-tabs" aria-label="Sections du serveur" role="tablist">
                 <button type="button" role="tab" data-tab-target="identity">Identité</button>

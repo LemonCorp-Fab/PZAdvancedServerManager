@@ -30,6 +30,9 @@ public static class ModInfoParser
         }
 
         values.TryGetValue("require", out var required);
+        values.TryGetValue("loadAfter", out var loadAfter);
+        values.TryGetValue("loadBefore", out var loadBefore);
+        values.TryGetValue("incompatible", out var incompatible);
         var info = new ModInfo
         {
             Name = Get(values, "name"),
@@ -39,6 +42,9 @@ public static class ModInfoParser
             Poster = Get(values, "poster"),
             Version = First(values, "version", "modversion"),
             Required = SplitList(required),
+            LoadAfter = SplitList(loadAfter),
+            LoadBefore = SplitList(loadBefore),
+            Incompatible = SplitList(incompatible),
             Properties = values
         };
         Cache[fullPath] = new CacheEntry(stamp, info);
@@ -46,7 +52,7 @@ public static class ModInfoParser
     }
 
     private static string Get(IReadOnlyDictionary<string, string> values, string key) =>
-        values.TryGetValue(key, out var value) ? value.Trim('"') : string.Empty;
+        values.TryGetValue(key, out var value) ? value.Trim().Trim('"', '\'') : string.Empty;
 
     private static string First(IReadOnlyDictionary<string, string> values, params string[] keys) =>
         keys.Select(key => Get(values, key)).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
@@ -77,20 +83,20 @@ public static class PzVersionSelector
             .Where(x => TryParseVersion(x.Name, out _))
             .Select(x => (x.Path, x.Name, Version: ParseVersion(x.Name)))
             .Where(x => x.Version <= ParseVersion(targetVersion))
-            .Where(x => File.Exists(Path.Combine(x.Path, "mod.info")))
             .OrderByDescending(x => x.Version)
             .ToList();
 
-        if (candidates.Count > 0)
+        var versionedManifest = candidates.FirstOrDefault(x => File.Exists(Path.Combine(x.Path, "mod.info")));
+        if (!string.IsNullOrWhiteSpace(versionedManifest.Path))
         {
-            selectedVersionFolder = candidates[0].Name;
-            return Path.Combine(candidates[0].Path, "mod.info");
+            selectedVersionFolder = versionedManifest.Name;
+            return Path.Combine(versionedManifest.Path, "mod.info");
         }
 
         var common = Path.Combine(modRoot, "common", "mod.info");
         if (File.Exists(common))
         {
-            selectedVersionFolder = "common";
+            selectedVersionFolder = candidates.Count > 0 ? candidates[0].Name : "common";
             return common;
         }
 

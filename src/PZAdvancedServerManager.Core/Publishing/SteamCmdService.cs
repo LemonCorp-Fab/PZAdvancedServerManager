@@ -979,6 +979,9 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
         reference.Version = discovered.Version;
         reference.SelectedVersionFolder = discovered.SelectedVersionFolder;
         reference.RequiredModIds = discovered.RequiredModIds;
+        reference.LoadAfterModIds = discovered.LoadAfterModIds;
+        reference.LoadBeforeModIds = discovered.LoadBeforeModIds;
+        reference.IncompatibleModIds = discovered.IncompatibleModIds;
         reference.MapFolders = discovered.MapFolders;
         if (!string.IsNullOrWhiteSpace(reference.Author) &&
             (string.IsNullOrWhiteSpace(reference.Permission.RightsHolder) ||

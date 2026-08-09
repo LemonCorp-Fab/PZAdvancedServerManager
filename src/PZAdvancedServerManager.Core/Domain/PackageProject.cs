@@ -45,6 +45,8 @@ public sealed class PackageProject
     public string? PreviewImagePath { get; set; }
     public List<string> MapOrder { get; set; } = [];
     public List<PackageModReference> Mods { get; set; } = [];
+    public Dictionary<string, string> ConflictWinners { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public List<string> AcknowledgedConflicts { get; set; } = [];
     public bool LegalWarningAccepted { get; set; }
     public DateTimeOffset? LegalWarningAcceptedAt { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
@@ -120,6 +122,9 @@ public sealed class PackageModReference
     public bool Enabled { get; set; } = true;
     public bool IncludeInGlobalUpdates { get; set; } = true;
     public string[] RequiredModIds { get; set; } = [];
+    public string[] LoadAfterModIds { get; set; } = [];
+    public string[] LoadBeforeModIds { get; set; } = [];
+    public string[] IncompatibleModIds { get; set; } = [];
     public string[] MapFolders { get; set; } = [];
     public PermissionEvidence Permission { get; set; } = new();
 

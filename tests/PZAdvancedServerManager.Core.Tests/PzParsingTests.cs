@@ -23,6 +23,25 @@ public sealed class PzParsingTests : IDisposable
     }
 
     [Fact]
+    public void SelectsCommonManifestWithHighestCompatibleVersionContent()
+    {
+        Write("common/mod.info", "id=common-layout");
+        Write("common/media/lua/shared/common.lua", "return true");
+        Write("42/media/lua/shared/base.lua", "return true");
+        Write("42.15/media/lua/shared/current.lua", "return true");
+        Write("43/media/lua/shared/future.lua", "return true");
+
+        var selected = PzVersionSelector.SelectManifest(_root, "42.20.2", out var folder);
+        var mediaRoots = PzVersionSelector.GetEffectiveMediaRoots(_root, folder);
+
+        Assert.Equal(Path.Combine(_root, "common", "mod.info"), selected);
+        Assert.Equal("42.15", folder);
+        Assert.Contains(Path.Combine(_root, "common", "media"), mediaRoots);
+        Assert.Contains(Path.Combine(_root, "42.15", "media"), mediaRoots);
+        Assert.DoesNotContain(Path.Combine(_root, "43", "media"), mediaRoots);
+    }
+
+    [Fact]
     public void ModInfoParserReusesUnchangedManifestAndInvalidatesChangedFile()
     {
         var path = Write("cached-mod.info", "name=First\nid=cached");

@@ -428,6 +428,9 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
             mod.SourceUrl,
             mod.IncludeInGlobalUpdates,
             mod.RequiredModIds,
+            mod.LoadAfterModIds,
+            mod.LoadBeforeModIds,
+            mod.IncompatibleModIds,
             mod.MapFolders,
             permission = new
             {
@@ -932,6 +935,9 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
                 x.IncludeInGlobalUpdates,
                 x.SourceUrl,
                 x.RequiredModIds,
+                x.LoadAfterModIds,
+                x.LoadBeforeModIds,
+                x.IncompatibleModIds,
                 x.MapFolders,
                 permissionStatus = x.Permission.Status.ToString(),
                 x.Permission.RightsHolder,

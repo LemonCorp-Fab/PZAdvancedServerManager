@@ -37,7 +37,10 @@ public sealed class PackageBuildTests : IDisposable
         Assert.Contains("PZASMHudButton", controlClient);
         Assert.Contains("getScreenHeight() - 54", controlClient);
         Assert.Contains("pzasmSaveHudPosition", controlClient);
-        Assert.DoesNotContain("getModInfoByID", controlClient);
+        Assert.Contains("getModInfoByID", controlClient);
+        Assert.Contains("buildCompatible = true", controlClient);
+        Assert.Contains("requires =", controlClient);
+        Assert.Contains("activeMods = pzasmActiveModIds()", File.ReadAllText(controlServerPath));
         Assert.Contains("Keyboard.KEY_F8", controlClient);
         Assert.Contains("pzasmIsAdmin", controlClient);
         Assert.Contains("Events.OnClientCommand", File.ReadAllText(controlServerPath));

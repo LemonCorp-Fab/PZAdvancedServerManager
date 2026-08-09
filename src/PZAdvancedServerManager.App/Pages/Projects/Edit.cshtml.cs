@@ -23,6 +23,7 @@ public class EditModel(
     WorkshopImportService workshopImport,
     ServerProfileService servers,
     MapPriorityService mapPriority,
+    ModConflictAnalyzer conflicts,
     SteamCmdInstaller steamCmdInstaller,
     SteamCmdService steamCmd) : PageModel
 {
@@ -34,6 +35,21 @@ public class EditModel(
     public bool WorkshopDescriptionIsCompact { get; private set; }
     public IReadOnlyList<string> ServerConfigNames { get; private set; } = [];
     public MapOrderAnalysis MapAnalysis { get; private set; } = new([], []);
+    public ModConflictAnalysis ConflictAnalysis { get; private set; } = new([], [], [], 0, 0, TimeSpan.Zero, string.Empty);
+    public IReadOnlyList<ModConflictIssue> VisibleConflictIssues { get; private set; } = [];
+    public string ConflictFilter { get; private set; } = "action";
+    public string ConflictCategory { get; private set; } = "all";
+    public int ConflictPage { get; private set; } = 1;
+    public int ConflictPageCount { get; private set; } = 1;
+    public int FilteredConflictCount { get; private set; }
+    public int ConflictPageSize => 12;
+    public IReadOnlyList<PackageModReference> VisibleProjectMods { get; private set; } = [];
+    public string ModQuery { get; private set; } = string.Empty;
+    public string ModFilter { get; private set; } = "all";
+    public int ModPage { get; private set; } = 1;
+    public int ModPageCount { get; private set; } = 1;
+    public int FilteredModCount { get; private set; }
+    public int ModPageSize => 20;
     public SteamCmdStatus SteamCmdStatus { get; private set; } = new(false, string.Empty, string.Empty, null, 0);
     public bool PreviewAvailable { get; private set; }
     public string PreviewSourceLabel { get; private set; } = "Preview générée par le manager";
@@ -186,6 +202,80 @@ public class EditModel(
         var project = store.Get(id);
         if (project is null) return NotFound();
         projects.Move(project, modReferenceId, direction);
+        return RedirectToPage(new { id, tab = "mods" });
+    }
+
+    public IActionResult OnPostApplyRecommendedOrder(Guid id)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+        var analysis = conflicts.Analyze(project, refresh: true);
+        ApplyRecommendedOrder(project, analysis, includeMaps: true);
+        store.Save(project);
+        TempData["Message"] = "Ordre recommand\u00e9 appliqu\u00e9 aux mods et aux cartes. Les d\u00e9pendances et contraintes mod.info sont maintenant respect\u00e9es; les choix manuels de priorit\u00e9 sont conserv\u00e9s.";
+        return RedirectToPage(new { id, tab = "mods" });
+    }
+
+    public IActionResult OnPostResolveConflict(Guid id, string conflictKey, string winnerModId)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+        var analysis = conflicts.Analyze(project, refresh: true);
+        var issue = analysis.Issues.FirstOrDefault(candidate => candidate.Key.Equals(conflictKey, StringComparison.Ordinal));
+        if (issue is null || !issue.CanChooseWinner || !issue.ModIds.Contains(winnerModId, StringComparer.OrdinalIgnoreCase))
+        {
+            TempData["Error"] = "La collision a chang\u00e9 depuis son affichage. Relancez l'analyse avant de choisir une priorit\u00e9.";
+            return RedirectToPage(new { id, tab = "mods" });
+        }
+        project.ConflictWinners[issue.Key] = winnerModId;
+        project.AcknowledgedConflicts.RemoveAll(key => key.Equals(issue.Key, StringComparison.OrdinalIgnoreCase));
+        analysis = conflicts.Analyze(project, refresh: true);
+        ApplyRecommendedOrder(project, analysis, includeMaps: false);
+        store.Save(project);
+        TempData["Message"] = $"Priorit\u00e9 enregistr\u00e9e : \u00ab {winnerModId} \u00bb sera charg\u00e9 apr\u00e8s les autres mods concern\u00e9s. Reconstruisez puis testez le comportement associ\u00e9.";
+        return RedirectToPage(new { id, tab = "mods" });
+    }
+
+    public IActionResult OnPostClearConflictResolution(Guid id, string conflictKey)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+        project.ConflictWinners.Remove(conflictKey);
+        project.AcknowledgedConflicts.RemoveAll(key => key.Equals(conflictKey, StringComparison.OrdinalIgnoreCase));
+        store.Save(project);
+        TempData["Message"] = "Choix manuel retir\u00e9. L'analyseur utilisera de nouveau les seules contraintes d\u00e9clar\u00e9es par les mods.";
+        return RedirectToPage(new { id, tab = "mods" });
+    }
+
+    public IActionResult OnPostAcknowledgeConflict(Guid id, string conflictKey)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+        var issue = conflicts.Analyze(project, refresh: true).Issues.FirstOrDefault(candidate => candidate.Key.Equals(conflictKey, StringComparison.Ordinal));
+        if (issue is null)
+        {
+            TempData["Error"] = "Le conflit n'existe plus dans la version actuelle du pack.";
+            return RedirectToPage(new { id, tab = "mods" });
+        }
+        if (!project.AcknowledgedConflicts.Contains(issue.Key, StringComparer.OrdinalIgnoreCase)) project.AcknowledgedConflicts.Add(issue.Key);
+        store.Save(project);
+        TempData["Message"] = "Conflit document\u00e9 comme volontaire. Il restera visible et pourra \u00eatre rouvert si les fichiers ou les mods changent.";
+        return RedirectToPage(new { id, tab = "mods" });
+    }
+
+    public IActionResult OnPostSetModEnabled(Guid id, Guid modReferenceId, bool enabled)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+        var mod = project.Mods.FirstOrDefault(candidate => candidate.Id == modReferenceId);
+        if (mod is null) return NotFound();
+        mod.Enabled = enabled;
+        if (!enabled)
+        {
+            foreach (var key in project.ConflictWinners.Where(entry => entry.Value.Equals(mod.ModId, StringComparison.OrdinalIgnoreCase)).Select(entry => entry.Key).ToArray()) project.ConflictWinners.Remove(key);
+        }
+        store.Save(project);
+        TempData["Message"] = enabled ? $"{mod.Name} r\u00e9activ\u00e9 dans le pack." : $"{mod.Name} d\u00e9sactiv\u00e9 du prochain build. Son snapshot est conserv\u00e9.";
         return RedirectToPage(new { id, tab = "mods" });
     }
 
@@ -706,11 +796,77 @@ public class EditModel(
         WorkshopDescriptionIsCompact = workshopDescription.IsCompact;
         ServerConfigNames = servers.List().Select(x => x.Name).ToList();
         MapAnalysis = mapPriority.Analyze(project);
+        ConflictAnalysis = conflicts.Analyze(project, refresh);
+        ConfigureConflictView();
+        ConfigureModView();
         var preview = ResolvePreviewPath(project);
         PreviewAvailable = preview is not null;
         PreviewSourceLabel = !string.IsNullOrWhiteSpace(project.PreviewImagePath) && System.IO.File.Exists(project.PreviewImagePath)
             ? "Image personnalisée"
             : "Preview PZASM générée automatiquement";
+    }
+
+    private void ConfigureConflictView()
+    {
+        var requestedFilter = Request.Query["conflictFilter"].FirstOrDefault()?.Trim().ToLowerInvariant();
+        ConflictFilter = requestedFilter is "all" or "errors" or "warnings" or "resolved" ? requestedFilter : "action";
+
+        var requestedCategory = Request.Query["conflictCategory"].FirstOrDefault()?.Trim();
+        ConflictCategory = Enum.TryParse<ModConflictCategory>(requestedCategory, ignoreCase: true, out var parsedCategory)
+            ? parsedCategory.ToString()
+            : "all";
+
+        IEnumerable<ModConflictIssue> query = ConflictAnalysis.Issues;
+        query = ConflictFilter switch
+        {
+            "all" => query,
+            "errors" => query.Where(issue => issue.Severity == ModConflictSeverity.Error && !issue.IsResolved),
+            "warnings" => query.Where(issue => issue.Severity == ModConflictSeverity.Warning && !issue.IsResolved),
+            "resolved" => query.Where(issue => issue.IsResolved),
+            _ => query.Where(issue => !issue.IsResolved && issue.Severity != ModConflictSeverity.Information)
+        };
+        if (ConflictCategory != "all" && Enum.TryParse<ModConflictCategory>(ConflictCategory, out parsedCategory))
+            query = query.Where(issue => issue.Category == parsedCategory);
+
+        var filtered = query.ToArray();
+        FilteredConflictCount = filtered.Length;
+        ConflictPageCount = Math.Max(1, (int)Math.Ceiling(filtered.Length / (double)ConflictPageSize));
+        ConflictPage = int.TryParse(Request.Query["conflictPage"].FirstOrDefault(), out var requestedPage)
+            ? Math.Clamp(requestedPage, 1, ConflictPageCount)
+            : 1;
+        VisibleConflictIssues = filtered.Skip((ConflictPage - 1) * ConflictPageSize).Take(ConflictPageSize).ToArray();
+    }
+
+    private void ConfigureModView()
+    {
+        ModQuery = Request.Query["modQuery"].FirstOrDefault()?.Trim() ?? string.Empty;
+        var requestedFilter = Request.Query["modFilter"].FirstOrDefault()?.Trim().ToLowerInvariant();
+        ModFilter = requestedFilter is "enabled" or "disabled" or "manual" or "rights" ? requestedFilter : "all";
+
+        IEnumerable<PackageModReference> query = Project.Mods.OrderBy(mod => mod.Order);
+        query = ModFilter switch
+        {
+            "enabled" => query.Where(mod => mod.Enabled),
+            "disabled" => query.Where(mod => !mod.Enabled),
+            "manual" => query.Where(mod => !mod.IncludeInGlobalUpdates),
+            "rights" => query.Where(mod => mod.Permission.Status is PermissionStatus.Unknown or PermissionStatus.Denied),
+            _ => query
+        };
+        if (!string.IsNullOrWhiteSpace(ModQuery))
+        {
+            query = query.Where(mod => mod.Name.Contains(ModQuery, StringComparison.CurrentCultureIgnoreCase)
+                || mod.ModId.Contains(ModQuery, StringComparison.OrdinalIgnoreCase)
+                || mod.Author.Contains(ModQuery, StringComparison.CurrentCultureIgnoreCase)
+                || mod.WorkshopId.ToString().Contains(ModQuery, StringComparison.OrdinalIgnoreCase));
+        }
+
+        var filtered = query.ToArray();
+        FilteredModCount = filtered.Length;
+        ModPageCount = Math.Max(1, (int)Math.Ceiling(filtered.Length / (double)ModPageSize));
+        ModPage = int.TryParse(Request.Query["modPage"].FirstOrDefault(), out var requestedPage)
+            ? Math.Clamp(requestedPage, 1, ModPageCount)
+            : 1;
+        VisibleProjectMods = filtered.Skip((ModPage - 1) * ModPageSize).Take(ModPageSize).ToArray();
     }
 
     private string? ResolvePreviewPath(PackageProject project)
@@ -775,6 +931,16 @@ public class EditModel(
         project.Automation.CoordinatedServerName = Form.CoordinatedServerName?.Trim() ?? string.Empty;
         project.Automation.PostPublishRestartDelayMinutes = Math.Clamp(Form.PostPublishRestartDelayMinutes, 5, 60);
         project.Automation.DailyTimes = (Form.DailyTimes ?? string.Empty).Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
+
+    private static void ApplyRecommendedOrder(PackageProject project, ModConflictAnalysis analysis, bool includeMaps)
+    {
+        var rank = analysis.RecommendedModOrder.Select((modId, index) => (modId, index)).ToDictionary(item => item.modId, item => item.index);
+        var enabledCount = rank.Count;
+        foreach (var mod in project.Mods)
+            mod.Order = rank.TryGetValue(mod.Id, out var position) ? position : enabledCount++;
+        project.Mods = project.Mods.OrderBy(mod => mod.Order).ToList();
+        if (includeMaps) project.MapOrder = analysis.RecommendedMapOrder.ToList();
     }
 
     private async Task<IActionResult> StreamOperationAsync(

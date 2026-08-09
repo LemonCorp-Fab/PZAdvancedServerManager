@@ -1,6 +1,7 @@
 @page "{id:guid}"
 @model PZAdvancedServerManager.App.Pages.Projects.EditModel
 @using PZAdvancedServerManager.Core.Domain
+@using PZAdvancedServerManager.Core.Pz
 @{
     ViewData["Title"] = Model.Project.Name;
     var selectedIds = Model.Project.Mods.Select(x => x.ModId).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -269,6 +270,133 @@
             <div class="action-row"><a class="button primary" asp-page="/Workshop/Index" asp-route-projectId="@Model.Project.Id">Ouvrir le catalogue interne</a><a class="button ghost" asp-page="/Projects/Edit" asp-route-id="@Model.Project.Id" asp-route-refresh="true" asp-route-tab="mods">Relancer la détection</a></div>
         </div>
 
+        <section class="conflict-workbench" id="conflict-workbench">
+            <div class="conflict-workbench-heading">
+                <div><span class="eyebrow">ATELIER DE COMPATIBILITÉ</span><h3>Conflits, dépendances et ordre dynamique</h3><p>Analyse des <code>mod.info</code>, contraintes <code>require/loadAfter/loadBefore/incompatible</code>, versions PZ, chemins Lua/scripts/assets et cellules de cartes.</p></div>
+                <div class="conflict-scoreboard">
+                    <span class="error"><strong>@Model.ConflictAnalysis.ErrorCount</strong><small>bloquants</small></span>
+                    <span class="warning"><strong>@Model.ConflictAnalysis.WarningCount</strong><small>à arbitrer</small></span>
+                    <span class="resolved"><strong>@Model.ConflictAnalysis.ResolvedCount</strong><small>résolus</small></span>
+                </div>
+            </div>
+            <div class="conflict-audit-facts">
+                <span><strong>@Model.ConflictAnalysis.ScannedFiles.ToString("N0")</strong><small>fichiers effectifs inspectés</small></span>
+                <span><strong>@Model.ConflictAnalysis.ComparedFilePaths.ToString("N0")</strong><small>chemins partagés comparés</small></span>
+                <span><strong>@Model.ConflictAnalysis.Duration.TotalSeconds.ToString("0.0") s</strong><small>analyse mise en cache</small></span>
+                <form method="post" asp-page-handler="ApplyRecommendedOrder" data-loading-title="Application de l'ordre recommandé…" data-loading-detail="Tri topologique des mods, contraintes mod.info, priorités manuelles et ordre dynamique des cartes." data-confirm-title="Appliquer l'ordre recommandé ?" data-confirm-message="L'ordre des Mod IDs et des cartes sera remplacé par la recommandation calculée. Les choix manuels de gagnant déjà enregistrés seront respectés." data-confirm-action="Appliquer l'ordre"><button class="button primary" type="submit">Optimiser mods + cartes</button></form>
+            </div>
+            @if (Model.ConflictAnalysis.Issues.Count > 0)
+            {
+                <nav class="conflict-filter-bar" aria-label="Compatibility analysis filters">
+                    <div class="conflict-filter-group">
+                        <span>État</span>
+                        <a class="@(Model.ConflictFilter == "action" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="mods" asp-route-conflictFilter="action" asp-route-conflictCategory="@Model.ConflictCategory" asp-fragment="conflict-workbench">À traiter <strong>@Model.ConflictAnalysis.Issues.Count(issue => !issue.IsResolved && issue.Severity != ModConflictSeverity.Information)</strong></a>
+                        <a class="@(Model.ConflictFilter == "errors" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="mods" asp-route-conflictFilter="errors" asp-route-conflictCategory="@Model.ConflictCategory" asp-fragment="conflict-workbench">Bloquants <strong>@Model.ConflictAnalysis.ErrorCount</strong></a>
+                        <a class="@(Model.ConflictFilter == "warnings" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="mods" asp-route-conflictFilter="warnings" asp-route-conflictCategory="@Model.ConflictCategory" asp-fragment="conflict-workbench">Alertes <strong>@Model.ConflictAnalysis.WarningCount</strong></a>
+                        <a class="@(Model.ConflictFilter == "resolved" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="mods" asp-route-conflictFilter="resolved" asp-route-conflictCategory="@Model.ConflictCategory" asp-fragment="conflict-workbench">Examinés <strong>@Model.ConflictAnalysis.ResolvedCount</strong></a>
+                        <a class="@(Model.ConflictFilter == "all" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="mods" asp-route-conflictFilter="all" asp-route-conflictCategory="@Model.ConflictCategory" asp-fragment="conflict-workbench">Tous <strong>@Model.ConflictAnalysis.Issues.Count</strong></a>
+                    </div>
+                    <div class="conflict-filter-group category">
+                        <span>Famille</span>
+                        <a class="@(Model.ConflictCategory == "all" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="mods" asp-route-conflictFilter="@Model.ConflictFilter" asp-route-conflictCategory="all" asp-fragment="conflict-workbench">Toutes</a>
+                        @foreach (var category in Enum.GetValues<ModConflictCategory>())
+                        {
+                            <a class="@(Model.ConflictCategory == category.ToString() ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="mods" asp-route-conflictFilter="@Model.ConflictFilter" asp-route-conflictCategory="@category" asp-fragment="conflict-workbench">@category</a>
+                        }
+                    </div>
+                </nav>
+            }
+            @if (Model.ConflictAnalysis.Issues.Count == 0)
+            {
+                <div class="conflict-clean"><span>✓</span><div><strong>Aucun conflit détecté</strong><small>Les contraintes déclarées, les versions et les chemins effectifs sont cohérents.</small></div></div>
+            }
+            else
+            {
+                @if (Model.FilteredConflictCount == 0)
+                {
+                    <div class="conflict-clean"><span>✓</span><div><strong>Aucun résultat pour ces filtres</strong><small>Changez l'état ou la famille pour afficher les autres diagnostics.</small></div></div>
+                }
+                <div class="conflict-issue-list">
+                @foreach (var issue in Model.VisibleConflictIssues)
+                {
+                    <details class="conflict-issue severity-@issue.Severity.ToString().ToLowerInvariant() @(issue.IsResolved ? "is-resolved" : "")" open="@(issue.Severity == ModConflictSeverity.Error && !issue.IsResolved ? "open" : null)">
+                        <summary>
+                            <span class="conflict-severity-mark">@(issue.IsResolved ? "✓" : issue.Severity == ModConflictSeverity.Error ? "!" : issue.Severity == ModConflictSeverity.Warning ? "△" : "i")</span>
+                            <span class="conflict-summary-copy"><strong>@issue.Title</strong><small>@issue.Category · @issue.Code@if (issue.IsResolved) { <text> · RÉSOLU</text> }</small></span>
+                            <span class="conflict-participant-count">@issue.ModIds.Count mod(s)</span>
+                        </summary>
+                        <div class="conflict-issue-body">
+                            <p>@issue.Detail</p>
+                            @if (issue.ModIds.Count > 0)
+                            {
+                                <div class="conflict-mod-chips">@foreach (var modId in issue.ModIds) { <code>@modId</code> }</div>
+                            }
+                            @if (issue.Evidence.Count > 0)
+                            {
+                                <details class="conflict-evidence"><summary>Afficher les preuves (@issue.Evidence.Count)</summary><div>@foreach (var evidence in issue.Evidence) { if (!string.IsNullOrWhiteSpace(evidence)) { <code>@evidence</code> } }</div></details>
+                            }
+                            <div class="conflict-resolution-tools">
+                                @if (issue.CanChooseWinner)
+                                {
+                                    <div class="conflict-winner-tools"><span><strong>Choisir le contenu prioritaire</strong><small>Le gagnant sera placé après les autres mods de cette collision.</small></span><div class="action-row">
+                                    @foreach (var modId in issue.ModIds)
+                                    {
+                                        <form method="post" asp-page-handler="ResolveConflict" data-loading-title="Calcul de la priorité…" data-loading-detail="Enregistrement du gagnant puis recalcul de l'ordre complet des dépendances." data-confirm-title="Donner la priorité à @modId ?" data-confirm-message="Ce mod sera chargé après les autres participants pour les chemins concernés. Cette décision ne modifie aucun fichier source." data-confirm-action="Donner la priorité"><input type="hidden" name="conflictKey" value="@issue.Key" /><input type="hidden" name="winnerModId" value="@modId" /><button class="button @(issue.SelectedWinnerModId.Equals(modId, StringComparison.OrdinalIgnoreCase) ? "primary" : "secondary") compact" type="submit">@(issue.SelectedWinnerModId.Equals(modId, StringComparison.OrdinalIgnoreCase) ? $"Prioritaire : {modId}" : $"Préférer {modId}")</button></form>
+                                    }
+                                    </div></div>
+                                }
+                                <div class="conflict-secondary-tools">
+                                    @if (issue.IsResolved || Model.Project.AcknowledgedConflicts.Contains(issue.Key, StringComparer.OrdinalIgnoreCase))
+                                    {
+                                        <form method="post" asp-page-handler="ClearConflictResolution" data-loading-title="Réouverture du conflit…"><input type="hidden" name="conflictKey" value="@issue.Key" /><button class="button ghost compact" type="submit">Réouvrir / effacer le choix</button></form>
+                                    }
+                                    else if (issue.Severity != ModConflictSeverity.Error)
+                                    {
+                                        <form method="post" asp-page-handler="AcknowledgeConflict" data-loading-title="Documentation du conflit…" data-confirm-title="Marquer ce conflit comme volontaire ?" data-confirm-message="Le problème restera visible dans l'audit, mais sera compté comme examiné. Aucun fichier ne sera modifié." data-confirm-action="Marquer comme examiné"><input type="hidden" name="conflictKey" value="@issue.Key" /><button class="button ghost compact" type="submit">Conserver volontairement</button></form>
+                                    }
+                                    @if (issue.CanDisableMods)
+                                    {
+                                        @foreach (var modReferenceId in issue.ModReferenceIds)
+                                        {
+                                            var affectedMod = Model.Project.Mods.FirstOrDefault(mod => mod.Id == modReferenceId);
+                                            if (affectedMod is not null)
+                                            {
+                                                <form method="post" asp-page-handler="SetModEnabled" data-loading-title="Désactivation du mod…" data-confirm-title="Désactiver @affectedMod.Name ?" data-confirm-message="Le mod sera exclu du prochain build et des listes serveur générées. Son snapshot restera disponible pour le réactiver." data-confirm-action="Désactiver du pack" data-confirm-tone="danger"><input type="hidden" name="modReferenceId" value="@affectedMod.Id" /><input type="hidden" name="enabled" value="false" /><button class="button danger compact" type="submit">Désactiver @affectedMod.ModId</button></form>
+                                            }
+                                        }
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </details>
+                }
+                </div>
+                @if (Model.ConflictPageCount > 1)
+                {
+                    var firstConflictPage = Math.Max(1, Model.ConflictPage - 2);
+                    var lastConflictPage = Math.Min(Model.ConflictPageCount, firstConflictPage + 4);
+                    firstConflictPage = Math.Max(1, lastConflictPage - 4);
+                    <nav class="conflict-pager" aria-label="Pages des diagnostics">
+                        <span>@Model.FilteredConflictCount diagnostic(s) · @Model.ConflictPageSize par page</span>
+                        <div>
+                            @if (Model.ConflictPage > 1)
+                            {
+                                <a asp-route-id="@Model.Project.Id" asp-route-tab="mods" asp-route-conflictFilter="@Model.ConflictFilter" asp-route-conflictCategory="@Model.ConflictCategory" asp-route-conflictPage="@(Model.ConflictPage - 1)" asp-fragment="conflict-workbench">Précédent</a>
+                            }
+                            @for (var conflictPageNumber = firstConflictPage; conflictPageNumber <= lastConflictPage; conflictPageNumber++)
+                            {
+                                <a class="@(conflictPageNumber == Model.ConflictPage ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="mods" asp-route-conflictFilter="@Model.ConflictFilter" asp-route-conflictCategory="@Model.ConflictCategory" asp-route-conflictPage="@conflictPageNumber" asp-fragment="conflict-workbench">@conflictPageNumber</a>
+                            }
+                            @if (Model.ConflictPage < Model.ConflictPageCount)
+                            {
+                                <a asp-route-id="@Model.Project.Id" asp-route-tab="mods" asp-route-conflictFilter="@Model.ConflictFilter" asp-route-conflictCategory="@Model.ConflictCategory" asp-route-conflictPage="@(Model.ConflictPage + 1)" asp-fragment="conflict-workbench">Suivant</a>
+                            }
+                        </div>
+                    </nav>
+                }
+            }
+        </section>
+
         <section class="catalog-launch-card">
             <span class="catalog-launch-mark">W</span>
             <div><span class="eyebrow">SÉLECTION AVANCÉE</span><h3>Workshop et bibliothèque locale unifiés</h3><p>Recherchez, filtrez et sélectionnez plusieurs items, puis laissez SteamCMD télécharger et analyser tous leurs <code>mod.info</code>.</p></div>
@@ -346,8 +474,21 @@
         }
         else
         {
+            <form method="get" class="package-mod-toolbar" aria-label="Recherche dans les mods du pack">
+                <input type="hidden" name="tab" value="mods" />
+                <input type="hidden" name="conflictFilter" value="@Model.ConflictFilter" />
+                <input type="hidden" name="conflictCategory" value="@Model.ConflictCategory" />
+                <label><span>Rechercher dans le pack</span><input type="search" name="modQuery" value="@Model.ModQuery" placeholder="Nom, auteur, Mod ID ou Workshop ID…" /></label>
+                <label><span>Afficher</span><select name="modFilter"><option value="all" selected="@(Model.ModFilter == "all")">Tous les mods</option><option value="enabled" selected="@(Model.ModFilter == "enabled")">Activés</option><option value="disabled" selected="@(Model.ModFilter == "disabled")">Désactivés</option><option value="manual" selected="@(Model.ModFilter == "manual")">Mise à jour manuelle</option><option value="rights" selected="@(Model.ModFilter == "rights")">Droits à vérifier</option></select></label>
+                <button class="button secondary" type="submit">Filtrer</button>
+                @if (!string.IsNullOrWhiteSpace(Model.ModQuery) || Model.ModFilter != "all")
+                {
+                    <a class="button ghost" asp-route-id="@Model.Project.Id" asp-route-tab="mods" asp-route-conflictFilter="@Model.ConflictFilter" asp-route-conflictCategory="@Model.ConflictCategory">Effacer</a>
+                }
+                <span class="package-mod-count"><strong>@Model.FilteredModCount</strong> sur @Model.Project.Mods.Count mod(s)</span>
+            </form>
             <div class="mod-list">
-            @foreach (var mod in Model.Project.Mods.OrderBy(x => x.Order))
+            @foreach (var mod in Model.VisibleProjectMods)
             {
                 <details class="mod-card">
                     <summary>
@@ -386,6 +527,33 @@
                 </details>
             }
             </div>
+            @if (Model.FilteredModCount == 0)
+            {
+                <div class="empty-state compact"><h3>Aucun mod ne correspond</h3><p>Effacez la recherche ou changez le filtre pour retrouver la liste complète.</p></div>
+            }
+            @if (Model.ModPageCount > 1)
+            {
+                var firstModPage = Math.Max(1, Model.ModPage - 2);
+                var lastModPage = Math.Min(Model.ModPageCount, firstModPage + 4);
+                firstModPage = Math.Max(1, lastModPage - 4);
+                <nav class="conflict-pager package-mod-pager" aria-label="Pages des mods du pack">
+                    <span>@Model.FilteredModCount mod(s) · @Model.ModPageSize par page</span>
+                    <div>
+                        @if (Model.ModPage > 1)
+                        {
+                            <a asp-route-id="@Model.Project.Id" asp-route-tab="mods" asp-route-conflictFilter="@Model.ConflictFilter" asp-route-conflictCategory="@Model.ConflictCategory" asp-route-modQuery="@Model.ModQuery" asp-route-modFilter="@Model.ModFilter" asp-route-modPage="@(Model.ModPage - 1)">Précédent</a>
+                        }
+                        @for (var modPageNumber = firstModPage; modPageNumber <= lastModPage; modPageNumber++)
+                        {
+                            <a class="@(modPageNumber == Model.ModPage ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="mods" asp-route-conflictFilter="@Model.ConflictFilter" asp-route-conflictCategory="@Model.ConflictCategory" asp-route-modQuery="@Model.ModQuery" asp-route-modFilter="@Model.ModFilter" asp-route-modPage="@modPageNumber">@modPageNumber</a>
+                        }
+                        @if (Model.ModPage < Model.ModPageCount)
+                        {
+                            <a asp-route-id="@Model.Project.Id" asp-route-tab="mods" asp-route-conflictFilter="@Model.ConflictFilter" asp-route-conflictCategory="@Model.ConflictCategory" asp-route-modQuery="@Model.ModQuery" asp-route-modFilter="@Model.ModFilter" asp-route-modPage="@(Model.ModPage + 1)">Suivant</a>
+                        }
+                    </div>
+                </nav>
+            }
         }
     </section>
 </div>

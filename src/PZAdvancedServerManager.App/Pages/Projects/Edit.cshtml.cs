@@ -237,10 +237,55 @@ public class EditModel(
         var project = store.Get(id);
         if (project is null) return NotFound();
         var analysis = conflicts.Analyze(project, refresh: true);
+        if (analysis.Issues.Any(issue => issue.Code == "CYCLE_ORDER" && !issue.IsResolved))
+        {
+            TempData["Error"] = "L'ordre ne peut pas être appliqué tant qu'un cycle de contraintes subsiste. Utilisez le correctif proposé sur le blocage concerné ou examinez ses preuves.";
+            return RedirectToPage(pageName: null, pageHandler: null, routeValues: new { id, tab = "compatibility", conflictFilter = "errors" }, fragment: "conflict-workbench");
+        }
         ApplyRecommendedOrder(project, analysis, includeMaps: true);
         store.Save(project);
         TempData["Message"] = "Ordre recommand\u00e9 appliqu\u00e9 aux mods et aux cartes. Les d\u00e9pendances et contraintes mod.info sont maintenant respect\u00e9es; les choix manuels de priorit\u00e9 sont conserv\u00e9s.";
         return RedirectToPage(new { id, tab = "compatibility" });
+    }
+
+    public IActionResult OnPostRepairOrderIssue(Guid id, string conflictKey)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+        var analysis = conflicts.Analyze(project, refresh: true);
+        var issue = analysis.Issues.FirstOrDefault(candidate => candidate.Key.Equals(conflictKey, StringComparison.Ordinal));
+        if (issue is null || !issue.CanAutoFixOrder)
+        {
+            TempData["Error"] = "Ce diagnostic a changé ou ne possède plus de correction automatique vérifiable. Relancez l'analyse.";
+            return RedirectToPage(pageName: null, pageHandler: null, routeValues: new { id, tab = "compatibility", conflictFilter = "errors" }, fragment: "conflict-workbench");
+        }
+
+        var removedDecisions = issue.AutomaticOrderFixKeys
+            .Where(project.ConflictWinners.ContainsKey)
+            .ToDictionary(key => key, key => project.ConflictWinners[key], StringComparer.OrdinalIgnoreCase);
+        foreach (var key in removedDecisions.Keys) project.ConflictWinners.Remove(key);
+
+        var repaired = conflicts.Analyze(project, refresh: true);
+        var affectedIds = issue.ModReferenceIds.ToHashSet();
+        var targetedCycleRemains = repaired.Issues.Any(candidate =>
+            candidate.Code == "CYCLE_ORDER"
+            && !candidate.IsResolved
+            && candidate.ModReferenceIds.Any(affectedIds.Contains));
+        if (targetedCycleRemains)
+        {
+            foreach (var decision in removedDecisions) project.ConflictWinners[decision.Key] = decision.Value;
+            TempData["Error"] = "La correction automatique n'a pas produit un graphe d'ordre valide. Aucun choix ni ordre n'a été modifié.";
+            return RedirectToPage(pageName: null, pageHandler: null, routeValues: new { id, tab = "compatibility", conflictFilter = "errors" }, fragment: "conflict-workbench");
+        }
+
+        var remainingCycles = repaired.Issues.Any(candidate => candidate.Code == "CYCLE_ORDER" && !candidate.IsResolved);
+        if (!remainingCycles) ApplyRecommendedOrder(project, repaired, includeMaps: false);
+        store.Save(project);
+
+        TempData["Message"] = removedDecisions.Count > 0
+            ? $"Ordre réparé : {removedDecisions.Count} priorité manuelle contradictoire retirée, puis dépendances et contraintes de chargement recalculées. Aucun mod n'a été désactivé."
+            : "Ordre réparé : les dépendances et contraintes de chargement ont été replacées automatiquement. Aucun mod n'a été désactivé.";
+        return RedirectToPage(pageName: null, pageHandler: null, routeValues: new { id, tab = "compatibility", conflictFilter = "action" }, fragment: "conflict-workbench");
     }
 
     public IActionResult OnPostApplyResolutionBatch(Guid id, string recipe)

@@ -16,6 +16,7 @@
     var unresolvedConflicts = Model.ConflictAnalysis.ErrorCount + Model.ConflictAnalysis.WarningCount;
     var safeBatchMods = Model.VerifiedIncompatibleMods.Concat(Model.UnavailableSourceMods).DistinctBy(mod => mod.Id).ToArray();
     var hasSafeBatch = safeBatchMods.Length > 0 || Model.ConflictAnalysis.HasOrderChange;
+    var primaryAutoOrderIssue = Model.ConflictAnalysis.AutoFixableOrderIssues.FirstOrDefault();
 }
 
 <a class="back-link" asp-page="/Index">← Tableau de bord</a>
@@ -307,10 +308,18 @@
                     else { <span class="resolution-complete-label">✓ Rien à corriger</span> }
                 </article>
 
-                <article class="resolution-batch-card @(Model.ConflictAnalysis.HasOrderChange ? "needs-action" : "is-complete")">
+                <article class="resolution-batch-card @(Model.ConflictAnalysis.HasOrderProblem ? "needs-action" : "is-complete") @(Model.ConflictAnalysis.HasUnrepairableOrderCycle ? "is-blocked" : null)">
                     <span class="resolution-batch-icon">↕</span>
-                    <div><span class="eyebrow">ORDRE DYNAMIQUE</span><h4>@(Model.ConflictAnalysis.HasOrderChange ? "Un meilleur ordre est disponible" : "Ordre déjà optimisé")</h4><p>Dépendances, <code>loadAfter/loadBefore</code>, décisions de priorité, connecteurs et cellules de cartes sont calculés ensemble.</p></div>
-                    @if (Model.ConflictAnalysis.HasOrderChange)
+                    <div><span class="eyebrow">ORDRE DYNAMIQUE</span><h4>@(Model.ConflictAnalysis.HasUnrepairableOrderCycle ? "Cycle bloquant à examiner" : Model.ConflictAnalysis.HasOrderProblem ? "Un ordre valide doit être restauré" : "Ordre déjà optimisé")</h4><p>Dépendances, <code>loadAfter/loadBefore</code>, décisions de priorité, connecteurs et cellules de cartes sont calculés ensemble.</p></div>
+                    @if (primaryAutoOrderIssue is not null)
+                    {
+                        <form method="post" asp-page-handler="RepairOrderIssue" data-loading-title="Réparation de l’ordre…" data-loading-detail="Validation du graphe, retrait des seules priorités contradictoires et tri topologique complet."><input type="hidden" name="conflictKey" value="@primaryAutoOrderIssue.Key" /><button class="button primary" type="submit">Réparer l’ordre automatiquement</button></form>
+                    }
+                    else if (Model.ConflictAnalysis.HasUnrepairableOrderCycle)
+                    {
+                        <a class="button danger-outline" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="errors" asp-route-conflictCategory="Order" asp-fragment="conflict-workbench">Examiner le cycle bloquant</a>
+                    }
+                    else if (Model.ConflictAnalysis.HasOrderChange)
                     {
                         <form method="post" asp-page-handler="ApplyRecommendedOrder" data-loading-title="Application de l’ordre recommandé…" data-loading-detail="Tri topologique des mods, contraintes mod.info, priorités manuelles et ordre dynamique des cartes." data-confirm-title="Appliquer l’ordre recommandé ?" data-confirm-message="L’ordre des Mod IDs et des cartes sera remplacé par la recommandation calculée. Les choix manuels de gagnant déjà enregistrés seront respectés." data-confirm-action="Appliquer l’ordre"><button class="button primary" type="submit">Optimiser mods + cartes</button></form>
                     }
@@ -338,11 +347,25 @@
             <div class="conflict-workbench-heading">
                 <div><span class="eyebrow">ATELIER DE COMPATIBILITÉ</span><h3>Conflits, dépendances et ordre dynamique</h3><p>Analyse des <code>mod.info</code>, contraintes <code>require/loadAfter/loadBefore/incompatible</code>, versions PZ, chemins Lua/scripts/assets et cellules de cartes.</p></div>
                 <div class="conflict-scoreboard">
-                    <span class="error"><strong>@Model.ConflictAnalysis.ErrorCount</strong><small>bloquants</small></span>
+                    <span class="error @(Model.ConflictAnalysis.ErrorCount > 0 ? "has-errors" : null)"><strong>@Model.ConflictAnalysis.ErrorCount</strong><small>bloquants</small></span>
                     <span class="warning"><strong>@Model.ConflictAnalysis.WarningCount</strong><small>à arbitrer</small></span>
                     <span class="resolved"><strong>@Model.ConflictAnalysis.ResolvedCount</strong><small>résolus</small></span>
                 </div>
             </div>
+            @if (Model.ConflictAnalysis.ErrorCount > 0)
+            {
+                <section class="compatibility-critical-banner" role="alert">
+                    <span class="compatibility-critical-icon" aria-hidden="true">!</span>
+                    <div><span class="eyebrow">PACK BLOQUÉ</span><strong>@Model.ConflictAnalysis.ErrorCount problème(s) critique(s) à corriger avant construction</strong><p>Les erreurs critiques sont ouvertes automatiquement et ne peuvent pas être marquées comme volontairement ignorées.</p></div>
+                    <div class="compatibility-critical-actions">
+                        @if (primaryAutoOrderIssue is not null)
+                        {
+                            <form method="post" asp-page-handler="RepairOrderIssue" data-loading-title="Réparation du blocage…" data-loading-detail="Contrôle des dépendances, suppression des seules priorités contradictoires et recalcul de l’ordre."><input type="hidden" name="conflictKey" value="@primaryAutoOrderIssue.Key" /><button class="button primary" type="submit">Corriger le blocage d’ordre</button></form>
+                        }
+                        <a class="button danger-outline" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="errors" asp-route-conflictCategory="all" asp-route-conflictType="all" asp-fragment="conflict-workbench">Afficher uniquement les bloquants</a>
+                    </div>
+                </section>
+            }
             <div class="conflict-audit-facts">
                 <span><strong>@Model.ConflictAnalysis.ScannedFiles.ToString("N0")</strong><small>fichiers effectifs inspectés</small></span>
                 <span><strong>@Model.ConflictAnalysis.ComparedFilePaths.ToString("N0")</strong><small>chemins partagés comparés</small></span>
@@ -423,6 +446,7 @@
                         _ => "Critique"
                     };
                     var primaryFileFormId = $"open-conflict-file-{Model.ConflictPage}-{issueIndex}-0";
+                    var orderFixFormId = $"repair-order-{Model.ConflictPage}-{issueIndex}";
                     var comparableTextPaths = issue.FileEvidence
                         .Where(file => TextConflictDiffService.IsSupportedPath(file.PhysicalPath)
                             && System.IO.File.Exists(file.PhysicalPath)
@@ -445,8 +469,16 @@
                                 <small>@issue.Category · @issue.Code@if (issue.IsResolved) { <text> · RÉSOLU</text> }</small>
                             </span>
                             <span class="conflict-summary-actions">
+                                @if (issue.Severity == ModConflictSeverity.Error && !issue.IsResolved)
+                                {
+                                    <span class="conflict-blocking-badge">BLOQUANT</span>
+                                }
                                 <span class="conflict-risk-badge">Risque @riskLabel</span>
                                 <span class="conflict-participant-count">@issue.ModIds.Count mod(s)</span>
+                                @if (issue.CanAutoFixOrder)
+                                {
+                                    <button class="button primary compact conflict-auto-fix-header" type="submit" form="@orderFixFormId" data-summary-action>Corriger automatiquement</button>
+                                }
                                 @if (comparableTextPaths > 0)
                                 {
                                     <a class="button primary compact conflict-diff-header" asp-page="/Projects/ConflictDiff" asp-route-id="@Model.Project.Id" asp-route-conflictKey="@issue.Key" data-summary-action>Voir le diff</a>
@@ -458,6 +490,10 @@
                             </span>
                         </summary>
                         <div class="conflict-issue-body">
+                            @if (issue.Severity == ModConflictSeverity.Error && !issue.IsResolved)
+                            {
+                                <div class="conflict-critical-callout"><span aria-hidden="true">!</span><div><strong>Ce problème bloque un ordre de chargement fiable</strong><small>Corrigez-le avant le prochain build ou la prochaine publication du pack.</small></div></div>
+                            }
                             <p>@issue.Detail</p>
                             @if (issue.ModIds.Count > 0)
                             {
@@ -488,6 +524,15 @@
                                 </div>
                             }
                             <div class="conflict-resolution-tools">
+                                @if (issue.CanAutoFixOrder)
+                                {
+                                    <form id="@orderFixFormId" method="post" asp-page-handler="RepairOrderIssue" class="conflict-auto-fix-panel" data-loading-title="Réparation de l’ordre…" data-loading-detail="Nouvelle analyse, retrait des seules décisions contradictoires et validation du tri topologique final.">
+                                        <input type="hidden" name="conflictKey" value="@issue.Key" />
+                                        <span class="conflict-auto-fix-icon" aria-hidden="true">↕</span>
+                                        <span><strong>Correction déterministe disponible</strong><small>@(issue.AutomaticOrderFixKeys.Count > 0 ? "La priorité manuelle contradictoire sera retirée, puis l’ordre complet sera recalculé." : "Les mods seront replacés selon leurs dépendances et contraintes déclarées.") Aucun mod ni snapshot ne sera supprimé.</small></span>
+                                        <button class="button primary" type="submit">Réparer cet ordre</button>
+                                    </form>
+                                }
                                 @if (issue.CanChooseWinner)
                                 {
                                     <div class="conflict-winner-tools"><span><strong>Choisir le contenu prioritaire</strong><small>Le gagnant sera placé après les autres mods de cette collision.</small></span><div class="action-row">

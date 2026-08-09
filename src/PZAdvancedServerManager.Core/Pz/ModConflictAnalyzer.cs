@@ -56,10 +56,14 @@ public sealed record ModConflictIssue(
     string TypeLabel = "",
     ModConflictRisk Risk = ModConflictRisk.Moderate,
     string PrimaryEvidence = "",
-    IReadOnlyList<ModConflictFileEvidence>? Files = null)
+    IReadOnlyList<ModConflictFileEvidence>? Files = null,
+    bool CanApplyRecommendedOrder = false,
+    IReadOnlyList<string>? RemovableConflictWinnerKeys = null)
 {
     public string EffectiveTypeLabel => string.IsNullOrWhiteSpace(TypeLabel) ? Category.ToString() : TypeLabel;
     public IReadOnlyList<ModConflictFileEvidence> FileEvidence => Files ?? [];
+    public IReadOnlyList<string> AutomaticOrderFixKeys => RemovableConflictWinnerKeys ?? [];
+    public bool CanAutoFixOrder => CanApplyRecommendedOrder || AutomaticOrderFixKeys.Count > 0;
 }
 
 public sealed record ModConflictTypeSummary(
@@ -84,9 +88,12 @@ public sealed record ModConflictAnalysis(
     public int ErrorCount => Issues.Count(issue => issue.Severity == ModConflictSeverity.Error && !issue.IsResolved);
     public int WarningCount => Issues.Count(issue => issue.Severity == ModConflictSeverity.Warning && !issue.IsResolved);
     public int ResolvedCount => Issues.Count(issue => issue.IsResolved);
-    public bool HasModOrderChange => Issues.Any(issue => issue.Code == "MOD_ORDER" && !issue.IsResolved);
+    public bool HasModOrderChange => Issues.Any(issue => issue.Code is "MOD_ORDER" or "MOD_ORDER_INVALID" && !issue.IsResolved);
     public bool HasMapOrderChange => Issues.Any(issue => issue.Code == "MAP_ORDER" && !issue.IsResolved);
     public bool HasOrderChange => HasModOrderChange || HasMapOrderChange;
+    public bool HasOrderProblem => HasOrderChange || Issues.Any(issue => issue.Code == "CYCLE_ORDER" && !issue.IsResolved);
+    public IReadOnlyList<ModConflictIssue> AutoFixableOrderIssues => Issues.Where(issue => !issue.IsResolved && issue.CanAutoFixOrder).ToArray();
+    public bool HasUnrepairableOrderCycle => Issues.Any(issue => issue.Code == "CYCLE_ORDER" && !issue.IsResolved && !issue.CanAutoFixOrder);
     public IReadOnlyList<ModConflictTypeSummary> TypeSummaries => Issues
         .GroupBy(issue => issue.EffectiveTypeLabel, StringComparer.CurrentCultureIgnoreCase)
         .Select(group => new ModConflictTypeSummary(
@@ -133,33 +140,73 @@ public sealed class ModConflictAnalyzer(MapPriorityService mapPriority)
         AnalyzeIdentity(mods, issues);
         AnalyzeCompatibility(project, mods, issues);
         AnalyzeDeclaredRelations(project, mods, byModId, edges, issues);
+        var hardEdges = CloneEdges(edges);
 
         var fileIndex = new Dictionary<string, Dictionary<Guid, FileOwner>>(StringComparer.OrdinalIgnoreCase);
         var scannedFiles = IndexEffectiveFiles(mods, fileIndex);
-        var comparedPaths = AnalyzeFileCollisions(project, mods, fileIndex, edges, issues);
+        var comparedPaths = AnalyzeFileCollisions(project, mods, fileIndex, issues);
+        var invalidOrderDecisions = ApplyConflictWinnerEdges(project, mods, hardEdges, edges);
 
         var mapAnalysis = mapPriority.Analyze(project);
         AnalyzeMaps(project, mods, mapAnalysis, issues);
 
-        var recommended = StableTopologicalSort(mods, edges, out var cyclicIds);
-        if (cyclicIds.Count > 0)
+        var recommended = StableTopologicalSort(mods, edges, out _);
+        var cycleComponents = FindCycleComponents(edges);
+        foreach (var component in cycleComponents)
         {
-            var cycleMods = mods.Where(mod => cyclicIds.Contains(mod.Id)).ToList();
-            issues.Add(Issue(
-                "MOD_ORDER_CYCLE",
+            var cycleMods = mods.Where(mod => component.Contains(mod.Id)).ToList();
+            var automaticFixKeys = invalidOrderDecisions
+                .Where(decision => component.Contains(decision.WinnerId) && component.Contains(decision.LoserId))
+                .Select(decision => decision.ConflictKey)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (automaticFixKeys.Length > 0)
+            {
+                var simulatedEdges = CloneEdges(hardEdges);
+                ApplyConflictWinnerEdges(project, mods, hardEdges, simulatedEdges, automaticFixKeys.ToHashSet(StringComparer.OrdinalIgnoreCase));
+                if (FindCycleComponents(simulatedEdges).Any(candidate => candidate.Overlaps(component))) automaticFixKeys = [];
+            }
+            var issue = Issue(
+                $"MOD_ORDER_CYCLE:{string.Join(':', cycleMods.Select(mod => Normalize(mod.ModId)).Order(StringComparer.OrdinalIgnoreCase))}",
                 "CYCLE_ORDER",
                 "Cycle dans les contraintes de chargement",
-                "Les champs require/loadAfter/loadBefore et les priorit\u00e9s manuelles forment un cycle. Aucun ordre ne peut satisfaire toutes ces contraintes; ouvrez les preuves et retirez au moins une priorit\u00e9 manuelle.",
+                automaticFixKeys.Length > 0
+                    ? "Une priorit\u00e9 manuelle contredit une d\u00e9pendance ou une contrainte loadAfter/loadBefore. Le manager peut retirer uniquement ce choix contradictoire, puis recalculer un ordre valide sans d\u00e9sactiver de mod."
+                    : "Les champs require/loadAfter/loadBefore forment un cycle r\u00e9el. Aucun ordre ne peut satisfaire toutes ces contraintes; examinez les preuves ou d\u00e9sactivez l'un des mods concern\u00e9s.",
                 ModConflictSeverity.Error,
                 ModConflictCategory.Order,
                 cycleMods,
-                [string.Join(" -> ", cycleMods.Select(mod => mod.ModId))],
+                [FormatCycleEvidence(component, edges, mods)],
                 canChooseWinner: false,
-                canDisableMods: true));
+                canDisableMods: true) with
+            {
+                RemovableConflictWinnerKeys = automaticFixKeys
+            };
+            issues.Add(issue);
         }
 
         var currentOrder = mods.Select(mod => mod.Id).ToArray();
-        if (!currentOrder.SequenceEqual(recommended))
+        var hardOrderViolations = cycleComponents.Count == 0
+            ? FindOrderViolations(mods, hardEdges)
+            : [];
+        if (hardOrderViolations.Count > 0)
+        {
+            var affectedIds = hardOrderViolations.SelectMany(violation => new[] { violation.BeforeId, violation.AfterId }).ToHashSet();
+            var affected = mods.Where(mod => affectedIds.Contains(mod.Id)).ToList();
+            issues.Add(Issue(
+                "MOD_ORDER_INVALID",
+                "MOD_ORDER_INVALID",
+                "Ordre de d\u00e9pendance invalide",
+                "Au moins une d\u00e9pendance ou contrainte loadAfter/loadBefore est plac\u00e9e dans le mauvais sens. Un tri topologique v\u00e9rifi\u00e9 peut restaurer automatiquement un ordre valide sans supprimer ni d\u00e9sactiver de mod.",
+                ModConflictSeverity.Error,
+                ModConflictCategory.Order,
+                affected,
+                hardOrderViolations.Select(violation => FormatOrderViolation(violation, mods)).ToArray()) with
+            {
+                CanApplyRecommendedOrder = true
+            });
+        }
+        else if (!currentOrder.SequenceEqual(recommended))
         {
             issues.Add(Issue(
                 "MOD_ORDER",
@@ -341,13 +388,6 @@ public sealed class ModConflictAnalyzer(MapPriorityService mapPriority)
             }
         }
 
-        foreach (var entry in project.ConflictWinners)
-        {
-            var winner = mods.FirstOrDefault(mod => mod.ModId.Equals(entry.Value, StringComparison.OrdinalIgnoreCase));
-            if (winner is null) continue;
-            var participantIds = ParseParticipantIds(entry.Key);
-            foreach (var loser in mods.Where(mod => participantIds.Contains(Normalize(mod.ModId)) && mod.Id != winner.Id)) AddEdge(edges, loser.Id, winner.Id);
-        }
     }
 
     private static int IndexEffectiveFiles(IReadOnlyList<PackageModReference> mods, IDictionary<string, Dictionary<Guid, FileOwner>> index)
@@ -379,7 +419,6 @@ public sealed class ModConflictAnalyzer(MapPriorityService mapPriority)
         PackageProject project,
         IReadOnlyList<PackageModReference> mods,
         IReadOnlyDictionary<string, Dictionary<Guid, FileOwner>> index,
-        IDictionary<Guid, HashSet<Guid>> edges,
         ICollection<ModConflictIssue> issues)
     {
         var groups = new Dictionary<FileConflictGroupKey, List<FileCollisionPath>>();
@@ -408,8 +447,6 @@ public sealed class ModConflictAnalyzer(MapPriorityService mapPriority)
             var legacyResolutionKey = ConflictKey(group.Key.Category, participantIds, group.Key.Identical ? "identical" : "different");
             if (!project.ConflictWinners.TryGetValue(resolutionKey, out var winnerId)) project.ConflictWinners.TryGetValue(legacyResolutionKey, out winnerId);
             var winner = affected.FirstOrDefault(mod => mod.ModId.Equals(winnerId, StringComparison.OrdinalIgnoreCase));
-            if (winner is not null)
-                foreach (var loser in affected.Where(mod => mod.Id != winner.Id)) AddEdge(edges, loser.Id, winner.Id);
 
             var resolved = group.Key.Identical || winner is not null
                 || project.AcknowledgedConflicts.Contains(resolutionKey, StringComparer.OrdinalIgnoreCase)
@@ -479,6 +516,147 @@ public sealed class ModConflictAnalyzer(MapPriorityService mapPriority)
                     PrimaryEvidence: map.FolderName + " : " + conflict));
             }
         }
+    }
+
+    private static Dictionary<Guid, HashSet<Guid>> CloneEdges(IReadOnlyDictionary<Guid, HashSet<Guid>> edges) =>
+        edges.ToDictionary(entry => entry.Key, entry => new HashSet<Guid>(entry.Value));
+
+    private static IReadOnlyList<InvalidOrderDecision> ApplyConflictWinnerEdges(
+        PackageProject project,
+        IReadOnlyList<PackageModReference> mods,
+        IReadOnlyDictionary<Guid, HashSet<Guid>> hardEdges,
+        IDictionary<Guid, HashSet<Guid>> edges,
+        IReadOnlySet<string>? excludedConflictKeys = null)
+    {
+        var invalid = new List<InvalidOrderDecision>();
+        foreach (var entry in project.ConflictWinners)
+        {
+            if (excludedConflictKeys?.Contains(entry.Key) == true) continue;
+            var winner = mods.FirstOrDefault(mod => mod.ModId.Equals(entry.Value, StringComparison.OrdinalIgnoreCase));
+            if (winner is null) continue;
+            var participantIds = ParseParticipantIds(entry.Key);
+            foreach (var loser in mods.Where(mod => participantIds.Contains(Normalize(mod.ModId)) && mod.Id != winner.Id))
+            {
+                if (HasPath(hardEdges, winner.Id, loser.Id))
+                    invalid.Add(new InvalidOrderDecision(entry.Key, winner.Id, loser.Id));
+                AddEdge(edges, loser.Id, winner.Id);
+            }
+        }
+        return invalid;
+    }
+
+    private static bool HasPath(IReadOnlyDictionary<Guid, HashSet<Guid>> edges, Guid start, Guid target)
+    {
+        var visited = new HashSet<Guid>();
+        var pending = new Stack<Guid>();
+        pending.Push(start);
+        while (pending.Count > 0)
+        {
+            var current = pending.Pop();
+            if (!visited.Add(current)) continue;
+            if (!edges.TryGetValue(current, out var targets)) continue;
+            foreach (var next in targets)
+            {
+                if (next == target) return true;
+                pending.Push(next);
+            }
+        }
+        return false;
+    }
+
+    private static IReadOnlyList<OrderViolation> FindOrderViolations(
+        IReadOnlyList<PackageModReference> mods,
+        IReadOnlyDictionary<Guid, HashSet<Guid>> hardEdges)
+    {
+        var ranks = mods.Select((mod, index) => (mod.Id, index)).ToDictionary(item => item.Id, item => item.index);
+        return hardEdges
+            .SelectMany(entry => entry.Value.Select(target => new OrderViolation(entry.Key, target, ranks[entry.Key], ranks[target])))
+            .Where(violation => violation.BeforePosition > violation.AfterPosition)
+            .OrderBy(violation => violation.AfterPosition)
+            .ThenBy(violation => violation.BeforePosition)
+            .ToArray();
+    }
+
+    private static string FormatOrderViolation(OrderViolation violation, IReadOnlyList<PackageModReference> mods)
+    {
+        var before = mods.First(mod => mod.Id == violation.BeforeId);
+        var after = mods.First(mod => mod.Id == violation.AfterId);
+        return $"{before.ModId} doit précéder {after.ModId} · positions actuelles {violation.BeforePosition + 1} → {violation.AfterPosition + 1}";
+    }
+
+    private static IReadOnlyList<HashSet<Guid>> FindCycleComponents(IReadOnlyDictionary<Guid, HashSet<Guid>> edges)
+    {
+        var index = 0;
+        var indexes = new Dictionary<Guid, int>();
+        var lowLinks = new Dictionary<Guid, int>();
+        var stack = new Stack<Guid>();
+        var onStack = new HashSet<Guid>();
+        var components = new List<HashSet<Guid>>();
+
+        void Visit(Guid node)
+        {
+            indexes[node] = index;
+            lowLinks[node] = index++;
+            stack.Push(node);
+            onStack.Add(node);
+
+            foreach (var target in edges[node])
+            {
+                if (!indexes.ContainsKey(target))
+                {
+                    Visit(target);
+                    lowLinks[node] = Math.Min(lowLinks[node], lowLinks[target]);
+                }
+                else if (onStack.Contains(target))
+                {
+                    lowLinks[node] = Math.Min(lowLinks[node], indexes[target]);
+                }
+            }
+
+            if (lowLinks[node] != indexes[node]) return;
+            var component = new HashSet<Guid>();
+            Guid current;
+            do
+            {
+                current = stack.Pop();
+                onStack.Remove(current);
+                component.Add(current);
+            } while (current != node);
+            if (component.Count > 1 || edges[component.First()].Contains(component.First())) components.Add(component);
+        }
+
+        foreach (var node in edges.Keys)
+            if (!indexes.ContainsKey(node)) Visit(node);
+        return components;
+    }
+
+    private static string FormatCycleEvidence(
+        IReadOnlySet<Guid> component,
+        IReadOnlyDictionary<Guid, HashSet<Guid>> edges,
+        IReadOnlyList<PackageModReference> mods)
+    {
+        var path = new List<Guid>();
+        var start = component.First();
+
+        bool Find(Guid current)
+        {
+            path.Add(current);
+            foreach (var target in edges[current].Where(component.Contains))
+            {
+                if (target == start)
+                {
+                    path.Add(start);
+                    return true;
+                }
+                if (!path.Contains(target) && Find(target)) return true;
+            }
+            path.RemoveAt(path.Count - 1);
+            return false;
+        }
+
+        if (!Find(start)) path.AddRange(component.Where(id => !path.Contains(id)));
+        var names = mods.ToDictionary(mod => mod.Id, mod => mod.ModId);
+        return string.Join(" -> ", path.Select(id => names[id]));
     }
 
     private static IReadOnlyList<Guid> StableTopologicalSort(IReadOnlyList<PackageModReference> mods, IReadOnlyDictionary<Guid, HashSet<Guid>> edges, out HashSet<Guid> cyclicIds)
@@ -684,5 +862,7 @@ public sealed class ModConflictAnalyzer(MapPriorityService mapPriority)
     private sealed record FileOwner(PackageModReference Mod, string Path);
     private sealed record FileCollisionPath(string VirtualPath, IReadOnlyList<FileOwner> Owners);
     private sealed record FileConflictClassification(ModConflictCategory Category, string TypeLabel, ModConflictRisk Risk, ModConflictSeverity Severity);
+    private sealed record InvalidOrderDecision(string ConflictKey, Guid WinnerId, Guid LoserId);
+    private sealed record OrderViolation(Guid BeforeId, Guid AfterId, int BeforePosition, int AfterPosition);
     private readonly record struct FileConflictGroupKey(ModConflictCategory Category, string TypeLabel, ModConflictRisk Risk, ModConflictSeverity Severity, string Participants, bool Identical);
 }

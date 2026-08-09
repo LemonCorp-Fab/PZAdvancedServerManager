@@ -82,7 +82,33 @@ public sealed class MapAndToolsTests : IDisposable
         Assert.All(translationConflict.FileEvidence, evidence => Assert.True(File.Exists(evidence.PhysicalPath)));
         Assert.Contains(analysis.TypeSummaries, summary => summary.TypeLabel == "Traductions" && summary.Risk == ModConflictRisk.Low && summary.Information == 1);
         Assert.Equal(library.Id, analysis.RecommendedModOrder[0]);
-        Assert.Contains(analysis.Issues, issue => issue.Code == "MOD_ORDER");
+        var invalidOrder = Assert.Single(analysis.Issues, issue => issue.Code == "MOD_ORDER_INVALID");
+        Assert.Equal(ModConflictSeverity.Error, invalidOrder.Severity);
+        Assert.True(invalidOrder.CanAutoFixOrder);
+        Assert.Contains(invalidOrder.Evidence, evidence => evidence.Contains("library doit précéder app", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void ConflictWinnerThatContradictsDependencyProducesPreciseRepairableCycle()
+    {
+        var appRoot = CreateConflictMod("cycle-app", "cycle-app", "return 'app'");
+        var libraryRoot = CreateConflictMod("cycle-library", "cycle-library", "return 'library'");
+        var library = new PackageModReference { ModId = "cycle-library", Name = "Library", SourceModRoot = libraryRoot, SelectedVersionFolder = "common", Order = 0 };
+        var app = new PackageModReference { ModId = "cycle-app", Name = "Application", SourceModRoot = appRoot, SelectedVersionFolder = "common", RequiredModIds = ["cycle-library"], Order = 1 };
+        var project = new PackageProject { TargetPzVersion = "42.20.2", Mods = [library, app] };
+        var analyzer = new ModConflictAnalyzer(new MapPriorityService());
+        var collision = Assert.Single(analyzer.Analyze(project).Issues, issue => issue.Code == "FILE_COLLISION");
+        project.ConflictWinners[collision.Key] = library.ModId;
+
+        var analysis = analyzer.Analyze(project, refresh: true);
+
+        var cycle = Assert.Single(analysis.Issues, issue => issue.Code == "CYCLE_ORDER");
+        Assert.True(cycle.CanAutoFixOrder);
+        Assert.Equal([collision.Key], cycle.AutomaticOrderFixKeys);
+        Assert.Equal(2, cycle.ModIds.Count);
+        Assert.Contains("cycle-library", cycle.PrimaryEvidence, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("cycle-app", cycle.PrimaryEvidence, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(analysis.Issues, issue => issue.Code == "MOD_ORDER_INVALID");
     }
 
     [Fact]

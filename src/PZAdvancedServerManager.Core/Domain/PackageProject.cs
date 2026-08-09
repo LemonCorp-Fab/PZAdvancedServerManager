@@ -94,6 +94,7 @@ public sealed class PackageModReference
     public string PinnedSourceRoot { get; set; } = string.Empty;
     public DateTimeOffset? PinnedAt { get; set; }
     public string PinnedContentHash { get; set; } = string.Empty;
+    public string PinnedMetadataStamp { get; set; } = string.Empty;
     public string SourceUpdateToken { get; set; } = string.Empty;
     public string Version { get; set; } = string.Empty;
     public string SelectedVersionFolder { get; set; } = string.Empty;
@@ -166,6 +167,8 @@ public sealed class PackageBuildResult
     public required PackageValidationResult Validation { get; init; }
     public int CopiedFiles { get; init; }
     public long CopiedBytes { get; init; }
+    public int HardLinkedFiles { get; init; }
+    public long HardLinkedBytes { get; init; }
 }
 
 public sealed record PackageOperationResult(

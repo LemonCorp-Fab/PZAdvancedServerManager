@@ -53,7 +53,13 @@ public static class ModInfoParser
 
     private static string[] SplitList(string? value) => string.IsNullOrWhiteSpace(value)
         ? []
-        : value.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        : value.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(NormalizeDependencyId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+    public static string NormalizeDependencyId(string value) => value.Trim().TrimStart('\\').Trim();
 
     private static StringComparer PathComparer => OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 

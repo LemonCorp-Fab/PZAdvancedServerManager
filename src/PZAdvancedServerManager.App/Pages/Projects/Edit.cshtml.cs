@@ -194,7 +194,10 @@ public class EditModel(
         try
         {
             var result = lifecycle.Build(project);
-            TempData["Message"] = $"Pack construit : {result.CopiedFiles:N0} fichiers, {FormatBytes(result.CopiedBytes)}. Dossier : {result.BuildRoot}";
+            var physicallyCopiedBytes = Math.Max(0, result.CopiedBytes - result.HardLinkedBytes);
+            TempData["Message"] = result.HardLinkedFiles > 0
+                ? $"Pack construit : {result.CopiedFiles:N0} fichiers; {result.HardLinkedFiles:N0} liés instantanément ({FormatBytes(result.HardLinkedBytes)} sans duplication), {FormatBytes(physicallyCopiedBytes)} copiés. Dossier : {result.BuildRoot}"
+                : $"Pack construit : {result.CopiedFiles:N0} fichiers, {FormatBytes(result.CopiedBytes)} copiés. Dossier : {result.BuildRoot}";
         }
         catch (PackageBuildException exception)
         {

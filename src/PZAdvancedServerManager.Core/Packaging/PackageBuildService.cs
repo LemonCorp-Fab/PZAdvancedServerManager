@@ -59,7 +59,7 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
             File.WriteAllText(Path.Combine(nextRoot, "README-BUILD.txt"), GenerateBuildReadme(project, validation), new UTF8Encoding(false));
 
             var lockPath = Path.Combine(nextRoot, "pack.lock.json");
-            var lockData = CreateLock(project, contentsRoot);
+            var lockData = CreateLock(project, contentsRoot, copied.FullyHardLinkedModIds);
             File.WriteAllText(lockPath, JsonSerializer.Serialize(lockData, JsonOptions), new UTF8Encoding(false));
 
             var localSnapshot = new
@@ -70,6 +70,7 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
             File.WriteAllText(Path.Combine(nextRoot, "project.snapshot.json"), JsonSerializer.Serialize(localSnapshot, JsonOptions), new UTF8Encoding(false));
 
             SafeFileTree.ReplaceDirectory(paths.BuildsRoot, nextRoot, finalRoot);
+            ProtectHardLinkedPayload(project, finalRoot, copied.HardLinkedModIds);
             project.LastBuiltAt = DateTimeOffset.UtcNow;
 
             return new PackageBuildResult
@@ -83,7 +84,9 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
                 ServerConfigSnippetPath = Path.Combine(finalRoot, "server-config.txt"),
                 Validation = validation,
                 CopiedFiles = copied.Files,
-                CopiedBytes = copied.Bytes
+                CopiedBytes = copied.Bytes,
+                HardLinkedFiles = copied.HardLinkedFiles,
+                HardLinkedBytes = copied.HardLinkedBytes
             };
         }
         catch
@@ -98,9 +101,27 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
         var stats = new CopyStatistics();
         foreach (var mod in project.Mods.Where(x => x.Enabled).OrderBy(x => x.Order).ThenBy(x => x.Name))
         {
-            CopyTree(mod.BuildSourceRoot, Path.Combine(modsRoot, mod.EffectiveFolderName), stats);
+            var canLink = Directory.Exists(mod.PinnedSourceRoot) &&
+                          Path.GetFullPath(mod.BuildSourceRoot).Equals(Path.GetFullPath(mod.PinnedSourceRoot), OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal) &&
+                          !string.IsNullOrWhiteSpace(mod.PinnedContentHash);
+            var linkedFilesBefore = stats.HardLinkedFiles;
+            if (CopyTree(mod.BuildSourceRoot, Path.Combine(modsRoot, mod.EffectiveFolderName), stats, canLink))
+                stats.FullyHardLinkedModIds.Add(mod.Id);
+            if (stats.HardLinkedFiles > linkedFilesBefore)
+                stats.HardLinkedModIds.Add(mod.Id);
         }
         return stats;
+    }
+
+    private static void ProtectHardLinkedPayload(PackageProject project, string buildRoot, IReadOnlySet<Guid> hardLinkedModIds)
+    {
+        foreach (var mod in project.Mods.Where(mod => hardLinkedModIds.Contains(mod.Id)))
+        {
+            var modRoot = Path.Combine(buildRoot, "Contents", "mods", mod.EffectiveFolderName);
+            if (!Directory.Exists(modRoot)) continue;
+            foreach (var file in Directory.EnumerateFiles(modRoot, "*", SearchOption.AllDirectories))
+                File.SetAttributes(file, File.GetAttributes(file) | FileAttributes.ReadOnly);
+        }
     }
 
     private static CopyStatistics BuildFusion(PackageProject project, string modsRoot, PackageValidationResult validation)
@@ -231,6 +252,8 @@ server-config.txt        lignes à appliquer au fichier serveur .ini
 pack.lock.json           inventaire et empreintes du build
 project.snapshot.json    sauvegarde locale, jamais publiée par le VDF
 
+OPTIMISATION LOCALE : en mode Bundle, les fichiers des mods peuvent être matérialisés par des liens physiques vers les instantanés figés du manager. Pour SteamCMD et Project Zomboid, ce sont des fichiers ordinaires. N'éditez pas le contenu des mods directement dans ce dossier généré : effectuez les changements ou mises à jour depuis le manager, puis reconstruisez le pack.
+
 AVERTISSEMENT : LemonCorp et les développeurs de PZ Advanced Server Manager ne sont pas responsables des packs créés. L'utilisateur doit obtenir les autorisations de redistribution de chaque auteur. Une visibilité « non listée » ou un usage serveur ne dispense pas de ces autorisations.
 
 Publication autorisée par le validateur : {(validation.CanPublish ? "oui" : "non")}
@@ -238,19 +261,36 @@ Mode : {project.Mode}
 Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.PublishedWorkshopId)}
 """;
 
-    private static object CreateLock(PackageProject project, string contentsRoot)
+    private static object CreateLock(PackageProject project, string contentsRoot, IReadOnlySet<Guid> fullyHardLinkedModIds)
     {
+        var sourcePrefixes = project.Mode == PackageMode.Bundle
+            ? project.Mods
+                .Where(mod => mod.Enabled && fullyHardLinkedModIds.Contains(mod.Id) && Directory.Exists(mod.PinnedSourceRoot) && !string.IsNullOrWhiteSpace(mod.PinnedContentHash))
+                .Select(mod => new
+                {
+                    Prefix = $"mods/{mod.EffectiveFolderName.Replace('\\', '/').Trim('/')}/",
+                    mod.ModId
+                })
+                .OrderByDescending(source => source.Prefix.Length)
+                .ToArray()
+            : [];
         var files = Directory.EnumerateFiles(contentsRoot, "*", SearchOption.AllDirectories)
             .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
-            .Select(x => new
+            .Select(file =>
             {
-                path = Path.GetRelativePath(contentsRoot, x).Replace('\\', '/'),
-                bytes = new FileInfo(x).Length,
-                sha256 = ComputeHash(x)
+                var relative = Path.GetRelativePath(contentsRoot, file).Replace('\\', '/');
+                var source = sourcePrefixes.FirstOrDefault(candidate => relative.StartsWith(candidate.Prefix, StringComparison.OrdinalIgnoreCase));
+                return new
+                {
+                    path = relative,
+                    bytes = new FileInfo(file).Length,
+                    sourceModId = source?.ModId,
+                    sha256 = source is null ? ComputeHash(file) : null
+                };
             }).ToArray();
         return new
         {
-            schemaVersion = 1,
+            schemaVersion = 2,
             projectId = project.Id,
             projectName = project.Name,
             mode = project.Mode.ToString(),
@@ -268,6 +308,7 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
                 x.SourceUrl,
                 x.PinnedAt,
                 x.PinnedContentHash,
+                x.PinnedMetadataStamp,
                 x.IncludeInGlobalUpdates,
                 permissionStatus = x.Permission.Status.ToString()
             }),
@@ -299,6 +340,7 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
                 x.SelectedVersionFolder,
                 x.PinnedAt,
                 x.PinnedContentHash,
+                x.PinnedMetadataStamp,
                 x.IncludeInGlobalUpdates,
                 x.SourceUrl,
                 x.RequiredModIds,
@@ -311,13 +353,33 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
         File.WriteAllText(Path.Combine(contentsRoot, "pzasm-pack-manifest.json"), JsonSerializer.Serialize(manifest, JsonOptions), new UTF8Encoding(false));
     }
 
-    private static void CopyTree(string source, string destination, CopyStatistics stats)
+    private static bool CopyTree(string source, string destination, CopyStatistics stats, bool preferHardLinks = false)
     {
-        SafeFileTree.CopyDirectory(source, destination, (file, _) =>
+        if (!preferHardLinks)
         {
+            SafeFileTree.CopyDirectory(source, destination, (file, _) =>
+            {
+                stats.Files++;
+                stats.Bytes += new FileInfo(file).Length;
+            });
+            return false;
+        }
+
+        var allLinked = true;
+        SafeFileTree.LinkOrCopyDirectory(source, destination, (file, _, linked) =>
+        {
+            var bytes = new FileInfo(file).Length;
             stats.Files++;
-            stats.Bytes += new FileInfo(file).Length;
+            stats.Bytes += bytes;
+            if (!linked)
+            {
+                allLinked = false;
+                return;
+            }
+            stats.HardLinkedFiles++;
+            stats.HardLinkedBytes += bytes;
         });
+        return allLinked;
     }
 
     private static void CopyFile(string source, string destination, CopyStatistics stats)
@@ -344,7 +406,15 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
     }
 
     private static string CleanLine(string value) => value.Replace("\r", " ").Replace("\n", "\\n").Trim();
-    private sealed class CopyStatistics { public int Files; public long Bytes; }
+    private sealed class CopyStatistics
+    {
+        public int Files;
+        public long Bytes;
+        public int HardLinkedFiles;
+        public long HardLinkedBytes;
+        public HashSet<Guid> HardLinkedModIds { get; } = [];
+        public HashSet<Guid> FullyHardLinkedModIds { get; } = [];
+    }
     private sealed record FusionCandidate(Guid ModReferenceId, string ModName, string SourceFile, string Hash);
 }
 

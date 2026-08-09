@@ -144,12 +144,115 @@ public sealed class PackageBuildTests : IDisposable
         File.WriteAllText(Path.Combine(source, "common", "media", "lua", "client", "test.lua"), "return 'v2'");
         var builder = new PackageBuildService(paths, new PackageValidator());
         var firstBuild = builder.Build(project);
-        Assert.Equal("return 'v1'", File.ReadAllText(Path.Combine(firstBuild.WorkshopContentRoot, "mods", "Pinned", "common", "media", "lua", "client", "test.lua")));
+        Assert.True(firstBuild.HardLinkedFiles > 0);
+        Assert.True(firstBuild.HardLinkedBytes > 0);
+        var firstBuildLua = Path.Combine(firstBuild.WorkshopContentRoot, "mods", "Pinned", "common", "media", "lua", "client", "test.lua");
+        Assert.Equal("return 'v1'", File.ReadAllText(firstBuildLua));
+        Assert.True(File.GetAttributes(firstBuildLua).HasFlag(FileAttributes.ReadOnly));
+        snapshots.EnsurePinned(project);
+        var lockFile = File.ReadAllText(firstBuild.LockFilePath);
+        Assert.Contains("\"schemaVersion\": 2", lockFile);
+        Assert.Contains("\"sourceModId\": \"pinned-id\"", lockFile);
 
         snapshots.UpdateAll(project);
+        Assert.Equal("return 'v1'", File.ReadAllText(firstBuildLua));
         var secondBuild = builder.Build(project);
         Assert.Equal("return 'v2'", File.ReadAllText(Path.Combine(secondBuild.WorkshopContentRoot, "mods", "Pinned", "common", "media", "lua", "client", "test.lua")));
         Assert.NotEqual(originalHash, project.Mods[0].PinnedContentHash);
+    }
+
+    [Fact]
+    public void HardLinkedBuildCanBeDeletedAndRebuiltWithoutLosingPinnedContent()
+    {
+        var source = CreateMod("DisposableBuild", "disposable-build", "return 'stable'");
+        var project = ValidProject(PackageMode.Bundle, Ref("disposable-build", "Disposable Build", source));
+        var paths = new ApplicationPaths(Path.Combine(_root, "disposable-build-data"));
+        var snapshots = new PackageSourceSnapshotService(paths);
+        snapshots.UpdateAll(project);
+        var pinnedLua = Path.Combine(project.Mods[0].PinnedSourceRoot, "common", "media", "lua", "client", "test.lua");
+        var pinnedHash = project.Mods[0].PinnedContentHash;
+        var builder = new PackageBuildService(paths, new PackageValidator());
+        Directory.Delete(source, true);
+
+        var firstBuild = builder.Build(project);
+        SafeFileTree.DeleteScopedDirectory(paths.BuildsRoot, firstBuild.BuildRoot);
+
+        Assert.True(File.Exists(pinnedLua));
+        Assert.Equal("return 'stable'", File.ReadAllText(pinnedLua));
+        Assert.Equal(pinnedHash, SafeFileTree.ComputeDirectoryHash(project.Mods[0].PinnedSourceRoot));
+        var secondBuild = builder.Build(project);
+        Assert.True(secondBuild.HardLinkedFiles > 0);
+        Assert.Equal("return 'stable'", File.ReadAllText(Path.Combine(secondBuild.WorkshopContentRoot, "mods", "DisposableBuild", "common", "media", "lua", "client", "test.lua")));
+    }
+
+    [Fact]
+    public void UnpinnedAndFusionBuildsRemainIndependentCopies()
+    {
+        var bundleSource = CreateMod("Unpinned", "unpinned", "return 'bundle-v1'");
+        var bundleProject = ValidProject(PackageMode.Bundle, Ref("unpinned", "Unpinned", bundleSource));
+        var bundleResult = new PackageBuildService(new ApplicationPaths(Path.Combine(_root, "unpinned-data")), new PackageValidator()).Build(bundleProject);
+        var bundleOutput = Path.Combine(bundleResult.WorkshopContentRoot, "mods", "Unpinned", "common", "media", "lua", "client", "test.lua");
+
+        Assert.Equal(0, bundleResult.HardLinkedFiles);
+        File.WriteAllText(Path.Combine(bundleSource, "common", "media", "lua", "client", "test.lua"), "return 'bundle-v2'");
+        Assert.Equal("return 'bundle-v1'", File.ReadAllText(bundleOutput));
+
+        var fusionSource = CreateMod("FusionCopy", "fusion-copy", "return 'fusion-v1'");
+        var fusionProject = ValidProject(PackageMode.FusionStrict, Ref("fusion-copy", "Fusion Copy", fusionSource));
+        var fusionPaths = new ApplicationPaths(Path.Combine(_root, "fusion-copy-data"));
+        new PackageSourceSnapshotService(fusionPaths).UpdateAll(fusionProject);
+        var fusionResult = new PackageBuildService(fusionPaths, new PackageValidator()).Build(fusionProject);
+
+        Assert.Equal(0, fusionResult.HardLinkedFiles);
+        Assert.True(File.Exists(Path.Combine(fusionResult.WorkshopContentRoot, "mods", fusionProject.FusionModId, "common", "media", "lua", "client", "test.lua")));
+    }
+
+    [Fact]
+    public void HardLinkFailureFallsBackToIndependentFileCopies()
+    {
+        var source = Path.Combine(_root, "link-fallback-source");
+        var destination = Path.Combine(_root, "link-fallback-destination");
+        Directory.CreateDirectory(Path.Combine(source, "nested"));
+        var sourceFile = Path.Combine(source, "nested", "payload.bin");
+        File.WriteAllText(sourceFile, "original");
+        var materializations = new List<bool>();
+
+        SafeFileTree.LinkOrCopyDirectory(
+            source,
+            destination,
+            (_, _, linked) => materializations.Add(linked),
+            (_, _) => false);
+
+        var destinationFile = Path.Combine(destination, "nested", "payload.bin");
+        Assert.Equal([false], materializations);
+        Assert.Equal("original", File.ReadAllText(destinationFile));
+        File.WriteAllText(sourceFile, "changed");
+        Assert.Equal("original", File.ReadAllText(destinationFile));
+    }
+
+    [Fact]
+    public void FailedRebuildKeepsThePreviouslyCompletedHardLinkedBuild()
+    {
+        var source = CreateMod("AtomicLinks", "atomic-links", "return 'v1'");
+        var project = ValidProject(PackageMode.Bundle, Ref("atomic-links", "Atomic Links", source));
+        var paths = new ApplicationPaths(Path.Combine(_root, "atomic-links-data"));
+        var snapshots = new PackageSourceSnapshotService(paths);
+        var builder = new PackageBuildService(paths, new PackageValidator());
+        snapshots.UpdateAll(project);
+        var firstBuild = builder.Build(project);
+        var output = Path.Combine(firstBuild.WorkshopContentRoot, "mods", "AtomicLinks", "common", "media", "lua", "client", "test.lua");
+
+        File.WriteAllText(Path.Combine(source, "common", "media", "lua", "client", "test.lua"), "return 'v2'");
+        snapshots.UpdateAll(project);
+        project.PreviewImagePath = Path.Combine(_root, "missing-preview.png");
+
+        Assert.Throws<FileNotFoundException>(() => builder.Build(project));
+        Assert.Equal("return 'v1'", File.ReadAllText(output));
+        Assert.False(Directory.Exists(firstBuild.BuildRoot + ".next"));
+
+        project.PreviewImagePath = null;
+        var recoveredBuild = builder.Build(project);
+        Assert.Equal("return 'v2'", File.ReadAllText(Path.Combine(recoveredBuild.WorkshopContentRoot, "mods", "AtomicLinks", "common", "media", "lua", "client", "test.lua")));
     }
 
     [Fact]
@@ -187,6 +290,19 @@ public sealed class PackageBuildTests : IDisposable
 
         var exception = Assert.Throws<IOException>(() => snapshots.EnsurePinned(project));
         Assert.Contains("modifié hors de PZASM", exception.Message);
+    }
+
+    [Fact]
+    public void SnapshotMetadataMigrationStillPerformsOneFullIntegrityAudit()
+    {
+        var source = CreateMod("MigratedIntegrity", "migrated-integrity", "return 'trusted'");
+        var project = ValidProject(PackageMode.Bundle, Ref("migrated-integrity", "Migrated Integrity", source));
+        var snapshots = new PackageSourceSnapshotService(new ApplicationPaths(Path.Combine(_root, "migrated-integrity-data")));
+        snapshots.UpdateAll(project);
+        project.Mods[0].PinnedMetadataStamp = string.Empty;
+        File.WriteAllText(Path.Combine(project.Mods[0].PinnedSourceRoot, "common", "media", "lua", "client", "test.lua"), "return 'tampered'");
+
+        Assert.Throws<IOException>(() => snapshots.EnsurePinned(project));
     }
 
     [Fact]
@@ -284,6 +400,6 @@ public sealed class PackageBuildTests : IDisposable
 
     public void Dispose()
     {
-        if (Directory.Exists(_root)) Directory.Delete(_root, true);
+        if (Directory.Exists(_root)) SafeFileTree.DeleteScopedDirectory(Path.GetDirectoryName(_root)!, _root);
     }
 }

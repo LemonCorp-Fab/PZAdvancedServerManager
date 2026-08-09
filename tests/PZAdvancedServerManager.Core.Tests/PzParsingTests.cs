@@ -40,6 +40,16 @@ public sealed class PzParsingTests : IDisposable
     }
 
     [Fact]
+    public void ModInfoParserNormalizesBuild42EscapedDependencyIds()
+    {
+        var path = Write("dependencies-mod.info", "name=Vehicle\nid=vehicle\nrequire=\\damnlib; \\tsarslib");
+
+        var info = ModInfoParser.Parse(path);
+
+        Assert.Equal(["damnlib", "tsarslib"], info.Required);
+    }
+
+    [Fact]
     public void ReadsOnlyInstalledWorkshopManifestStates()
     {
         const string manifest = """

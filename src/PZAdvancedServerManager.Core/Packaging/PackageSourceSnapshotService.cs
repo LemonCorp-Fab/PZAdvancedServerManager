@@ -10,10 +10,23 @@ public sealed class PackageSourceSnapshotService(ApplicationPaths paths)
         foreach (var mod in project.Mods.Where(x => x.Enabled))
         {
             if (!Directory.Exists(mod.PinnedSourceRoot)) Pin(project, mod, replace: false);
+            var metadataStamp = SafeFileTree.ComputeDirectoryMetadataStamp(mod.PinnedSourceRoot);
+            if (string.IsNullOrWhiteSpace(mod.PinnedMetadataStamp))
+            {
+                var migrationHash = SafeFileTree.ComputeDirectoryHash(mod.PinnedSourceRoot);
+                if (!string.IsNullOrWhiteSpace(mod.PinnedContentHash) &&
+                    !migrationHash.Equals(mod.PinnedContentHash, StringComparison.OrdinalIgnoreCase))
+                    throw new IOException($"Le snapshot figé de « {mod.Name} » a été modifié hors de PZASM. Actualisez explicitement les sources pour créer une nouvelle version contrôlée.");
+                mod.PinnedMetadataStamp = metadataStamp;
+                mod.PinnedContentHash = migrationHash;
+                continue;
+            }
+            if (metadataStamp.Equals(mod.PinnedMetadataStamp, StringComparison.OrdinalIgnoreCase)) continue;
+
             var currentHash = SafeFileTree.ComputeDirectoryHash(mod.PinnedSourceRoot);
-            if (string.IsNullOrWhiteSpace(mod.PinnedContentHash)) mod.PinnedContentHash = currentHash;
-            else if (!currentHash.Equals(mod.PinnedContentHash, StringComparison.OrdinalIgnoreCase))
+            if (!currentHash.Equals(mod.PinnedContentHash, StringComparison.OrdinalIgnoreCase))
                 throw new IOException($"Le snapshot figé de « {mod.Name} » a été modifié hors de PZASM. Actualisez explicitement les sources pour créer une nouvelle version contrôlée.");
+            mod.PinnedMetadataStamp = metadataStamp;
         }
     }
 
@@ -50,6 +63,7 @@ public sealed class PackageSourceSnapshotService(ApplicationPaths paths)
             mod.PinnedSourceRoot = final;
             mod.PinnedAt = DateTimeOffset.UtcNow;
             mod.PinnedContentHash = hash;
+            mod.PinnedMetadataStamp = SafeFileTree.ComputeDirectoryMetadataStamp(final);
         }
         catch
         {

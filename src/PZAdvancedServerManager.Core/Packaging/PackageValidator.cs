@@ -1,4 +1,5 @@
 using PZAdvancedServerManager.Core.Domain;
+using PZAdvancedServerManager.Core.Pz;
 
 namespace PZAdvancedServerManager.Core.Packaging;
 
@@ -64,8 +65,8 @@ public sealed class PackageValidator
                     result.Issues.Add(new("FORBIDDEN_FILE", $"Fichier refusé par le Workshop PZ dans « {mod.Name} » : {Path.GetFileName(file)}", true, mod.Id));
             }
 
-            var includedIds = project.Mods.Where(x => x.Enabled).Select(x => x.ModId).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            foreach (var required in mod.RequiredModIds.Where(x => !includedIds.Contains(x)))
+            var includedIds = project.Mods.Where(x => x.Enabled).Select(x => ModInfoParser.NormalizeDependencyId(x.ModId)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var required in mod.RequiredModIds.Select(ModInfoParser.NormalizeDependencyId).Where(x => !includedIds.Contains(x)))
                 result.Issues.Add(new("MISSING_DEPENDENCY", $"« {mod.Name} » requiert le Mod ID « {required} », absent du pack.", true, mod.Id));
 
             switch (mod.Permission.Status)

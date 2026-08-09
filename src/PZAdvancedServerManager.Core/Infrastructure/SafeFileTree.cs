@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Buffers.Binary;
+using System.Runtime.InteropServices;
 
 namespace PZAdvancedServerManager.Core.Infrastructure;
 
@@ -29,6 +30,35 @@ public static class SafeFileTree
         }
     }
 
+    public static void LinkOrCopyDirectory(
+        string source,
+        string destination,
+        Action<string, string, bool>? onFile = null,
+        Func<string, string, bool>? linkFactory = null)
+    {
+        var sourceRoot = Path.GetFullPath(source);
+        if (!Directory.Exists(sourceRoot)) throw new DirectoryNotFoundException($"Source introuvable : {sourceRoot}");
+        RejectReparsePoint(sourceRoot);
+        Directory.CreateDirectory(destination);
+
+        foreach (var entry in Directory.EnumerateFileSystemEntries(sourceRoot, "*", SearchOption.AllDirectories))
+        {
+            RejectReparsePoint(entry);
+            var relative = Path.GetRelativePath(sourceRoot, entry);
+            var target = ResolveChild(destination, relative);
+            if (Directory.Exists(entry))
+            {
+                Directory.CreateDirectory(target);
+                continue;
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            var linked = linkFactory?.Invoke(target, entry) ?? TryCreateHardLink(target, entry);
+            if (!linked) File.Copy(entry, target, true);
+            onFile?.Invoke(entry, target, linked);
+        }
+    }
+
     public static string ComputeDirectoryHash(string root)
     {
         var resolvedRoot = Path.GetFullPath(root);
@@ -48,6 +78,30 @@ public static class SafeFileTree
             aggregate.AppendData(length);
             using var stream = File.OpenRead(file);
             aggregate.AppendData(SHA256.HashData(stream));
+        }
+        return Convert.ToHexString(aggregate.GetHashAndReset()).ToLowerInvariant();
+    }
+
+    public static string ComputeDirectoryMetadataStamp(string root)
+    {
+        var resolvedRoot = Path.GetFullPath(root);
+        if (!Directory.Exists(resolvedRoot)) throw new DirectoryNotFoundException($"Source introuvable : {resolvedRoot}");
+        RejectReparsePoint(resolvedRoot);
+        using var aggregate = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        var number = new byte[8];
+        foreach (var entry in Directory.EnumerateFileSystemEntries(resolvedRoot, "*", SearchOption.AllDirectories))
+            RejectReparsePoint(entry);
+        foreach (var file in Directory.EnumerateFiles(resolvedRoot, "*", SearchOption.AllDirectories)
+                     .OrderBy(path => Path.GetRelativePath(resolvedRoot, path), StringComparer.Ordinal))
+        {
+            var info = new FileInfo(file);
+            var relative = Path.GetRelativePath(resolvedRoot, file).Replace('\\', '/');
+            aggregate.AppendData(Encoding.UTF8.GetBytes(relative));
+            aggregate.AppendData([0]);
+            BinaryPrimitives.WriteInt64LittleEndian(number, info.Length);
+            aggregate.AppendData(number);
+            BinaryPrimitives.WriteInt64LittleEndian(number, info.LastWriteTimeUtc.Ticks);
+            aggregate.AppendData(number);
         }
         return Convert.ToHexString(aggregate.GetHashAndReset()).ToLowerInvariant();
     }
@@ -154,8 +208,9 @@ public static class SafeFileTree
                 var attributes = File.GetAttributes(target);
                 if ((attributes & FileAttributes.ReadOnly) != 0)
                     File.SetAttributes(target, attributes & ~FileAttributes.ReadOnly);
+                File.Delete(target);
             }
-            File.Copy(file, target, true);
+            if (!TryCreateHardLink(target, file)) File.Copy(file, target, false);
         }
 
         foreach (var file in Directory.EnumerateFiles(destination, "*", SearchOption.AllDirectories).ToArray())
@@ -221,4 +276,25 @@ public static class SafeFileTree
         if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
             throw new IOException($"Lien symbolique ou point de jonction refusé dans une source de mod : {path}");
     }
+
+    private static bool TryCreateHardLink(string destination, string source)
+    {
+        try
+        {
+            if (OperatingSystem.IsWindows()) return CreateHardLinkWindows(destination, source, IntPtr.Zero);
+            if (OperatingSystem.IsLinux()) return CreateHardLinkUnix(source, destination) == 0;
+            return false;
+        }
+        catch (Exception exception) when (exception is DllNotFoundException or EntryPointNotFoundException or PlatformNotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    [DllImport("kernel32.dll", EntryPoint = "CreateHardLinkW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CreateHardLinkWindows(string fileName, string existingFileName, IntPtr securityAttributes);
+
+    [DllImport("libc", EntryPoint = "link", SetLastError = true)]
+    private static extern int CreateHardLinkUnix(string existingFileName, string fileName);
 }

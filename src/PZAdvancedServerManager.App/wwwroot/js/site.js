@@ -564,14 +564,18 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
     const title = overlay.querySelector('[data-confirm-dialog-title]');
     const message = overlay.querySelector('[data-confirm-dialog-message]');
     const cancel = overlay.querySelector('[data-confirm-cancel]');
+    const secondary = overlay.querySelector('[data-confirm-secondary]');
     const accept = overlay.querySelector('[data-confirm-accept]');
     let pending = null;
     let previousFocus = null;
+    const translate = value => typeof window.pzasmTranslate === 'function' ? window.pzasmTranslate(value) : value;
 
     const close = () => {
         overlay.hidden = true;
         document.body.classList.remove('has-modal');
         card?.classList.remove('is-danger', 'is-publish');
+        if (secondary instanceof HTMLButtonElement) secondary.hidden = true;
+        if (accept instanceof HTMLButtonElement) accept.hidden = false;
         pending = null;
         if (previousFocus instanceof HTMLElement) previousFocus.focus();
         previousFocus = null;
@@ -586,6 +590,11 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
         title.textContent = form.dataset.confirmTitle;
         message.textContent = selectVariant('confirmMessage', form.dataset.confirmMessage) || 'Vérifiez attentivement les conséquences avant de continuer.';
         accept.textContent = selectVariant('confirmAction', form.dataset.confirmAction) || 'Confirmer';
+        if (secondary instanceof HTMLButtonElement) {
+            secondary.textContent = form.dataset.confirmSecondaryAction || '';
+            secondary.hidden = !form.dataset.confirmSecondaryAction;
+        }
+        if (accept instanceof HTMLButtonElement) accept.hidden = false;
         if (variant) {
             form.dataset.loadingDetail = selectVariant('loadingDetail', form.dataset.loadingDetail);
             form.dataset.loadingSteps = selectVariant('loadingSteps', form.dataset.loadingSteps);
@@ -597,19 +606,106 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
         requestAnimationFrame(() => accept?.focus());
     };
 
+    const setHiddenValue = (form, name, value) => {
+        let input = form.querySelector(`input[type="hidden"][name="${name}"]`);
+        if (!(input instanceof HTMLInputElement)) {
+            input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = name;
+            form.append(input);
+        }
+        input.value = value;
+    };
+
+    const submitDependencyChoice = includeDependencies => {
+        if (!pending) return;
+        const { form, submitter } = pending;
+        setHiddenValue(form, 'includeDependencies', includeDependencies ? 'true' : 'false');
+        setHiddenValue(form, 'dependencyChoiceAcknowledged', 'true');
+        overlay.hidden = true;
+        document.body.classList.remove('has-modal');
+        pending = null;
+        form.dataset.confirmBypass = 'true';
+        form.requestSubmit(submitter || undefined);
+    };
+
+    const dependencySignature = form => JSON.stringify([...new FormData(form).entries()]
+        .filter(([name]) => !['__RequestVerificationToken', 'includeDependencies', 'dependencyChoiceAcknowledged'].includes(name))
+        .map(([name, value]) => [name, String(value)]));
+
+    const prepareDependencyConfirmation = async (form, submitter) => {
+        const signature = dependencySignature(form);
+        if (form.dataset.dependencyPreflightComplete === 'true'
+            && form.dataset.dependencyPreflightSignature !== signature) {
+            delete form.dataset.dependencyPreflightComplete;
+            delete form.dataset.dependencyPreflightSignature;
+        }
+        if (!form.dataset.dependencyPreflightUrl || form.dataset.dependencyPreflightComplete === 'true') {
+            requestConfirmation(form, submitter);
+            return;
+        }
+        if (form.dataset.dependencyPreflightPending === 'true') return;
+        form.dataset.dependencyPreflightPending = 'true';
+        previousFocus = document.activeElement;
+        title.textContent = translate('Analyse des dépendances…');
+        message.textContent = translate('Lecture des dépendances locales et Workshop avant toute modification du pack.');
+        if (secondary instanceof HTMLButtonElement) secondary.hidden = true;
+        if (accept instanceof HTMLButtonElement) accept.hidden = true;
+        overlay.hidden = false;
+        document.body.classList.add('has-modal');
+        try {
+            const response = await fetch(form.dataset.dependencyPreflightUrl, {
+                method: 'POST',
+                body: new FormData(form),
+                credentials: 'same-origin'
+            });
+            const plan = await response.json();
+            if (!response.ok || plan.error) throw new Error(plan.error || `Le serveur a répondu ${response.status}.`);
+            const dependencies = Array.isArray(plan.dependencies) ? plan.dependencies : [];
+            const unresolved = Array.isArray(plan.unresolved) ? plan.unresolved : [];
+            form.dataset.dependencyPreflightComplete = 'true';
+            form.dataset.dependencyPreflightSignature = signature;
+            if (dependencies.length === 0 && unresolved.length === 0) {
+                overlay.hidden = true;
+                document.body.classList.remove('has-modal');
+                form.dataset.confirmBypass = 'true';
+                form.requestSubmit(submitter || undefined);
+                return;
+            }
+            const lines = dependencies.map(item => `• ${item.name || item.id} — ${item.source || item.id}`);
+            if (unresolved.length > 0) lines.push(`• ${translate('Source non résolue automatiquement :')} ${unresolved.join(', ')}`);
+            form.dataset.confirmTitle = dependencies.length > 0 ? translate('Ajouter les dépendances manquantes ?') : translate('Dépendance non résolue');
+            form.dataset.confirmMessage = `${translate('Le mod déclare les dépendances suivantes, absentes du pack :')}\n${lines.join('\n')}\n\n${translate('Vous pouvez les ajouter maintenant ou continuer uniquement avec le mod sélectionné.')}`;
+            form.dataset.confirmAction = dependencies.length > 0 ? `${translate('Ajouter avec')} ${dependencies.length} ${translate('dépendance(s)')}` : translate('Ajouter le mod malgré tout');
+            form.dataset.confirmSecondaryAction = dependencies.length > 0 ? translate('Ajouter uniquement le mod') : '';
+            requestConfirmation(form, submitter);
+        } catch (error) {
+            pending = { form, submitter };
+            title.textContent = translate('Analyse des dépendances interrompue');
+            message.textContent = error instanceof Error ? error.message : String(error);
+            if (secondary instanceof HTMLButtonElement) {
+                secondary.textContent = translate('Continuer sans les dépendances');
+                secondary.hidden = false;
+            }
+            if (accept instanceof HTMLButtonElement) accept.hidden = true;
+        } finally {
+            delete form.dataset.dependencyPreflightPending;
+        }
+    };
+
     document.addEventListener('click', event => {
         if (!(event.target instanceof Element)) return;
         const submitter = event.target.closest('button[type="submit"], input[type="submit"]');
         const form = submitter?.form;
-        if (!(form instanceof HTMLFormElement) || !form.dataset.confirmTitle || form.dataset.confirmBypass === 'true') return;
+        if (!(form instanceof HTMLFormElement) || (!form.dataset.confirmTitle && !form.dataset.dependencyPreflightUrl) || form.dataset.confirmBypass === 'true') return;
         event.preventDefault();
         event.stopImmediatePropagation();
-        requestConfirmation(form, submitter instanceof HTMLButtonElement ? submitter : null);
+        void prepareDependencyConfirmation(form, submitter instanceof HTMLButtonElement ? submitter : null);
     }, true);
 
     document.addEventListener('submit', event => {
         const form = event.target;
-        if (!(form instanceof HTMLFormElement) || !form.dataset.confirmTitle) return;
+        if (!(form instanceof HTMLFormElement) || (!form.dataset.confirmTitle && !form.dataset.dependencyPreflightUrl)) return;
         if (form.dataset.loadingCommitting === 'true') return;
         if (form.dataset.confirmBypass === 'true') {
             delete form.dataset.confirmBypass;
@@ -618,12 +714,16 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
         }
         if (event.defaultPrevented) return;
         event.preventDefault();
-        requestConfirmation(form, event.submitter instanceof HTMLButtonElement ? event.submitter : null);
+        void prepareDependencyConfirmation(form, event.submitter instanceof HTMLButtonElement ? event.submitter : null);
     });
 
     cancel?.addEventListener('click', close);
     accept?.addEventListener('click', () => {
         if (!pending) return;
+        if (pending.form.dataset.dependencyPreflightComplete === 'true') {
+            submitDependencyChoice(true);
+            return;
+        }
         const { form, submitter } = pending;
         let acknowledgement = form.querySelector('input[name="confirmationAcknowledged"]');
         if (!(acknowledgement instanceof HTMLInputElement)) {
@@ -639,6 +739,7 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
         form.dataset.confirmBypass = 'true';
         form.requestSubmit(submitter || undefined);
     });
+    secondary?.addEventListener('click', () => submitDependencyChoice(false));
     overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
     document.addEventListener('keydown', event => {
         if (event.key === 'Escape' && !overlay.hidden) {

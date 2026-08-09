@@ -5,6 +5,7 @@
 @{
     ViewData["Title"] = Model.Project.Name;
     var selectedIds = Model.Project.Mods.Select(x => x.ModId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    var normalizedSelectedIds = Model.Project.Mods.Select(x => ModInfoParser.NormalizeDependencyId(x.ModId)).ToHashSet(StringComparer.OrdinalIgnoreCase);
     var enabledMods = Model.Project.Mods.Count(x => x.Enabled);
     var documentedMods = Model.Project.Mods.Count(x => x.Enabled && x.Permission.Status != PermissionStatus.Unknown);
     var pinnedMods = Model.Project.Mods.Count(x => x.Enabled && Directory.Exists(x.PinnedSourceRoot));
@@ -479,6 +480,10 @@
                                 {
                                     <button class="button primary compact conflict-auto-fix-header" type="submit" form="@orderFixFormId" data-summary-action>Corriger automatiquement</button>
                                 }
+                                @if (issue.Code == "MISSING_DEPENDENCY" && !string.IsNullOrWhiteSpace(issue.MissingDependencyModId))
+                                {
+                                    <button class="button primary compact" type="submit" form="add-dependency-@Model.ConflictPage-@issueIndex" data-summary-action>Ajouter la dépendance</button>
+                                }
                                 @if (comparableTextPaths > 0)
                                 {
                                     <a class="button primary compact conflict-diff-header" asp-page="/Projects/ConflictDiff" asp-route-id="@Model.Project.Id" asp-route-conflictKey="@issue.Key" data-summary-action>Voir le diff</a>
@@ -524,6 +529,16 @@
                                 </div>
                             }
                             <div class="conflict-resolution-tools">
+                                @if (issue.Code == "MISSING_DEPENDENCY" && !string.IsNullOrWhiteSpace(issue.MissingDependencyModId) && issue.ModReferenceIds.Count > 0)
+                                {
+                                    <form id="add-dependency-@Model.ConflictPage-@issueIndex" method="post" asp-page-handler="AddMissingDependency" class="conflict-dependency-fix-panel" data-loading-title="Ajout de la dépendance…" data-loading-detail="Recherche locale, vérification des dépendances Workshop officielles, téléchargement, snapshot et recalcul de l’ordre." data-loading-steps="Recherche de la source|Vérification Workshop|Téléchargement|Création du snapshot|Recalcul de l’ordre">
+                                        <input type="hidden" name="modReferenceId" value="@issue.ModReferenceIds[0]" />
+                                        <input type="hidden" name="requiredModId" value="@issue.MissingDependencyModId" />
+                                        <span class="conflict-auto-fix-icon" aria-hidden="true">+</span>
+                                        <span><strong>Dépendance ajoutable automatiquement</strong><small><span>Le manager cherchera cette dépendance sur le disque puis dans les dépendances officielles du Workshop.</span> <code>@issue.MissingDependencyModId</code> · <span>La source sera vérifiée avant d’être ajoutée.</span></small></span>
+                                        <button class="button primary" type="submit">Ajouter @issue.MissingDependencyModId</button>
+                                    </form>
+                                }
                                 @if (issue.CanAutoFixOrder)
                                 {
                                     <form id="@orderFixFormId" method="post" asp-page-handler="RepairOrderIssue" class="conflict-auto-fix-panel" data-loading-title="Réparation de l’ordre…" data-loading-detail="Nouvelle analyse, retrait des seules décisions contradictoires et validation du tri topologique final.">
@@ -662,11 +677,11 @@
         </details>
 
         <div class="mod-add-grid">
-            <form method="post" asp-page-handler="ImportWorkshop" class="setting-card add-source-card" data-loading-title="Import de l’item Workshop…" data-loading-detail="Téléchargement SteamCMD, analyse des mod.info et création des snapshots figés.">
+            <form method="post" asp-page-handler="ImportWorkshop" class="setting-card add-source-card" data-dependency-preflight-url="@Url.Page(null, "WorkshopDependencyPlan", new { id = Model.Project.Id })" data-loading-title="Import de l’item Workshop…" data-loading-detail="Téléchargement SteamCMD, analyse des mod.info et création des snapshots figés.">
                 <span class="eyebrow">PAR WORKSHOP ID</span><h3>Télécharger et figer</h3><p>Importe tous les Mod IDs compatibles contenus dans un item.</p>
                 <div class="add-mod-row"><input name="workshopId" type="number" min="1" required placeholder="Workshop ID" /><button class="button secondary" type="submit">Importer</button></div>
             </form>
-            <form method="post" asp-page-handler="AddMod" class="setting-card add-source-card" data-loading-title="Ajout du mod au pack…" data-loading-detail="Copie de la source dans un snapshot privé et ajout des dépendances disponibles.">
+            <form method="post" asp-page-handler="AddMod" class="setting-card add-source-card" data-dependency-preflight-url="@Url.Page(null, "AddModDependencyPlan", new { id = Model.Project.Id })" data-loading-title="Ajout du mod au pack…" data-loading-detail="Copie de la source dans un snapshot privé et ajout des dépendances disponibles.">
                 <span class="eyebrow">DEPUIS LE DISQUE</span><h3>Ajouter une source détectée</h3><p>Sélectionnez un mod local ou déjà téléchargé par Steam.</p>
                 <input class="mod-filter" type="search" data-mod-filter placeholder="Filtrer par nom, Mod ID ou Workshop ID…" autocomplete="off" />
                 <div class="add-mod-row"><select name="selectionKey" required data-mod-select><option value="">Choisir parmi @Model.InstalledMods.Count mods détectés…</option>@foreach (var mod in Model.InstalledMods.Where(x => !selectedIds.Contains(x.ModId))) { <option value="@EditModel.SelectionKey(mod)">@mod.Name — version @(string.IsNullOrWhiteSpace(mod.Version) ? string.IsNullOrWhiteSpace(mod.SelectedVersionFolder) ? "non déclarée" : $"PZ {mod.SelectedVersionFolder}" : mod.Version) — @mod.ModId — @(mod.WorkshopId == 0 ? "local" : $"Workshop {mod.WorkshopId}")</option> }</select><button class="button primary" type="submit">Ajouter</button></div>
@@ -697,6 +712,11 @@
             @foreach (var mod in Model.VisibleProjectMods)
             {
                 var reorderTargets = orderedProjectMods.Where(item => item.Id != mod.Id).ToArray();
+                var missingRequiredIds = mod.RequiredModIds
+                    .Select(ModInfoParser.NormalizeDependencyId)
+                    .Where(required => !string.IsNullOrWhiteSpace(required) && !normalizedSelectedIds.Contains(required))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
                 <details class="mod-card" id="mod-@mod.Id.ToString("N")" open="@(Model.ExpandedModId == mod.Id ? "open" : null)">
                     <summary>
                         <span class="order-number">@(mod.Order + 1)</span>
@@ -705,6 +725,23 @@
                     </summary>
                     <div class="mod-details">
                         <div class="mod-metadata"><div><span>Version du mod</span><strong>@mod.DisplayVersion</strong></div><div><span>Compatibilité PZ</span><strong>@(string.IsNullOrWhiteSpace(mod.SelectedVersionFolder) ? "racine / legacy" : mod.SelectedVersionFolder)</strong></div><div><span>Origine</span><strong>@mod.SourceModRoot</strong></div><div><span>Révision figée</span><strong>@(Directory.Exists(mod.PinnedSourceRoot) ? $"{mod.PinnedAt?.LocalDateTime:dd/MM/yyyy HH:mm} · {mod.PinnedContentHash[..Math.Min(12, mod.PinnedContentHash.Length)]}…" : "En attente")</strong></div>@if (mod.RequiredModIds.Length > 0) { <div><span>Dépendances</span><strong>@string.Join(", ", mod.RequiredModIds)</strong></div> }@if (mod.MapFolders.Length > 0) { <div><span>Cartes</span><strong>@string.Join(", ", mod.MapFolders)</strong></div> }</div>
+                        @if (missingRequiredIds.Length > 0)
+                        {
+                            <section class="mod-missing-dependencies">
+                                <span class="mod-missing-dependencies-icon" aria-hidden="true">!</span>
+                                <span><strong>@missingRequiredIds.Length dépendance(s) absente(s)</strong><small>Project Zomboid peut refuser de charger ce mod. Ajoutez chaque source vérifiée avant le prochain build.</small></span>
+                                <div class="action-row">
+                                @foreach (var requiredModId in missingRequiredIds)
+                                {
+                                    <form method="post" asp-page-handler="AddMissingDependency" data-loading-title="Ajout de @requiredModId…" data-loading-detail="Recherche locale, vérification Workshop, téléchargement, snapshot et recalcul de l’ordre." data-loading-steps="Recherche de la source|Vérification Workshop|Téléchargement|Création du snapshot|Recalcul de l’ordre">
+                                        <input type="hidden" name="modReferenceId" value="@mod.Id" />
+                                        <input type="hidden" name="requiredModId" value="@requiredModId" />
+                                        <button class="button primary compact" type="submit">Ajouter @requiredModId</button>
+                                    </form>
+                                }
+                                </div>
+                            </section>
+                        }
                         @if (!string.IsNullOrWhiteSpace(mod.SourceUrl)) { <a href="@mod.SourceUrl" target="_blank" rel="noreferrer">Voir la source originale sur Steam ↗</a> }
                         <section class="mod-reorder-panel" aria-label="Réorganiser @mod.Name">
                             <div class="mod-reorder-heading">

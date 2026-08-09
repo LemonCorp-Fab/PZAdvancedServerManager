@@ -163,6 +163,24 @@
         ['Lua partagé / gameplay', 'Shared / gameplay Lua', 'Lua compartido / jugabilidad', 'Gemeinsames/Gameplay-Lua', 'Lua compartilhado / jogabilidade', '共享/玩法 Lua'],
         ['Compatibilité Project Zomboid', 'Project Zomboid compatibility', 'Compatibilidad con Project Zomboid', 'Project-Zomboid-Kompatibilität', 'Compatibilidade com Project Zomboid', 'Project Zomboid 兼容性'],
         ['Dépendances déclarées', 'Declared dependencies', 'Dependencias declaradas', 'Deklarierte Abhängigkeiten', 'Dependências declaradas', '已声明依赖'],
+        ['Ajouter la dépendance', 'Add dependency', 'Añadir dependencia', 'Abhängigkeit hinzufügen', 'Adicionar dependência', '添加依赖'],
+        ['Dépendance ajoutable automatiquement', 'Dependency can be added automatically', 'La dependencia se puede añadir automáticamente', 'Abhängigkeit kann automatisch hinzugefügt werden', 'A dependência pode ser adicionada automaticamente', '可自动添加依赖'],
+        ['Le manager cherchera cette dépendance sur le disque puis dans les dépendances officielles du Workshop.', 'The manager will look for this dependency on disk, then in the official Workshop dependencies.', 'El gestor buscará esta dependencia en el disco y luego en las dependencias oficiales del Workshop.', 'Der Manager sucht diese Abhängigkeit zuerst auf dem Datenträger und dann in den offiziellen Workshop-Abhängigkeiten.', 'O gerenciador procurará esta dependência no disco e depois nas dependências oficiais do Workshop.', '管理器将先在磁盘中查找此依赖，再检查 Workshop 的官方依赖。'],
+        ['La source sera vérifiée avant d’être ajoutée.', 'The source will be verified before it is added.', 'La fuente se verificará antes de añadirla.', 'Die Quelle wird vor dem Hinzufügen überprüft.', 'A fonte será verificada antes de ser adicionada.', '添加前会验证来源。'],
+        ['Project Zomboid peut refuser de charger ce mod. Ajoutez chaque source vérifiée avant le prochain build.', 'Project Zomboid may refuse to load this mod. Add every verified source before the next build.', 'Project Zomboid puede negarse a cargar este mod. Añade cada fuente verificada antes de la próxima compilación.', 'Project Zomboid kann das Laden dieses Mods verweigern. Füge vor dem nächsten Build jede geprüfte Quelle hinzu.', 'O Project Zomboid pode recusar o carregamento deste mod. Adicione cada fonte verificada antes da próxima compilação.', 'Project Zomboid 可能拒绝加载此模组。请在下次构建前添加所有已验证来源。'],
+        ['Analyse des dépendances…', 'Analyzing dependencies…', 'Analizando dependencias…', 'Abhängigkeiten werden analysiert…', 'Analisando dependências…', '正在分析依赖…'],
+        ['Lecture des dépendances locales et Workshop avant toute modification du pack.', 'Reading local and Workshop dependencies before changing the pack.', 'Leyendo dependencias locales y del Workshop antes de modificar el paquete.', 'Lokale und Workshop-Abhängigkeiten werden vor jeder Paketänderung gelesen.', 'Lendo dependências locais e do Workshop antes de alterar o pacote.', '在修改模组包前读取本地和 Workshop 依赖。'],
+        ['Ajouter les dépendances manquantes ?', 'Add missing dependencies?', '¿Añadir las dependencias que faltan?', 'Fehlende Abhängigkeiten hinzufügen?', 'Adicionar dependências ausentes?', '添加缺少的依赖？'],
+        ['Dépendance non résolue', 'Unresolved dependency', 'Dependencia sin resolver', 'Nicht aufgelöste Abhängigkeit', 'Dependência não resolvida', '未解析的依赖'],
+        ['Le mod déclare les dépendances suivantes, absentes du pack :', 'The mod declares the following dependencies, which are missing from the pack:', 'El mod declara las siguientes dependencias, ausentes del paquete:', 'Der Mod deklariert folgende Abhängigkeiten, die im Paket fehlen:', 'O mod declara as seguintes dependências, ausentes do pacote:', '该模组声明了以下模组包中缺少的依赖：'],
+        ['Source non résolue automatiquement :', 'Source not resolved automatically:', 'Fuente no resuelta automáticamente:', 'Quelle nicht automatisch aufgelöst:', 'Fonte não resolvida automaticamente:', '未自动解析的来源：'],
+        ['Vous pouvez les ajouter maintenant ou continuer uniquement avec le mod sélectionné.', 'You can add them now or continue with only the selected mod.', 'Puedes añadirlas ahora o continuar solo con el mod seleccionado.', 'Du kannst sie jetzt hinzufügen oder nur mit dem ausgewählten Mod fortfahren.', 'Você pode adicioná-las agora ou continuar apenas com o mod selecionado.', '你可以立即添加它们，或仅继续添加所选模组。'],
+        ['Ajouter avec', 'Add with', 'Añadir con', 'Hinzufügen mit', 'Adicionar com', '添加并包含'],
+        ['dépendance(s)', 'dependency/dependencies', 'dependencia(s)', 'Abhängigkeit(en)', 'dependência(s)', '个依赖'],
+        ['Ajouter uniquement le mod', 'Add only the mod', 'Añadir solo el mod', 'Nur den Mod hinzufügen', 'Adicionar somente o mod', '仅添加模组'],
+        ['Ajouter le mod malgré tout', 'Add the mod anyway', 'Añadir el mod de todos modos', 'Mod trotzdem hinzufügen', 'Adicionar o mod mesmo assim', '仍然添加模组'],
+        ['Analyse des dépendances interrompue', 'Dependency analysis interrupted', 'Análisis de dependencias interrumpido', 'Abhängigkeitsanalyse unterbrochen', 'Análise de dependências interrompida', '依赖分析已中断'],
+        ['Continuer sans les dépendances', 'Continue without dependencies', 'Continuar sin dependencias', 'Ohne Abhängigkeiten fortfahren', 'Continuar sem dependências', '不添加依赖并继续'],
         ['Ordre de chargement', 'Load order', 'Orden de carga', 'Ladereihenfolge', 'Ordem de carregamento', '加载顺序'],
         ['Identité des mods', 'Mod identity', 'Identidad de los mods', 'Mod-Identität', 'Identidade dos mods', '模组标识'],
         ['Ordre des cartes', 'Map order', 'Orden de mapas', 'Kartenreihenfolge', 'Ordem dos mapas', '地图顺序'],
@@ -861,6 +879,8 @@
             ,[/^(.+) — Workshop non publié$/, ['$1 — Workshop unpublished', '$1 — Workshop no publicado', '$1 — Workshop nicht veröffentlicht', '$1 — Workshop não publicado', '$1 — 创意工坊未发布']]
             ,[/^(\d+) mods compatibles · page (\d+)$/, ['$1 compatible mods · page $2', '$1 mods compatibles · página $2', '$1 kompatible Mods · Seite $2', '$1 mods compatíveis · página $2', '$1 个兼容模组 · 第 $2 页']]
             ,[/^(\d+) dépendance\(s\) résolue\(s\) automatiquement$/, ['$1 dependency/dependencies resolved automatically', '$1 dependencia(s) resuelta(s) automáticamente', '$1 Abhängigkeit(en) automatisch aufgelöst', '$1 dependência(s) resolvida(s) automaticamente', '已自动解析 $1 个依赖']]
+            ,[/^(\d+) dépendance\(s\) absente\(s\)$/, ['$1 missing dependency/dependencies', '$1 dependencia(s) ausente(s)', '$1 fehlende Abhängigkeit(en)', '$1 dependência(s) ausente(s)', '缺少 $1 个依赖']]
+            ,[/^Ajouter ([A-Za-z0-9._-]+)$/, ['Add $1', 'Añadir $1', '$1 hinzufügen', 'Adicionar $1', '添加 $1']]
             ,[/^Adresse d’écoute forcée : (.+)$/, ['Forced bind address: $1', 'Dirección de escucha forzada: $1', 'Erzwungene Bind-Adresse: $1', 'Endereço de escuta forçado: $1', '强制监听地址：$1']]
             ,[/^La base joueurs existe, mais son état admin n’a pas pu être lu \(SQLite (\d+)\)\.$/, ['The player database exists, but its admin state could not be read (SQLite $1).', 'La base de jugadores existe, pero no se pudo leer su estado admin (SQLite $1).', 'Die Spielerdatenbank existiert, ihr Admin-Status konnte jedoch nicht gelesen werden (SQLite $1).', 'O banco de jogadores existe, mas o estado admin não pôde ser lido (SQLite $1).', '玩家数据库存在，但无法读取其管理员状态（SQLite $1）。']]
             ,[/^Workshop (\d+) · profil PZ (.+)$/, ['Workshop $1 · PZ profile $2', 'Workshop $1 · perfil PZ $2', 'Workshop $1 · PZ-Profil $2', 'Workshop $1 · perfil PZ $2', '创意工坊 $1 · PZ 配置 $2']]
@@ -886,6 +906,7 @@
         }
         return value;
     };
+    window.pzasmTranslate = translatePattern;
 
     const translateTextNode = (node, externalMutation = false) => {
         if (!node.parentElement || ['SCRIPT', 'STYLE', 'TEXTAREA', 'CODE'].includes(node.parentElement.tagName)) return;
@@ -910,7 +931,7 @@
     };
 
     const translateAttributes = element => {
-        const names = ['placeholder', 'title', 'aria-label', 'data-loading-title', 'data-loading-detail', 'data-loading-detail-checked', 'data-loading-detail-unchecked', 'data-loading-steps', 'data-loading-steps-checked', 'data-loading-steps-unchecked', 'data-confirm-title', 'data-confirm-message', 'data-confirm-message-checked', 'data-confirm-message-unchecked', 'data-confirm-action', 'data-confirm-action-checked', 'data-confirm-action-unchecked'];
+        const names = ['placeholder', 'title', 'aria-label', 'data-loading-title', 'data-loading-detail', 'data-loading-detail-checked', 'data-loading-detail-unchecked', 'data-loading-steps', 'data-loading-steps-checked', 'data-loading-steps-unchecked', 'data-confirm-title', 'data-confirm-message', 'data-confirm-message-checked', 'data-confirm-message-unchecked', 'data-confirm-action', 'data-confirm-action-checked', 'data-confirm-action-unchecked', 'data-confirm-secondary-action'];
         let originals = attributeOriginals.get(element);
         if (!originals) { originals = new Map(); attributeOriginals.set(element, originals); }
         names.forEach(name => {

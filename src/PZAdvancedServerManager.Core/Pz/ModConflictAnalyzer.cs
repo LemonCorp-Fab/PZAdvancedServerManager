@@ -58,7 +58,8 @@ public sealed record ModConflictIssue(
     string PrimaryEvidence = "",
     IReadOnlyList<ModConflictFileEvidence>? Files = null,
     bool CanApplyRecommendedOrder = false,
-    IReadOnlyList<string>? RemovableConflictWinnerKeys = null)
+    IReadOnlyList<string>? RemovableConflictWinnerKeys = null,
+    string MissingDependencyModId = "")
 {
     public string EffectiveTypeLabel => string.IsNullOrWhiteSpace(TypeLabel) ? Category.ToString() : TypeLabel;
     public IReadOnlyList<ModConflictFileEvidence> FileEvidence => Files ?? [];
@@ -359,7 +360,10 @@ public sealed class ModConflictAnalyzer(MapPriorityService mapPriority)
                         ModConflictCategory.Dependency,
                         [mod],
                         [$"{mod.ModId} -> {requiredId}"],
-                        canDisableMods: true));
+                        canDisableMods: true) with
+                    {
+                        MissingDependencyModId = requiredId
+                    });
                     continue;
                 }
                 foreach (var required in requiredMods) AddEdge(edges, required.Id, mod.Id);

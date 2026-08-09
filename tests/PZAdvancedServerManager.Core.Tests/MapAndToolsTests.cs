@@ -89,6 +89,27 @@ public sealed class MapAndToolsTests : IDisposable
     }
 
     [Fact]
+    public void MissingDependencyIssueCarriesTheExactRequiredModId()
+    {
+        var appRoot = CreateConflictMod("missing-dependency-app", "missing-dependency-app", "return 'app'");
+        var app = new PackageModReference
+        {
+            ModId = "missing-dependency-app",
+            Name = "Application",
+            SourceModRoot = appRoot,
+            SelectedVersionFolder = "common",
+            RequiredModIds = ["required-library"]
+        };
+
+        var analysis = new ModConflictAnalyzer(new MapPriorityService()).Analyze(
+            new PackageProject { TargetPzVersion = "42.20.2", Mods = [app] });
+
+        var issue = Assert.Single(analysis.Issues, candidate => candidate.Code == "MISSING_DEPENDENCY");
+        Assert.Equal("required-library", issue.MissingDependencyModId);
+        Assert.Contains("missing-dependency-app", issue.ModIds);
+    }
+
+    [Fact]
     public void ConflictWinnerThatContradictsDependencyProducesPreciseRepairableCycle()
     {
         var appRoot = CreateConflictMod("cycle-app", "cycle-app", "return 'app'");

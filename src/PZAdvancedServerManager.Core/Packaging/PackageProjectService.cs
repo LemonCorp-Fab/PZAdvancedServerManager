@@ -11,9 +11,13 @@ public sealed class PackageProjectService(
 {
     public PackageProject Create(string name) => store.Create(name);
 
-    public int AddWithDependencies(PackageProject project, DiscoveredMod selected, IReadOnlyList<DiscoveredMod> discovered)
+    public int AddWithDependencies(
+        PackageProject project,
+        DiscoveredMod selected,
+        IReadOnlyList<DiscoveredMod> discovered,
+        bool includeDependencies = true)
     {
-        var added = PackageProjectComposer.AddWithDependencies(project, selected, discovered);
+        var added = PackageProjectComposer.AddWithDependencies(project, selected, discovered, includeDependencies);
         try
         {
             foreach (var mod in added) snapshots.Pin(project, mod, replace: false);

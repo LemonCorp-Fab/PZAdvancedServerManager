@@ -67,6 +67,22 @@ public sealed class WorkshopCatalogTests
         Assert.False(state.Banned);
     }
 
+    [Fact]
+    public async Task RequiredItemsAreReadFromTheDedicatedWorkshopSection()
+    {
+        var handler = new RequiredItemsHandler();
+        var service = new WorkshopCatalogService(new HttpClient(handler));
+
+        var items = await service.GetRequiredItemsAsync(3778856579);
+        var cached = await service.GetRequiredItemsAsync(3778856579);
+
+        var dependency = Assert.Single(items);
+        Assert.Equal(3396446795UL, dependency.WorkshopId);
+        Assert.Equal("Moodle Framework", dependency.Title);
+        Assert.Same(items, cached);
+        Assert.Equal(1, handler.Requests);
+    }
+
     private sealed class CatalogHandler : HttpMessageHandler
     {
         public int Requests { get; private set; }
@@ -133,6 +149,29 @@ public sealed class WorkshopCatalogTests
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(json, Encoding.UTF8, "application/json")
+            });
+        }
+    }
+
+    private sealed class RequiredItemsHandler : HttpMessageHandler
+    {
+        public int Requests { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Requests++;
+            const string html = """
+                <a href="https://steamcommunity.com/sharedfiles/filedetails/?id=111">Unrelated recommendation</a>
+                <div class="requiredItemsContainer" id="RequiredItems">
+                  <a href="https://steamcommunity.com/workshop/filedetails/?id=3396446795" target="_blank">
+                    <div class="requiredItem"> Moodle <b>Framework</b> </div>
+                  </a>
+                </div>
+                <!-- created by -->
+                """;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(html, Encoding.UTF8, "text/html")
             });
         }
     }

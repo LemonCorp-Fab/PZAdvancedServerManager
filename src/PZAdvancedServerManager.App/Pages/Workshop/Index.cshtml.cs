@@ -65,7 +65,39 @@ public class IndexModel(
         return Page();
     }
 
-    public async Task<IActionResult> OnPostAddWorkshopAsync(ulong[] selectedWorkshopIds, CancellationToken cancellationToken)
+    public async Task<IActionResult> OnPostWorkshopDependencyPlanAsync(ulong[] selectedWorkshopIds, CancellationToken cancellationToken)
+    {
+        var contextResult = LoadContext();
+        if (contextResult is not null) return contextResult;
+        var dependencies = await GetMissingWorkshopDependenciesAsync(selectedWorkshopIds, cancellationToken);
+        return new JsonResult(new
+        {
+            dependencies = dependencies.Select(item => new { id = item.WorkshopId.ToString(), name = item.Title, source = $"Workshop {item.WorkshopId}" }),
+            unresolved = Array.Empty<string>()
+        });
+    }
+
+    public IActionResult OnPostLocalDependencyPlan(string[] selectedMods)
+    {
+        var contextResult = LoadContext();
+        if (contextResult is not null) return contextResult;
+        var available = environment.GetMods(TargetVersion);
+        var keys = selectedMods.ToHashSet(StringComparer.Ordinal);
+        var selected = available.Where(mod => keys.Contains(SelectionKey(mod))).ToArray();
+        var placeholder = Project ?? new PackageProject { Mods = IncludedModIds.Select(id => new PackageModReference { ModId = id }).ToList() };
+        var plan = PackageProjectComposer.PlanDependencies(placeholder, selected, available);
+        return new JsonResult(new
+        {
+            dependencies = plan.AvailableDependencies.Select(mod => new { id = mod.ModId, name = mod.Name, source = mod.WorkshopId == 0 ? "Source locale" : $"Workshop {mod.WorkshopId}" }),
+            unresolved = plan.UnresolvedModIds
+        });
+    }
+
+    public async Task<IActionResult> OnPostAddWorkshopAsync(
+        ulong[] selectedWorkshopIds,
+        bool includeDependencies,
+        bool dependencyChoiceAcknowledged,
+        CancellationToken cancellationToken)
     {
         var contextResult = LoadContext();
         if (contextResult is not null) return contextResult;
@@ -78,6 +110,12 @@ public class IndexModel(
 
         try
         {
+            var dependencies = dependencyChoiceAcknowledged && !includeDependencies
+                ? []
+                : await GetMissingWorkshopDependenciesAsync(ids, cancellationToken);
+            if (dependencies.Count > 0 && !dependencyChoiceAcknowledged)
+                throw new InvalidOperationException("Confirmez le choix des dépendances dans le dialogue du manager.");
+            if (includeDependencies) ids = dependencies.Select(item => item.WorkshopId).Concat(ids).Distinct().ToArray();
             if (Project is not null)
             {
                 EnsureProjectSteamCmd(Project);
@@ -119,7 +157,11 @@ public class IndexModel(
         return RedirectBack();
     }
 
-    public async Task<IActionResult> OnPostImportWorkshopStreamAsync(ulong[] selectedWorkshopIds, CancellationToken cancellationToken)
+    public async Task<IActionResult> OnPostImportWorkshopStreamAsync(
+        ulong[] selectedWorkshopIds,
+        bool includeDependencies,
+        bool dependencyChoiceAcknowledged,
+        CancellationToken cancellationToken)
     {
         Response.ContentType = "application/x-ndjson; charset=utf-8";
         Response.Headers.CacheControl = "no-cache, no-store";
@@ -134,6 +176,12 @@ public class IndexModel(
 
         try
         {
+            var dependencies = dependencyChoiceAcknowledged && !includeDependencies
+                ? []
+                : await GetMissingWorkshopDependenciesAsync(ids, cancellationToken);
+            if (dependencies.Count > 0 && !dependencyChoiceAcknowledged)
+                throw new InvalidOperationException("Confirmez le choix des dépendances dans le dialogue du manager.");
+            if (includeDependencies) ids = dependencies.Select(item => item.WorkshopId).Concat(ids).Distinct().ToArray();
             var addedMods = 0;
             if (Project is not null)
             {
@@ -192,7 +240,10 @@ public class IndexModel(
         return new EmptyResult();
     }
 
-    public IActionResult OnPostAddLocal(string[] selectedMods)
+    public IActionResult OnPostAddLocal(
+        string[] selectedMods,
+        bool includeDependencies,
+        bool dependencyChoiceAcknowledged)
     {
         var contextResult = LoadContext();
         if (contextResult is not null) return contextResult;
@@ -207,14 +258,18 @@ public class IndexModel(
 
         try
         {
+            var placeholder = Project ?? new PackageProject { Mods = IncludedModIds.Select(id => new PackageModReference { ModId = id }).ToList() };
+            var plan = PackageProjectComposer.PlanDependencies(placeholder, selected, available);
+            if ((plan.AvailableDependencies.Count > 0 || plan.UnresolvedModIds.Count > 0) && !dependencyChoiceAcknowledged)
+                throw new InvalidOperationException("Confirmez le choix des dépendances dans le dialogue du manager.");
             if (Project is not null)
             {
-                var added = selected.Sum(mod => projects.AddWithDependencies(Project, mod, available));
+                var added = selected.Sum(mod => projects.AddWithDependencies(Project, mod, available, includeDependencies));
                 TempData["Message"] = $"{added} nouveau(x) Mod ID local(aux) et dépendance(s) figé(s) dans le pack.";
             }
             else if (Server is not null)
             {
-                var expanded = ExpandDependencies(selected, available);
+                var expanded = includeDependencies ? ExpandDependencies(selected, available) : selected;
                 var result = servers.AddContent(Server.Name, expanded.Select(mod => mod.WorkshopId), expanded.Select(mod => mod.ModId));
                 TempData["Message"] = $"Configuration serveur mise à jour : {result.AddedWorkshopItems} Workshop ID et {result.AddedMods} Mod ID ajoutés. Sauvegarde : {DisplayBackup(result.BackupPath)}";
             }
@@ -280,6 +335,20 @@ public class IndexModel(
         LocalTotal = filtered.Length;
         PageNumber = Math.Clamp(PageNumber, 1, Math.Max(1, (int)Math.Ceiling(LocalTotal / 60d)));
         return filtered.Skip((PageNumber - 1) * 60).Take(60).ToArray();
+    }
+
+    private async Task<IReadOnlyList<WorkshopRequiredItem>> GetMissingWorkshopDependenciesAsync(
+        IEnumerable<ulong> workshopIds,
+        CancellationToken cancellationToken)
+    {
+        var requested = workshopIds.Where(id => id != 0).Distinct().ToHashSet();
+        if (requested.Count == 0) return [];
+        var results = await Task.WhenAll(requested.Select(id => catalog.GetRequiredItemsAsync(id, cancellationToken)));
+        return results
+            .SelectMany(items => items)
+            .Where(item => !requested.Contains(item.WorkshopId) && !IncludedWorkshopIds.Contains(item.WorkshopId))
+            .DistinctBy(item => item.WorkshopId)
+            .ToArray();
     }
 
     private void EnsureProjectSteamCmd(PackageProject project)

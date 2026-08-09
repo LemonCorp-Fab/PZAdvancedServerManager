@@ -11,6 +11,7 @@ public sealed partial class WorkshopCatalogService
 {
     private static readonly HttpClient SharedHttpClient = CreateHttpClient();
     private readonly ConcurrentDictionary<string, CacheEntry> _cache = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<ulong, RequiredItemsCacheEntry> _requiredItemsCache = new();
     private readonly HttpClient _httpClient;
 
     public WorkshopCatalogService() : this(SharedHttpClient) { }
@@ -100,6 +101,35 @@ public sealed partial class WorkshopCatalogService
             ReadLong(detail, "consumer_app_id"),
             ReadLong(detail, "creator_app_id"),
             ReadLong(detail, "banned") != 0);
+    }
+
+    public async Task<IReadOnlyList<WorkshopRequiredItem>> GetRequiredItemsAsync(ulong workshopId, CancellationToken cancellationToken = default)
+    {
+        if (workshopId == 0) return [];
+        if (_requiredItemsCache.TryGetValue(workshopId, out var cached)
+            && DateTimeOffset.UtcNow - cached.CreatedAt < TimeSpan.FromMinutes(10)) return cached.Items;
+
+        var url = $"https://steamcommunity.com/sharedfiles/filedetails/?id={workshopId}";
+        using var response = await _httpClient.GetAsync(url, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var html = await response.Content.ReadAsStringAsync(cancellationToken);
+        var start = html.IndexOf("id=\"RequiredItems\"", StringComparison.OrdinalIgnoreCase);
+        if (start < 0)
+        {
+            _requiredItemsCache[workshopId] = new RequiredItemsCacheEntry(DateTimeOffset.UtcNow, []);
+            return [];
+        }
+        var end = html.IndexOf("<!-- created by -->", start, StringComparison.OrdinalIgnoreCase);
+        var section = end > start ? html[start..end] : html[start..Math.Min(html.Length, start + 100_000)];
+        var items = RequiredItemRegex().Matches(section)
+            .Select(match => new WorkshopRequiredItem(
+                ulong.TryParse(match.Groups[1].Value, CultureInfo.InvariantCulture, out var id) ? id : 0,
+                CleanRequiredItemTitle(match.Groups[2].Value)))
+            .Where(item => item.WorkshopId != 0)
+            .DistinctBy(item => item.WorkshopId)
+            .ToArray();
+        _requiredItemsCache[workshopId] = new RequiredItemsCacheEntry(DateTimeOffset.UtcNow, items);
+        return items;
     }
 
     private async Task<IReadOnlyList<WorkshopCatalogItem>> GetDetailsBatchAsync(IReadOnlyList<ulong> ids, CancellationToken cancellationToken)
@@ -209,6 +239,12 @@ public sealed partial class WorkshopCatalogService
         return decoded.Length <= 260 ? decoded : decoded[..257] + "…";
     }
 
+    private static string CleanRequiredItemTitle(string value)
+    {
+        var decoded = WebUtility.HtmlDecode(HtmlTagRegex().Replace(value, " "));
+        return WhitespaceRegex().Replace(decoded, " ").Trim();
+    }
+
     [GeneratedRegex("<a\\s+href=\"https://steamcommunity\\.com/sharedfiles/filedetails/\\?id=(\\d+)\"[^>]*>\\s*<img\\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex WorkshopIdRegex();
 
@@ -221,7 +257,11 @@ public sealed partial class WorkshopCatalogService
     [GeneratedRegex(@"\s+", RegexOptions.CultureInvariant)]
     private static partial Regex WhitespaceRegex();
 
+    [GeneratedRegex("<a\\s+href=\"https://steamcommunity\\.com/(?:sharedfiles|workshop)/filedetails/\\?id=(\\d+)[^\"]*\"[^>]*>[\\s\\S]*?<div\\s+class=\"requiredItem\"[^>]*>([\\s\\S]*?)</div>", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex RequiredItemRegex();
+
     private sealed record CacheEntry(DateTimeOffset CreatedAt, WorkshopCatalogPage Page);
+    private sealed record RequiredItemsCacheEntry(DateTimeOffset CreatedAt, IReadOnlyList<WorkshopRequiredItem> Items);
 }
 
 public sealed record WorkshopCatalogQuery(string SearchText = "", string Sort = "trend", int Page = 1, string RequiredTag = "")
@@ -251,6 +291,11 @@ public sealed record WorkshopCatalogItem(
     long Favorites,
     long Views,
     IReadOnlyList<string> Tags)
+{
+    public string WorkshopUrl => $"https://steamcommunity.com/sharedfiles/filedetails/?id={WorkshopId}";
+}
+
+public sealed record WorkshopRequiredItem(ulong WorkshopId, string Title)
 {
     public string WorkshopUrl => $"https://steamcommunity.com/sharedfiles/filedetails/?id={WorkshopId}";
 }

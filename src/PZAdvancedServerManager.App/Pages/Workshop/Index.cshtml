@@ -57,7 +57,7 @@
 
 @if (isLocal)
 {
-    <form method="post" asp-page-handler="AddLocal" class="catalog-selection-form" data-catalog-selection data-catalog-storage-key="pzasm-catalog:@selectionScope:local" data-catalog-input-name="selectedMods" data-loading-title="Ajout des mods sélectionnés…" data-loading-detail="Résolution des dépendances puis mise à jour contrôlée de la destination.">
+    <form method="post" asp-page-handler="AddLocal" class="catalog-selection-form" data-catalog-selection data-dependency-preflight-url="@Url.Page(null, "LocalDependencyPlan", new { ProjectId = Model.ProjectId, ServerName = Model.ServerName, Source = Model.Source })" data-catalog-storage-key="pzasm-catalog:@selectionScope:local" data-catalog-input-name="selectedMods" data-loading-title="Ajout des mods sélectionnés…" data-loading-detail="Résolution des dépendances puis mise à jour contrôlée de la destination.">
         <input type="hidden" asp-for="ProjectId" /><input type="hidden" asp-for="ServerName" /><input type="hidden" asp-for="Source" /><input type="hidden" asp-for="Q" />
         <div class="catalog-results-heading"><div><span class="eyebrow">BIBLIOTHÈQUE DÉTECTÉE</span><h2>@Model.LocalTotal mods compatibles · page @Model.PageNumber</h2></div><div class="action-row"><button class="button ghost" type="button" data-catalog-select-all>Tout sélectionner sur cette page</button><button class="button ghost" type="button" data-catalog-deselect-page>Désélectionner la page</button></div></div>
         @if (Model.LocalMods.Count == 0)
@@ -95,7 +95,7 @@
 }
 else
 {
-    <form method="post" asp-page-handler="AddWorkshop" class="catalog-selection-form" data-catalog-selection data-workshop-progress data-catalog-storage-key="pzasm-catalog:@selectionScope:workshop" data-catalog-input-name="selectedWorkshopIds" data-loading-title="Téléchargement des mods Workshop…" data-loading-detail="SteamCMD télécharge chaque item, puis le manager analyse les mod.info et leurs dépendances.">
+    <form method="post" asp-page-handler="AddWorkshop" class="catalog-selection-form" data-catalog-selection data-workshop-progress data-dependency-preflight-url="@Url.Page(null, "WorkshopDependencyPlan", new { ProjectId = Model.ProjectId, ServerName = Model.ServerName, Source = Model.Source })" data-catalog-storage-key="pzasm-catalog:@selectionScope:workshop" data-catalog-input-name="selectedWorkshopIds" data-loading-title="Téléchargement des mods Workshop…" data-loading-detail="SteamCMD télécharge chaque item, puis le manager analyse les mod.info et leurs dépendances.">
         <input type="hidden" asp-for="ProjectId" /><input type="hidden" asp-for="ServerName" /><input type="hidden" asp-for="Source" /><input type="hidden" asp-for="Q" /><input type="hidden" asp-for="Sort" /><input type="hidden" asp-for="Tag" /><input type="hidden" asp-for="PageNumber" />
         <div class="catalog-results-heading"><div><span class="eyebrow">WORKSHOP PROJECT ZOMBOID</span><h2>@Model.Catalog.Items.Count résultats · page @Model.Catalog.Page</h2></div><div class="action-row"><button class="button ghost" type="button" data-catalog-select-all>Tout sélectionner sur cette page</button><button class="button ghost" type="button" data-catalog-deselect-page>Désélectionner la page</button></div></div>
         @if (Model.Catalog.Items.Count == 0)

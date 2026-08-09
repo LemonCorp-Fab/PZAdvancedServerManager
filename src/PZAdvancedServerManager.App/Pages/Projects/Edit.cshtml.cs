@@ -24,6 +24,7 @@ public class EditModel(
     ServerProfileService servers,
     MapPriorityService mapPriority,
     ModConflictAnalyzer conflicts,
+    WorkshopCatalogService workshopCatalog,
     SteamCmdInstaller steamCmdInstaller,
     SteamCmdService steamCmd) : PageModel
 {
@@ -107,7 +108,35 @@ public class EditModel(
         return PhysicalFile(preview, contentType);
     }
 
-    public IActionResult OnPostAddMod(Guid id, string selectionKey)
+    public async Task<IActionResult> OnPostAddModDependencyPlanAsync(Guid id, string selectionKey, CancellationToken cancellationToken)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+        var discovered = environment.GetMods(project.TargetPzVersion);
+        var selected = discovered.FirstOrDefault(mod => SelectionKey(mod) == selectionKey);
+        if (selected is null) return new JsonResult(new { error = "La source choisie n'existe plus." }) { StatusCode = 404 };
+
+        var local = PackageProjectComposer.PlanDependencies(project, [selected], discovered);
+        var remote = selected.WorkshopId == 0
+            ? []
+            : await workshopCatalog.GetRequiredItemsAsync(selected.WorkshopId, cancellationToken);
+        return DependencyPlanResult(project, local, remote);
+    }
+
+    public async Task<IActionResult> OnPostWorkshopDependencyPlanAsync(Guid id, ulong workshopId, CancellationToken cancellationToken)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+        var remote = await workshopCatalog.GetRequiredItemsAsync(workshopId, cancellationToken);
+        return DependencyPlanResult(project, new PackageDependencyPlan([], []), remote);
+    }
+
+    public async Task<IActionResult> OnPostAddModAsync(
+        Guid id,
+        string selectionKey,
+        bool includeDependencies,
+        bool dependencyChoiceAcknowledged,
+        CancellationToken cancellationToken)
     {
         var project = store.Get(id);
         if (project is null) return NotFound();
@@ -120,14 +149,81 @@ public class EditModel(
         }
         try
         {
-            var added = projects.AddWithDependencies(project, selected, discovered);
+            var localPlan = PackageProjectComposer.PlanDependencies(project, [selected], discovered);
+            var remotePlan = selected.WorkshopId == 0 || (dependencyChoiceAcknowledged && !includeDependencies)
+                ? []
+                : await workshopCatalog.GetRequiredItemsAsync(selected.WorkshopId, cancellationToken);
+            var missingRemote = FilterMissingRemoteDependencies(project, remotePlan);
+            if ((localPlan.AvailableDependencies.Count > 0 || missingRemote.Count > 0) && !dependencyChoiceAcknowledged)
+                throw new InvalidOperationException("Confirmez le choix des dépendances dans le dialogue du manager.");
+
+            var importedDependencies = 0;
+            if (includeDependencies)
+            {
+                foreach (var dependency in missingRemote)
+                {
+                    var imported = await workshopImport.ImportAsync(project, dependency.WorkshopId, cancellationToken);
+                    importedDependencies += imported.AddedMods;
+                }
+                if (missingRemote.Count > 0) discovered = environment.GetMods(project.TargetPzVersion, refresh: true);
+            }
+            var added = projects.AddWithDependencies(project, selected, discovered, includeDependencies) + importedDependencies;
             if (added > 0)
-                TempData["Message"] = added == 1
-                    ? $"« {selected.Name} » ajouté et figé. Renseignez maintenant son autorisation."
-                    : $"« {selected.Name} » et {added - 1} dépendance(s) ont été ajoutés et figés. Renseignez leurs autorisations.";
+                TempData["Message"] = includeDependencies && added > 1
+                    ? $"« {selected.Name} » et {added - 1} dépendance(s) ont été ajoutés, ordonnés et figés. Renseignez leurs autorisations."
+                    : $"« {selected.Name} » ajouté et figé. Renseignez maintenant son autorisation.";
         }
         catch (Exception exception) { TempData["Error"] = exception.Message; }
         return RedirectToPage(new { id, tab = "mods" });
+    }
+
+    public async Task<IActionResult> OnPostAddMissingDependencyAsync(
+        Guid id,
+        Guid modReferenceId,
+        string requiredModId,
+        CancellationToken cancellationToken)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+        var requester = project.Mods.FirstOrDefault(mod => mod.Id == modReferenceId);
+        if (requester is null) return NotFound();
+        var normalizedRequired = ModInfoParser.NormalizeDependencyId(requiredModId);
+        if (project.Mods.Any(mod => ModInfoParser.NormalizeDependencyId(mod.ModId).Equals(normalizedRequired, StringComparison.OrdinalIgnoreCase)))
+        {
+            TempData["Message"] = $"La dépendance « {normalizedRequired} » est déjà présente dans le pack.";
+            return DependencyRedirect(id);
+        }
+
+        try
+        {
+            var available = environment.GetMods(project.TargetPzVersion);
+            var dependency = available.FirstOrDefault(mod => ModInfoParser.NormalizeDependencyId(mod.ModId).Equals(normalizedRequired, StringComparison.OrdinalIgnoreCase));
+            if (dependency is null && requester.WorkshopId != 0)
+            {
+                var requiredItems = await workshopCatalog.GetRequiredItemsAsync(requester.WorkshopId, cancellationToken);
+                foreach (var item in FilterMissingRemoteDependencies(project, requiredItems))
+                {
+                    var download = await workshopImport.DownloadAsync(project, item.WorkshopId, cancellationToken);
+                    dependency = download.Mods.FirstOrDefault(mod => ModInfoParser.NormalizeDependencyId(mod.ModId).Equals(normalizedRequired, StringComparison.OrdinalIgnoreCase));
+                    if (dependency is null) continue;
+                    available = environment.GetMods(project.TargetPzVersion, refresh: true).Concat(download.Mods).ToArray();
+                    break;
+                }
+            }
+            if (dependency is null)
+                throw new InvalidOperationException($"Aucune source locale ni dépendance Workshop officielle ne fournit le Mod ID « {normalizedRequired} ». Ouvrez le catalogue Workshop et recherchez ce Mod ID.");
+
+            var added = projects.AddWithDependencies(project, dependency, available);
+            var repaired = conflicts.Analyze(project, refresh: true);
+            if (!repaired.Issues.Any(issue => issue.Code == "CYCLE_ORDER" && !issue.IsResolved))
+            {
+                ApplyRecommendedOrder(project, repaired, includeMaps: false);
+                store.Save(project);
+            }
+            TempData["Message"] = $"Dépendance « {normalizedRequired} » ajoutée avec {Math.Max(0, added - 1)} dépendance(s) transitive(s), puis ordre de chargement recalculé.";
+        }
+        catch (Exception exception) { TempData["Error"] = exception.Message; }
+        return DependencyRedirect(id);
     }
 
     public async Task<IActionResult> OnPostPreviewModListAsync(Guid id, CancellationToken cancellationToken)
@@ -735,14 +831,28 @@ public class EditModel(
         return RedirectToPage(new { id, tab = "mods" });
     }
 
-    public async Task<IActionResult> OnPostImportWorkshopAsync(Guid id, ulong workshopId, CancellationToken cancellationToken)
+    public async Task<IActionResult> OnPostImportWorkshopAsync(
+        Guid id,
+        ulong workshopId,
+        bool includeDependencies,
+        bool dependencyChoiceAcknowledged,
+        CancellationToken cancellationToken)
     {
         var project = store.Get(id);
         if (project is null) return NotFound();
         try
         {
-            var result = await workshopImport.ImportAsync(project, workshopId, cancellationToken);
-            TempData["Message"] = $"Item Workshop {workshopId} téléchargé : {result.AddedMods} nouveau(x) Mod ID ajouté(s) et figé(s).";
+            var dependencies = dependencyChoiceAcknowledged && !includeDependencies
+                ? []
+                : FilterMissingRemoteDependencies(project, await workshopCatalog.GetRequiredItemsAsync(workshopId, cancellationToken));
+            if (dependencies.Count > 0 && !dependencyChoiceAcknowledged)
+                throw new InvalidOperationException("Confirmez le choix des dépendances dans le dialogue du manager.");
+            var ids = includeDependencies
+                ? dependencies.Select(item => item.WorkshopId).Append(workshopId)
+                : [workshopId];
+            var added = 0;
+            foreach (var itemId in ids.Distinct()) added += (await workshopImport.ImportAsync(project, itemId, cancellationToken)).AddedMods;
+            TempData["Message"] = $"Item Workshop {workshopId} téléchargé : {added} nouveau(x) Mod ID ajouté(s), ordonné(s) et figé(s).";
         }
         catch (Exception exception) { TempData["Error"] = exception.Message; }
         return RedirectToPage(new { id, tab = "mods" });
@@ -949,6 +1059,30 @@ public class EditModel(
             ? "La sélection était déjà entièrement présente dans le pack. Aucun snapshot n'a été remplacé."
             : $"{added} Mod ID(s) ajouté(s) avec leurs dépendances disponibles et leurs versions figées.";
     }
+
+    private JsonResult DependencyPlanResult(
+        PackageProject project,
+        PackageDependencyPlan local,
+        IReadOnlyList<WorkshopRequiredItem> remote)
+    {
+        var dependencies = local.AvailableDependencies
+            .Select(mod => new { id = mod.ModId, name = mod.Name, source = mod.WorkshopId == 0 ? "Source locale" : $"Workshop {mod.WorkshopId}" })
+            .Concat(FilterMissingRemoteDependencies(project, remote).Select(item => new { id = item.WorkshopId.ToString(), name = item.Title, source = $"Workshop {item.WorkshopId}" }))
+            .DistinctBy(item => item.id, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        return new JsonResult(new { dependencies, unresolved = local.UnresolvedModIds });
+    }
+
+    private static IReadOnlyList<WorkshopRequiredItem> FilterMissingRemoteDependencies(
+        PackageProject project,
+        IReadOnlyList<WorkshopRequiredItem> dependencies)
+    {
+        var includedWorkshopIds = project.Mods.Where(mod => mod.WorkshopId != 0).Select(mod => mod.WorkshopId).ToHashSet();
+        return dependencies.Where(item => !includedWorkshopIds.Contains(item.WorkshopId)).DistinctBy(item => item.WorkshopId).ToArray();
+    }
+
+    private RedirectToPageResult DependencyRedirect(Guid id) =>
+        RedirectToPage(pageName: null, pageHandler: null, routeValues: new { id, tab = "compatibility", conflictCategory = "Dependency" }, fragment: "conflict-workbench");
 
     private void Load(PackageProject project, bool refresh)
     {

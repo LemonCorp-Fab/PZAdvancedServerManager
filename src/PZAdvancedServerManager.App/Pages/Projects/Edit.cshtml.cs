@@ -39,6 +39,7 @@ public class EditModel(
     public IReadOnlyList<ModConflictIssue> VisibleConflictIssues { get; private set; } = [];
     public string ConflictFilter { get; private set; } = "action";
     public string ConflictCategory { get; private set; } = "all";
+    public string ConflictType { get; private set; } = "all";
     public int ConflictPage { get; private set; } = 1;
     public int ConflictPageCount { get; private set; } = 1;
     public int FilteredConflictCount { get; private set; }
@@ -312,6 +313,53 @@ public class EditModel(
         store.Save(project);
         TempData["Message"] = "Conflit document\u00e9 comme volontaire. Il restera visible et pourra \u00eatre rouvert si les fichiers ou les mods changent.";
         return RedirectToPage(new { id, tab = "compatibility" });
+    }
+
+    public IActionResult OnPostOpenConflictFile(Guid id, string conflictKey, int fileIndex)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+
+        var issue = conflicts.Analyze(project).Issues.FirstOrDefault(candidate => candidate.Key.Equals(conflictKey, StringComparison.Ordinal));
+        if (issue is null || fileIndex < 0 || fileIndex >= issue.FileEvidence.Count)
+        {
+            TempData["Error"] = "La preuve physique n'est plus disponible. Rafraîchissez l'analyse avant de réessayer.";
+            return RedirectToPage(new { id, tab = "compatibility" });
+        }
+
+        var evidence = issue.FileEvidence[fileIndex];
+        var candidatePath = Path.GetFullPath(evidence.PhysicalPath);
+        var sourceRoots = project.Mods
+            .Select(mod => mod.BuildSourceRoot)
+            .Where(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
+            .Select(Path.GetFullPath)
+            .ToArray();
+        if (!System.IO.File.Exists(candidatePath) || !sourceRoots.Any(root => IsPathWithin(candidatePath, root)))
+        {
+            TempData["Error"] = "Le fichier demandé n'appartient plus à une source de mod contrôlée par ce pack.";
+            return RedirectToPage(new { id, tab = "compatibility", conflictType = issue.EffectiveTypeLabel });
+        }
+
+        try
+        {
+            var startInfo = new ProcessStartInfo { UseShellExecute = OperatingSystem.IsWindows() };
+            if (OperatingSystem.IsWindows())
+            {
+                startInfo.FileName = candidatePath;
+            }
+            else
+            {
+                startInfo.FileName = OperatingSystem.IsMacOS() ? "open" : "xdg-open";
+                startInfo.ArgumentList.Add(candidatePath);
+            }
+            Process.Start(startInfo)?.Dispose();
+            TempData["Message"] = $"Preuve ouverte : {evidence.VirtualPath} ({evidence.ModId}).";
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            TempData["Error"] = $"Impossible d'ouvrir ce fichier avec l'application du système : {exception.Message}";
+        }
+        return RedirectToPage(new { id, tab = "compatibility", conflictType = issue.EffectiveTypeLabel });
     }
 
     public IActionResult OnPostSetModEnabled(Guid id, Guid modReferenceId, bool enabled)
@@ -869,6 +917,12 @@ public class EditModel(
             ? parsedCategory.ToString()
             : "all";
 
+        var requestedType = Request.Query["conflictType"].FirstOrDefault()?.Trim();
+        ConflictType = ConflictAnalysis.Issues
+            .Select(issue => issue.EffectiveTypeLabel)
+            .Distinct(StringComparer.CurrentCultureIgnoreCase)
+            .FirstOrDefault(type => type.Equals(requestedType, StringComparison.CurrentCultureIgnoreCase)) ?? "all";
+
         IEnumerable<ModConflictIssue> query = ConflictAnalysis.Issues;
         query = ConflictFilter switch
         {
@@ -880,6 +934,8 @@ public class EditModel(
         };
         if (ConflictCategory != "all" && Enum.TryParse<ModConflictCategory>(ConflictCategory, out parsedCategory))
             query = query.Where(issue => issue.Category == parsedCategory);
+        if (ConflictType != "all")
+            query = query.Where(issue => issue.EffectiveTypeLabel.Equals(ConflictType, StringComparison.CurrentCultureIgnoreCase));
 
         var filtered = query.ToArray();
         FilteredConflictCount = filtered.Length;
@@ -888,6 +944,14 @@ public class EditModel(
             ? Math.Clamp(requestedPage, 1, ConflictPageCount)
             : 1;
         VisibleConflictIssues = filtered.Skip((ConflictPage - 1) * ConflictPageSize).Take(ConflictPageSize).ToArray();
+    }
+
+    private static bool IsPathWithin(string candidatePath, string rootPath)
+    {
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        var normalizedRoot = Path.TrimEndingDirectorySeparator(rootPath);
+        return candidatePath.Equals(normalizedRoot, comparison)
+            || candidatePath.StartsWith(normalizedRoot + Path.DirectorySeparatorChar, comparison);
     }
 
     private void ConfigureModView()

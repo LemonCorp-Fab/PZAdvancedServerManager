@@ -349,23 +349,53 @@
                 <span><strong>@Model.ConflictAnalysis.Duration.TotalSeconds.ToString("0.0") s</strong><small>analyse mise en cache</small></span>
                 <a class="button secondary" asp-page="/Projects/Edit" asp-route-id="@Model.Project.Id" asp-route-refresh="true" asp-route-tab="compatibility" asp-fragment="conflict-workbench">Rafraîchir les preuves</a>
             </div>
+            @if (Model.ConflictAnalysis.TypeSummaries.Count > 0)
+            {
+                <section class="conflict-type-diagnostic" aria-label="Diagnostic par type de conflit">
+                    <div class="conflict-type-heading">
+                        <div><span class="eyebrow">DIAGNOSTIC PAR IMPACT</span><h4>Nature et gravité des conflits</h4></div>
+                        <a class="@(Model.ConflictType == "all" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="all" asp-route-conflictCategory="all" asp-route-conflictType="all" asp-fragment="conflict-workbench">Afficher tous les types</a>
+                    </div>
+                    <div class="conflict-type-grid">
+                        @foreach (var summary in Model.ConflictAnalysis.TypeSummaries)
+                        {
+                            var summaryRiskLabel = summary.Risk switch
+                            {
+                                ModConflictRisk.Low => "Faible",
+                                ModConflictRisk.Moderate => "Modéré",
+                                ModConflictRisk.High => "Élevé",
+                                _ => "Critique"
+                            };
+                            <a class="conflict-type-card risk-@summary.Risk.ToString().ToLowerInvariant() @(Model.ConflictType == summary.TypeLabel ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="all" asp-route-conflictCategory="all" asp-route-conflictType="@summary.TypeLabel" asp-fragment="conflict-workbench">
+                                <span class="conflict-type-card-heading"><strong>@summary.TypeLabel</strong><b>@summary.Total</b></span>
+                                <span class="conflict-risk-label">Risque @summaryRiskLabel</span>
+                                <small><b>@summary.Errors</b> bloquant(s) · <b>@summary.Warnings</b> alerte(s) · <b>@summary.Information</b> information(s) · <b>@summary.Resolved</b> examiné(s)</small>
+                                @if (!string.IsNullOrWhiteSpace(summary.SampleEvidence))
+                                {
+                                    <code title="@summary.SampleEvidence">@summary.SampleEvidence</code>
+                                }
+                            </a>
+                        }
+                    </div>
+                </section>
+            }
             @if (Model.ConflictAnalysis.Issues.Count > 0)
             {
                 <nav class="conflict-filter-bar" aria-label="Compatibility analysis filters">
                     <div class="conflict-filter-group">
                         <span>État</span>
-                        <a class="@(Model.ConflictFilter == "action" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="action" asp-route-conflictCategory="@Model.ConflictCategory" asp-fragment="conflict-workbench">À traiter <strong>@Model.ConflictAnalysis.Issues.Count(issue => !issue.IsResolved && issue.Severity != ModConflictSeverity.Information)</strong></a>
-                        <a class="@(Model.ConflictFilter == "errors" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="errors" asp-route-conflictCategory="@Model.ConflictCategory" asp-fragment="conflict-workbench">Bloquants <strong>@Model.ConflictAnalysis.ErrorCount</strong></a>
-                        <a class="@(Model.ConflictFilter == "warnings" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="warnings" asp-route-conflictCategory="@Model.ConflictCategory" asp-fragment="conflict-workbench">Alertes <strong>@Model.ConflictAnalysis.WarningCount</strong></a>
-                        <a class="@(Model.ConflictFilter == "resolved" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="resolved" asp-route-conflictCategory="@Model.ConflictCategory" asp-fragment="conflict-workbench">Examinés <strong>@Model.ConflictAnalysis.ResolvedCount</strong></a>
-                        <a class="@(Model.ConflictFilter == "all" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="all" asp-route-conflictCategory="@Model.ConflictCategory" asp-fragment="conflict-workbench">Tous <strong>@Model.ConflictAnalysis.Issues.Count</strong></a>
+                        <a class="@(Model.ConflictFilter == "action" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="action" asp-route-conflictCategory="@Model.ConflictCategory" asp-route-conflictType="@Model.ConflictType" asp-fragment="conflict-workbench">À traiter <strong>@Model.ConflictAnalysis.Issues.Count(issue => !issue.IsResolved && issue.Severity != ModConflictSeverity.Information)</strong></a>
+                        <a class="@(Model.ConflictFilter == "errors" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="errors" asp-route-conflictCategory="@Model.ConflictCategory" asp-route-conflictType="@Model.ConflictType" asp-fragment="conflict-workbench">Bloquants <strong>@Model.ConflictAnalysis.ErrorCount</strong></a>
+                        <a class="@(Model.ConflictFilter == "warnings" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="warnings" asp-route-conflictCategory="@Model.ConflictCategory" asp-route-conflictType="@Model.ConflictType" asp-fragment="conflict-workbench">Alertes <strong>@Model.ConflictAnalysis.WarningCount</strong></a>
+                        <a class="@(Model.ConflictFilter == "resolved" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="resolved" asp-route-conflictCategory="@Model.ConflictCategory" asp-route-conflictType="@Model.ConflictType" asp-fragment="conflict-workbench">Examinés <strong>@Model.ConflictAnalysis.ResolvedCount</strong></a>
+                        <a class="@(Model.ConflictFilter == "all" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="all" asp-route-conflictCategory="@Model.ConflictCategory" asp-route-conflictType="@Model.ConflictType" asp-fragment="conflict-workbench">Tous <strong>@Model.ConflictAnalysis.Issues.Count</strong></a>
                     </div>
                     <div class="conflict-filter-group category">
                         <span>Famille</span>
-                        <a class="@(Model.ConflictCategory == "all" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="@Model.ConflictFilter" asp-route-conflictCategory="all" asp-fragment="conflict-workbench">Toutes</a>
+                        <a class="@(Model.ConflictCategory == "all" ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="@Model.ConflictFilter" asp-route-conflictCategory="all" asp-route-conflictType="@Model.ConflictType" asp-fragment="conflict-workbench">Toutes</a>
                         @foreach (var category in Enum.GetValues<ModConflictCategory>())
                         {
-                            <a class="@(Model.ConflictCategory == category.ToString() ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="@Model.ConflictFilter" asp-route-conflictCategory="@category" asp-fragment="conflict-workbench">@category</a>
+                            <a class="@(Model.ConflictCategory == category.ToString() ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="@Model.ConflictFilter" asp-route-conflictCategory="@category" asp-route-conflictType="@Model.ConflictType" asp-fragment="conflict-workbench">@category</a>
                         }
                     </div>
                 </nav>
@@ -381,13 +411,37 @@
                     <div class="conflict-clean"><span>✓</span><div><strong>Aucun résultat pour ces filtres</strong><small>Changez l'état ou la famille pour afficher les autres diagnostics.</small></div></div>
                 }
                 <div class="conflict-issue-list">
+                @{ var visibleConflictIndex = 0; }
                 @foreach (var issue in Model.VisibleConflictIssues)
                 {
-                    <details class="conflict-issue severity-@issue.Severity.ToString().ToLowerInvariant() @(issue.IsResolved ? "is-resolved" : "")" open="@(issue.Severity == ModConflictSeverity.Error && !issue.IsResolved ? "open" : null)">
+                    var issueIndex = visibleConflictIndex++;
+                    var riskLabel = issue.Risk switch
+                    {
+                        ModConflictRisk.Low => "Faible",
+                        ModConflictRisk.Moderate => "Modéré",
+                        ModConflictRisk.High => "Élevé",
+                        _ => "Critique"
+                    };
+                    var primaryFileFormId = $"open-conflict-file-{Model.ConflictPage}-{issueIndex}-0";
+                    <details class="conflict-issue severity-@issue.Severity.ToString().ToLowerInvariant() risk-@issue.Risk.ToString().ToLowerInvariant() @(issue.IsResolved ? "is-resolved" : "")" open="@(issue.Severity == ModConflictSeverity.Error && !issue.IsResolved ? "open" : null)">
                         <summary>
                             <span class="conflict-severity-mark">@(issue.IsResolved ? "✓" : issue.Severity == ModConflictSeverity.Error ? "!" : issue.Severity == ModConflictSeverity.Warning ? "△" : "i")</span>
-                            <span class="conflict-summary-copy"><strong>@issue.Title</strong><small>@issue.Category · @issue.Code@if (issue.IsResolved) { <text> · RÉSOLU</text> }</small></span>
-                            <span class="conflict-participant-count">@issue.ModIds.Count mod(s)</span>
+                            <span class="conflict-summary-copy">
+                                <span class="conflict-title-line"><strong>@issue.Title</strong><b>@issue.EffectiveTypeLabel</b></span>
+                                @if (!string.IsNullOrWhiteSpace(issue.PrimaryEvidence))
+                                {
+                                    <span class="conflict-header-proof"><em>PREUVE</em><code title="@issue.PrimaryEvidence">@issue.PrimaryEvidence</code></span>
+                                }
+                                <small>@issue.Category · @issue.Code@if (issue.IsResolved) { <text> · RÉSOLU</text> }</small>
+                            </span>
+                            <span class="conflict-summary-actions">
+                                <span class="conflict-risk-badge">Risque @riskLabel</span>
+                                <span class="conflict-participant-count">@issue.ModIds.Count mod(s)</span>
+                                @if (issue.FileEvidence.Count > 0)
+                                {
+                                    <button class="button secondary compact conflict-open-header" type="submit" form="@primaryFileFormId" data-summary-action>Ouvrir le fichier</button>
+                                }
+                            </span>
                         </summary>
                         <div class="conflict-issue-body">
                             <p>@issue.Detail</p>
@@ -398,6 +452,25 @@
                             @if (issue.Evidence.Count > 0)
                             {
                                 <details class="conflict-evidence"><summary>Afficher les preuves (@issue.Evidence.Count)</summary><div>@foreach (var evidence in issue.Evidence) { if (!string.IsNullOrWhiteSpace(evidence)) { <code>@evidence</code> } }</div></details>
+                            }
+                            @if (issue.FileEvidence.Count > 0)
+                            {
+                                <div class="conflict-file-locations">
+                                    <span><strong>Copies physiques du fichier en conflit</strong><small>Ouvrez chaque version pour comparer le contenu exact fourni par les mods.</small></span>
+                                    @for (var fileIndex = 0; fileIndex < issue.FileEvidence.Count; fileIndex++)
+                                    {
+                                        var file = issue.FileEvidence[fileIndex];
+                                        var formId = $"open-conflict-file-{Model.ConflictPage}-{issueIndex}-{fileIndex}";
+                                        <div class="conflict-file-location">
+                                            <span><b>@file.ModId</b><code title="@file.PhysicalPath">@file.PhysicalPath</code></span>
+                                            <form id="@formId" method="post" asp-page-handler="OpenConflictFile" data-loading-title="Ouverture de la preuve…" data-loading-detail="Validation du chemin puis ouverture avec l'application associée du système.">
+                                                <input type="hidden" name="conflictKey" value="@issue.Key" />
+                                                <input type="hidden" name="fileIndex" value="@fileIndex" />
+                                                <button class="button ghost compact" type="submit">Ouvrir cette copie</button>
+                                            </form>
+                                        </div>
+                                    }
+                                </div>
                             }
                             <div class="conflict-resolution-tools">
                                 @if (issue.CanChooseWinner)
@@ -445,15 +518,15 @@
                         <div>
                             @if (Model.ConflictPage > 1)
                             {
-                                <a asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="@Model.ConflictFilter" asp-route-conflictCategory="@Model.ConflictCategory" asp-route-conflictPage="@(Model.ConflictPage - 1)" asp-fragment="conflict-workbench">Précédent</a>
+                                <a asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="@Model.ConflictFilter" asp-route-conflictCategory="@Model.ConflictCategory" asp-route-conflictType="@Model.ConflictType" asp-route-conflictPage="@(Model.ConflictPage - 1)" asp-fragment="conflict-workbench">Précédent</a>
                             }
                             @for (var conflictPageNumber = firstConflictPage; conflictPageNumber <= lastConflictPage; conflictPageNumber++)
                             {
-                                <a class="@(conflictPageNumber == Model.ConflictPage ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="@Model.ConflictFilter" asp-route-conflictCategory="@Model.ConflictCategory" asp-route-conflictPage="@conflictPageNumber" asp-fragment="conflict-workbench">@conflictPageNumber</a>
+                                <a class="@(conflictPageNumber == Model.ConflictPage ? "active" : null)" asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="@Model.ConflictFilter" asp-route-conflictCategory="@Model.ConflictCategory" asp-route-conflictType="@Model.ConflictType" asp-route-conflictPage="@conflictPageNumber" asp-fragment="conflict-workbench">@conflictPageNumber</a>
                             }
                             @if (Model.ConflictPage < Model.ConflictPageCount)
                             {
-                                <a asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="@Model.ConflictFilter" asp-route-conflictCategory="@Model.ConflictCategory" asp-route-conflictPage="@(Model.ConflictPage + 1)" asp-fragment="conflict-workbench">Suivant</a>
+                                <a asp-route-id="@Model.Project.Id" asp-route-tab="compatibility" asp-route-conflictFilter="@Model.ConflictFilter" asp-route-conflictCategory="@Model.ConflictCategory" asp-route-conflictType="@Model.ConflictType" asp-route-conflictPage="@(Model.ConflictPage + 1)" asp-fragment="conflict-workbench">Suivant</a>
                             }
                         </div>
                     </nav>

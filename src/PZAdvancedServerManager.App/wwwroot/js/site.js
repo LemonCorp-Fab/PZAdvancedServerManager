@@ -1278,6 +1278,10 @@ document.querySelectorAll('[data-map-sorter]').forEach(sorter => {
         transcript.scrollTop = transcript.scrollHeight;
     });
 
+    document.querySelectorAll('[data-summary-action]').forEach(control => {
+        control.addEventListener('click', event => event.stopPropagation());
+    });
+
     document.querySelectorAll('[data-rcon-command]').forEach(input => {
         const commands = Array.from(document.querySelectorAll('.rcon-entry > code'))
             .map(node => node.textContent.replace(/^>\s*/, '').trim())

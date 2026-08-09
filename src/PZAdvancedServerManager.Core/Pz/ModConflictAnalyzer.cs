@@ -25,6 +25,20 @@ public enum ModConflictCategory
     Asset
 }
 
+public enum ModConflictRisk
+{
+    Low,
+    Moderate,
+    High,
+    Critical
+}
+
+public sealed record ModConflictFileEvidence(
+    Guid ModReferenceId,
+    string ModId,
+    string VirtualPath,
+    string PhysicalPath);
+
 public sealed record ModConflictIssue(
     string Key,
     string Code,
@@ -38,7 +52,25 @@ public sealed record ModConflictIssue(
     bool CanChooseWinner = false,
     bool CanDisableMods = false,
     bool IsResolved = false,
-    string SelectedWinnerModId = "");
+    string SelectedWinnerModId = "",
+    string TypeLabel = "",
+    ModConflictRisk Risk = ModConflictRisk.Moderate,
+    string PrimaryEvidence = "",
+    IReadOnlyList<ModConflictFileEvidence>? Files = null)
+{
+    public string EffectiveTypeLabel => string.IsNullOrWhiteSpace(TypeLabel) ? Category.ToString() : TypeLabel;
+    public IReadOnlyList<ModConflictFileEvidence> FileEvidence => Files ?? [];
+}
+
+public sealed record ModConflictTypeSummary(
+    string TypeLabel,
+    ModConflictRisk Risk,
+    int Total,
+    int Errors,
+    int Warnings,
+    int Information,
+    int Resolved,
+    string SampleEvidence);
 
 public sealed record ModConflictAnalysis(
     IReadOnlyList<ModConflictIssue> Issues,
@@ -55,6 +87,21 @@ public sealed record ModConflictAnalysis(
     public bool HasModOrderChange => Issues.Any(issue => issue.Code == "MOD_ORDER" && !issue.IsResolved);
     public bool HasMapOrderChange => Issues.Any(issue => issue.Code == "MAP_ORDER" && !issue.IsResolved);
     public bool HasOrderChange => HasModOrderChange || HasMapOrderChange;
+    public IReadOnlyList<ModConflictTypeSummary> TypeSummaries => Issues
+        .GroupBy(issue => issue.EffectiveTypeLabel, StringComparer.CurrentCultureIgnoreCase)
+        .Select(group => new ModConflictTypeSummary(
+            group.Key,
+            group.Max(issue => issue.Risk),
+            group.Count(),
+            group.Count(issue => !issue.IsResolved && issue.Severity == ModConflictSeverity.Error),
+            group.Count(issue => !issue.IsResolved && issue.Severity == ModConflictSeverity.Warning),
+            group.Count(issue => !issue.IsResolved && issue.Severity == ModConflictSeverity.Information),
+            group.Count(issue => issue.IsResolved),
+            group.Select(issue => issue.PrimaryEvidence).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty))
+        .OrderByDescending(summary => summary.Risk)
+        .ThenByDescending(summary => summary.Total)
+        .ThenBy(summary => summary.TypeLabel, StringComparer.CurrentCultureIgnoreCase)
+        .ToArray();
 }
 
 public sealed class ModConflictAnalyzer(MapPriorityService mapPriority)
@@ -138,7 +185,9 @@ public sealed class ModConflictAnalyzer(MapPriorityService mapPriority)
                 ModConflictCategory.Map,
                 [],
                 [],
-                recommendedMaps.Select((map, index) => $"{index + 1}. {map}").ToArray()));
+                recommendedMaps.Select((map, index) => $"{index + 1}. {map}").ToArray(),
+                TypeLabel: "Ordre des cartes",
+                Risk: ModConflictRisk.Moderate));
         }
 
         timer.Stop();
@@ -333,33 +382,38 @@ public sealed class ModConflictAnalyzer(MapPriorityService mapPriority)
         IDictionary<Guid, HashSet<Guid>> edges,
         ICollection<ModConflictIssue> issues)
     {
-        var groups = new Dictionary<FileConflictGroupKey, List<string>>();
+        var groups = new Dictionary<FileConflictGroupKey, List<FileCollisionPath>>();
         var compared = 0;
         foreach (var bucket in index.Where(entry => entry.Value.Count > 1))
         {
             compared++;
             var owners = bucket.Value.Values.OrderBy(owner => owner.Mod.Order).ToArray();
             var identical = FilesAreIdentical(owners);
-            var category = Classify(bucket.Key);
+            var classification = ClassifyFile(bucket.Key);
             var signature = string.Join("|", owners.Select(owner => Normalize(owner.Mod.ModId)).Order(StringComparer.OrdinalIgnoreCase));
-            var key = new FileConflictGroupKey(category, signature, identical);
+            var key = new FileConflictGroupKey(classification.Category, classification.TypeLabel, classification.Risk, classification.Severity, signature, identical);
             if (!groups.TryGetValue(key, out var paths)) groups[key] = paths = [];
-            paths.Add(bucket.Key);
+            paths.Add(new FileCollisionPath(bucket.Key, owners));
         }
 
         foreach (var group in groups)
         {
             var participantIds = group.Key.Participants.Split('|', StringSplitOptions.RemoveEmptyEntries);
             var affected = mods.Where(mod => participantIds.Contains(Normalize(mod.ModId), StringComparer.OrdinalIgnoreCase)).ToList();
-            var evidence = group.Value.Order(StringComparer.OrdinalIgnoreCase).Take(24).ToList();
+            var orderedPaths = group.Value.OrderBy(path => path.VirtualPath, StringComparer.OrdinalIgnoreCase).ToArray();
+            var evidence = orderedPaths.Select(path => path.VirtualPath).Take(24).ToList();
             if (group.Value.Count > evidence.Count) evidence.Add($"... {group.Value.Count - evidence.Count} autre(s) chemin(s)");
-            var resolutionKey = ConflictKey(group.Key.Category, participantIds, group.Key.Identical ? "identical" : "different");
-            project.ConflictWinners.TryGetValue(resolutionKey, out var winnerId);
+            var discriminator = $"{NormalizeType(group.Key.TypeLabel)}-{(group.Key.Identical ? "identical" : "different")}";
+            var resolutionKey = ConflictKey(group.Key.Category, participantIds, discriminator);
+            var legacyResolutionKey = ConflictKey(group.Key.Category, participantIds, group.Key.Identical ? "identical" : "different");
+            if (!project.ConflictWinners.TryGetValue(resolutionKey, out var winnerId)) project.ConflictWinners.TryGetValue(legacyResolutionKey, out winnerId);
             var winner = affected.FirstOrDefault(mod => mod.ModId.Equals(winnerId, StringComparison.OrdinalIgnoreCase));
             if (winner is not null)
                 foreach (var loser in affected.Where(mod => mod.Id != winner.Id)) AddEdge(edges, loser.Id, winner.Id);
 
-            var resolved = group.Key.Identical || winner is not null || project.AcknowledgedConflicts.Contains(resolutionKey, StringComparer.OrdinalIgnoreCase);
+            var resolved = group.Key.Identical || winner is not null
+                || project.AcknowledgedConflicts.Contains(resolutionKey, StringComparer.OrdinalIgnoreCase)
+                || project.AcknowledgedConflicts.Contains(legacyResolutionKey, StringComparer.OrdinalIgnoreCase);
             var categoryLabel = group.Key.Category switch
             {
                 ModConflictCategory.Lua => "Lua",
@@ -372,11 +426,11 @@ public sealed class ModConflictAnalyzer(MapPriorityService mapPriority)
                 group.Key.Identical ? "IDENTICAL_FILES" : "FILE_COLLISION",
                 group.Key.Identical
                     ? $"Fichiers {categoryLabel} identiques partag\u00e9s"
-                    : $"Collision de {group.Value.Count} fichier(s) {categoryLabel}",
+                    : $"Collision de {group.Value.Count} fichier(s)",
                 group.Key.Identical
                     ? $"{string.Join(", ", affected.Select(mod => mod.Name))} fournissent exactement le m\u00eame contenu sous les m\u00eames chemins. Aucune donn\u00e9e ne diff\u00e8re; l'information est conserv\u00e9e pour l'audit."
                     : $"{string.Join(", ", affected.Select(mod => mod.Name))} fournissent des contenus diff\u00e9rents sous les m\u00eames chemins virtuels. Le mod charg\u00e9 apr\u00e8s les autres prend la priorit\u00e9 pour ces chemins; choisissez explicitement le gagnant puis testez les fonctions concern\u00e9es.",
-                group.Key.Identical ? ModConflictSeverity.Information : ModConflictSeverity.Warning,
+                group.Key.Identical ? ModConflictSeverity.Information : group.Key.Severity,
                 group.Key.Category,
                 affected.Select(mod => mod.Id).ToArray(),
                 affected.Select(mod => mod.ModId).ToArray(),
@@ -384,7 +438,11 @@ public sealed class ModConflictAnalyzer(MapPriorityService mapPriority)
                 CanChooseWinner: !group.Key.Identical,
                 CanDisableMods: !group.Key.Identical,
                 IsResolved: resolved,
-                SelectedWinnerModId: winner?.ModId ?? string.Empty));
+                SelectedWinnerModId: winner?.ModId ?? string.Empty,
+                TypeLabel: group.Key.TypeLabel,
+                Risk: group.Key.Identical ? ModConflictRisk.Low : group.Key.Risk,
+                PrimaryEvidence: orderedPaths[0].VirtualPath,
+                Files: orderedPaths[0].Owners.Select(owner => new ModConflictFileEvidence(owner.Mod.Id, owner.Mod.ModId, orderedPaths[0].VirtualPath, owner.Path)).ToArray()));
         }
         return compared;
     }
@@ -415,7 +473,10 @@ public sealed class ModConflictAnalyzer(MapPriorityService mapPriority)
                     [map.FolderName + " : " + conflict, other?.Recommendation ?? ""],
                     CanChooseWinner: false,
                     CanDisableMods: affected.Count > 0,
-                    IsResolved: resolved));
+                    IsResolved: resolved,
+                    TypeLabel: "Cellules de carte",
+                    Risk: ModConflictRisk.Critical,
+                    PrimaryEvidence: map.FolderName + " : " + conflict));
             }
         }
     }
@@ -463,7 +524,28 @@ public sealed class ModConflictAnalyzer(MapPriorityService mapPriority)
             mods.Select(mod => mod.ModId).ToArray(),
             evidence,
             canChooseWinner,
-            canDisableMods);
+            canDisableMods,
+            TypeLabel: CategoryTypeLabel(category),
+            Risk: severity switch
+            {
+                ModConflictSeverity.Error => ModConflictRisk.Critical,
+                ModConflictSeverity.Warning => ModConflictRisk.High,
+                _ => ModConflictRisk.Low
+            },
+            PrimaryEvidence: evidence.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty);
+
+    private static string CategoryTypeLabel(ModConflictCategory category) => category switch
+    {
+        ModConflictCategory.Compatibility => "Compatibilité Project Zomboid",
+        ModConflictCategory.Dependency => "Dépendances déclarées",
+        ModConflictCategory.Order => "Ordre de chargement",
+        ModConflictCategory.Identity => "Identité des mods",
+        ModConflictCategory.Lua => "Lua",
+        ModConflictCategory.Script => "Scripts",
+        ModConflictCategory.Map => "Cartes",
+        ModConflictCategory.Asset => "Assets",
+        _ => category.ToString()
+    };
 
     private static bool IsBuild42Manifest(string manifest, string selectedFolder)
     {
@@ -498,12 +580,53 @@ public sealed class ModConflictAnalyzer(MapPriorityService mapPriority)
         return true;
     }
 
-    private static ModConflictCategory Classify(string path)
+    private static FileConflictClassification ClassifyFile(string path)
     {
-        if (path.StartsWith("lua/", StringComparison.OrdinalIgnoreCase) || Path.GetExtension(path).Equals(".lua", StringComparison.OrdinalIgnoreCase)) return ModConflictCategory.Lua;
-        if (path.StartsWith("scripts/", StringComparison.OrdinalIgnoreCase) || Path.GetExtension(path).Equals(".txt", StringComparison.OrdinalIgnoreCase) && path.Contains("script", StringComparison.OrdinalIgnoreCase)) return ModConflictCategory.Script;
-        if (path.StartsWith("maps/", StringComparison.OrdinalIgnoreCase) || Path.GetExtension(path) is ".lotheader" or ".lotpack" or ".bin") return ModConflictCategory.Map;
-        return ModConflictCategory.Asset;
+        var normalized = NormalizePath(path);
+        var extension = Path.GetExtension(normalized).ToLowerInvariant();
+        var fileName = Path.GetFileNameWithoutExtension(normalized);
+
+        if (normalized.Contains("/translate/", StringComparison.OrdinalIgnoreCase) || normalized.StartsWith("lua/shared/translate/", StringComparison.OrdinalIgnoreCase))
+            return new(ModConflictCategory.Lua, "Traductions", ModConflictRisk.Low, ModConflictSeverity.Information);
+
+        if (normalized.StartsWith("lua/server/", StringComparison.OrdinalIgnoreCase))
+            return new(ModConflictCategory.Lua, "Lua serveur / multijoueur", ModConflictRisk.Critical, ModConflictSeverity.Warning);
+
+        if (normalized.StartsWith("lua/client/", StringComparison.OrdinalIgnoreCase))
+        {
+            var isUi = normalized.Contains("/ui/", StringComparison.OrdinalIgnoreCase)
+                || normalized.Contains("contextmenu", StringComparison.OrdinalIgnoreCase)
+                || normalized.Contains("tooltip", StringComparison.OrdinalIgnoreCase)
+                || normalized.Contains("window", StringComparison.OrdinalIgnoreCase)
+                || normalized.Contains("panel", StringComparison.OrdinalIgnoreCase)
+                || fileName.StartsWith("IS", StringComparison.Ordinal);
+            return isUi
+                ? new(ModConflictCategory.Lua, "Interface Lua client", ModConflictRisk.Moderate, ModConflictSeverity.Warning)
+                : new(ModConflictCategory.Lua, "Lua client / gameplay", ModConflictRisk.High, ModConflictSeverity.Warning);
+        }
+
+        if (normalized.StartsWith("lua/shared/", StringComparison.OrdinalIgnoreCase) || extension == ".lua")
+            return new(ModConflictCategory.Lua, "Lua partagé / gameplay", ModConflictRisk.High, ModConflictSeverity.Warning);
+
+        if (normalized.StartsWith("scripts/", StringComparison.OrdinalIgnoreCase) || extension == ".txt" && normalized.Contains("script", StringComparison.OrdinalIgnoreCase))
+        {
+            if (normalized.Contains("recipe", StringComparison.OrdinalIgnoreCase))
+                return new(ModConflictCategory.Script, "Recettes et craft", ModConflictRisk.High, ModConflictSeverity.Warning);
+            if (normalized.Contains("vehicle", StringComparison.OrdinalIgnoreCase))
+                return new(ModConflictCategory.Script, "Définitions de véhicules", ModConflictRisk.High, ModConflictSeverity.Warning);
+            return new(ModConflictCategory.Script, "Scripts d'objets", ModConflictRisk.High, ModConflictSeverity.Warning);
+        }
+
+        if (normalized.StartsWith("maps/", StringComparison.OrdinalIgnoreCase) || extension is ".lotheader" or ".lotpack" or ".bin")
+            return new(ModConflictCategory.Map, "Données de carte", ModConflictRisk.Critical, ModConflictSeverity.Warning);
+
+        if (extension is ".png" or ".dds" or ".tga" or ".jpg" or ".jpeg" || normalized.Contains("texture", StringComparison.OrdinalIgnoreCase) || normalized.Contains("icons/", StringComparison.OrdinalIgnoreCase))
+            return new(ModConflictCategory.Asset, "Textures et icônes", ModConflictRisk.Low, ModConflictSeverity.Information);
+        if (extension is ".ogg" or ".wav" or ".mp3" || normalized.StartsWith("sound/", StringComparison.OrdinalIgnoreCase))
+            return new(ModConflictCategory.Asset, "Audio", ModConflictRisk.Low, ModConflictSeverity.Information);
+        if (extension is ".fbx" or ".x" or ".obj" || normalized.Contains("models/", StringComparison.OrdinalIgnoreCase))
+            return new(ModConflictCategory.Asset, "Modèles 3D", ModConflictRisk.High, ModConflictSeverity.Warning);
+        return new(ModConflictCategory.Asset, "Assets divers", ModConflictRisk.Moderate, ModConflictSeverity.Warning);
     }
 
     public static string ConflictKey(ModConflictCategory category, IEnumerable<string> modIds, string discriminator)
@@ -554,6 +677,12 @@ public sealed class ModConflictAnalyzer(MapPriorityService mapPriority)
 
     private static string Normalize(string value) => ModInfoParser.NormalizeDependencyId(value).ToLowerInvariant();
     private static string NormalizePath(string path) => path.Replace('\\', '/').TrimStart('/').ToLowerInvariant();
+    private static string NormalizeType(string value) => new string(value.Normalize(NormalizationForm.FormD)
+        .Where(character => System.Globalization.CharUnicodeInfo.GetUnicodeCategory(character) != System.Globalization.UnicodeCategory.NonSpacingMark)
+        .Select(character => char.IsLetterOrDigit(character) ? char.ToLowerInvariant(character) : '-')
+        .ToArray()).Trim('-');
     private sealed record FileOwner(PackageModReference Mod, string Path);
-    private readonly record struct FileConflictGroupKey(ModConflictCategory Category, string Participants, bool Identical);
+    private sealed record FileCollisionPath(string VirtualPath, IReadOnlyList<FileOwner> Owners);
+    private sealed record FileConflictClassification(ModConflictCategory Category, string TypeLabel, ModConflictRisk Risk, ModConflictSeverity Severity);
+    private readonly record struct FileConflictGroupKey(ModConflictCategory Category, string TypeLabel, ModConflictRisk Risk, ModConflictSeverity Severity, string Participants, bool Identical);
 }

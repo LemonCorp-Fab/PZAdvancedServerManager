@@ -55,6 +55,8 @@ public sealed class MapAndToolsTests : IDisposable
     {
         var appRoot = CreateConflictMod("app", "app", "return 'app'");
         var libraryRoot = CreateConflictMod("library", "library", "return 'library'");
+        WriteConflictFile(appRoot, Path.Combine("lua", "shared", "Translate", "FR", "UI.json"), "{\"UI_Test\":\"Application\"}");
+        WriteConflictFile(libraryRoot, Path.Combine("lua", "shared", "Translate", "FR", "UI.json"), "{\"UI_Test\":\"Library\"}");
         var legacyRoot = Path.Combine(_root, "legacy");
         Directory.CreateDirectory(Path.Combine(legacyRoot, "media", "lua", "client"));
         File.WriteAllText(Path.Combine(legacyRoot, "mod.info"), "name=Legacy\nid=legacy\n");
@@ -66,7 +68,16 @@ public sealed class MapAndToolsTests : IDisposable
         var analysis = new ModConflictAnalyzer(new MapPriorityService()).Analyze(project);
 
         Assert.Contains(analysis.Issues, issue => issue.Code == "B42_LEGACY" && issue.ModIds.Contains("legacy"));
-        Assert.Contains(analysis.Issues, issue => issue.Code == "FILE_COLLISION" && issue.Category == ModConflictCategory.Lua);
+        var gameplayConflict = Assert.Single(analysis.Issues, issue => issue.Code == "FILE_COLLISION" && issue.EffectiveTypeLabel == "Lua partagé / gameplay");
+        Assert.Equal(ModConflictRisk.High, gameplayConflict.Risk);
+        Assert.Equal(ModConflictSeverity.Warning, gameplayConflict.Severity);
+        var translationConflict = Assert.Single(analysis.Issues, issue => issue.Code == "FILE_COLLISION" && issue.EffectiveTypeLabel == "Traductions");
+        Assert.Equal(ModConflictRisk.Low, translationConflict.Risk);
+        Assert.Equal(ModConflictSeverity.Information, translationConflict.Severity);
+        Assert.Equal("lua/shared/translate/fr/ui.json", translationConflict.PrimaryEvidence);
+        Assert.Equal(2, translationConflict.FileEvidence.Count);
+        Assert.All(translationConflict.FileEvidence, evidence => Assert.True(File.Exists(evidence.PhysicalPath)));
+        Assert.Contains(analysis.TypeSummaries, summary => summary.TypeLabel == "Traductions" && summary.Risk == ModConflictRisk.Low && summary.Information == 1);
         Assert.Equal(library.Id, analysis.RecommendedModOrder[0]);
         Assert.Contains(analysis.Issues, issue => issue.Code == "MOD_ORDER");
     }
@@ -109,6 +120,13 @@ public sealed class MapAndToolsTests : IDisposable
         File.WriteAllText(Path.Combine(root, "common", "mod.info"), $"name={folder}\nid={id}\npzversion=42\n");
         File.WriteAllText(Path.Combine(luaRoot, "shared-path.lua"), content);
         return root;
+    }
+
+    private static void WriteConflictFile(string modRoot, string relativeMediaPath, string content)
+    {
+        var path = Path.Combine(modRoot, "common", "media", relativeMediaPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, content);
     }
 
     private static byte[] CreateSteamCmdArchive()

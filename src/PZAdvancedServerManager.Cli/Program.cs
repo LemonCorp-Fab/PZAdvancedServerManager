@@ -409,16 +409,22 @@ internal sealed class PzasmCli
                         var pineBackups = await services.Servers.ListPineBackupsAsync(name);
                         if (args.Has("json")) WriteJson(pineBackups);
                         else if (pineBackups.Count == 0) Console.WriteLine("Aucune sauvegarde Pine Hosting.");
-                        else foreach (var backup in pineBackups)
+                        else
+                        {
+                            foreach (var backup in pineBackups)
                                 Console.WriteLine($"{backup.Uuid}  {backup.CreatedAt:O}  {(backup.IsLocked ? "LOCKED" : ""),-8}  {ServerWorldDataStore.FormatBytes(backup.Bytes),10}  {backup.Name}");
+                        }
                         return 0;
                     }
                     services.Servers.ResolveWorldDataLocation(name);
                     var backups = services.WorldData.List(name);
                     if (args.Has("json")) WriteJson(backups);
                     else if (backups.Count == 0) Console.WriteLine("Aucune sauvegarde PZASM.");
-                    else foreach (var backup in backups)
+                    else
+                    {
+                        foreach (var backup in backups)
                             Console.WriteLine($"{backup.Id}  {backup.CreatedAt:O}  {backup.Reason,-12}  {ServerWorldDataStore.FormatBytes(backup.ArchiveBytes),10}  SHA-256 {backup.Sha256[..12]}…");
+                    }
                     return 0;
                 }
             case "backup":

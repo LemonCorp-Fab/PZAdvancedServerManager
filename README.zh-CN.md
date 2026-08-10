@@ -100,7 +100,7 @@ dotnet run --project src/PZAdvancedServerManager.Cli -- automation run --interva
 
 生产容器包含 Web 管理器、计划任务、SSH 客户端、SteamCMD 所需的 Linux 32 位库以及自动安装功能。所有管理页面都必须登录。管理员可管理用户并撤销会话；操作员可管理模组包和服务器，但不能管理账户。
 
-Coolify 可直接部署 `compose.yaml`。请将 `PZASM_ADMIN_PASSWORD` 配置为受保护变量（Compose 会将其挂载为只读密钥文件），将容器端口 `5160` 绑定到 HTTPS 域名，并始终保留 `pzasm-data` 卷。该卷包含账户、会话密钥、项目、SteamCMD、便携会话、Workshop 下载和构建结果。详见 [Docker 与 Coolify](docs/DOCKER-COOLIFY.md)。
+在 Windows 上，`just docker-secret-setup` 会使用 DPAPI 在仓库外保护初始密码和独立的数据密钥；RCON 密码和 API 令牌会使用 AES-GCM 加密存储。在 Linux 上，请使用权限模式为 `600` 的 `.env` 文件或外部密钥管理器。在 Coolify 中，请把 `PZASM_ADMIN_PASSWORD` 和至少含 32 个随机字符且保持稳定的 `PZASM_DATA_ENCRYPTION_KEY` 配置为受保护变量；Compose 会将它们挂载为只读密钥文件。请通过 HTTPS 发布端口 `5160`，并始终保留 `pzasm-data` 卷。详见 [Docker 与 Coolify](docs/DOCKER-COOLIFY.md)。
 
 ## SteamCMD 与远程服务器
 

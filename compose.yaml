@@ -15,6 +15,7 @@ services:
       PZASM_ADMIN_USERNAME: ${PZASM_ADMIN_USERNAME:-admin}
       PZASM_ADMIN_PASSWORD_FILE: /run/secrets/pzasm_admin_password
       PZASM_ADMIN_DISPLAY_NAME: ${PZASM_ADMIN_DISPLAY_NAME:-Server administrator}
+      PZASM_DATA_ENCRYPTION_KEY_FILE: /run/secrets/pzasm_data_encryption_key
     expose:
       - "5160"
     volumes:
@@ -24,11 +25,15 @@ services:
         uid: "10001"
         gid: "10001"
         mode: 0440
+      - source: pzasm_data_encryption_key
+        uid: "10001"
+        gid: "10001"
+        mode: 0440
     security_opt:
       - no-new-privileges:true
     stop_grace_period: 30s
     healthcheck:
-      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:5160/health/ready"]
+      test: ["CMD", "/bin/bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/5160 && printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && grep -q 'HTTP/1.1 200' <&3"]
       interval: 30s
       timeout: 8s
       start_period: 45s
@@ -40,3 +45,5 @@ volumes:
 secrets:
   pzasm_admin_password:
     environment: PZASM_ADMIN_PASSWORD
+  pzasm_data_encryption_key:
+    environment: PZASM_DATA_ENCRYPTION_KEY

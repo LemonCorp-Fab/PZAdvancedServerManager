@@ -102,7 +102,9 @@ public sealed class ServerManagementTests : IDisposable
     [Fact]
     public void RemoteProfilesPersistConnectionAndRconSettings()
     {
-        var store = new RemoteServerConnectionStore(new ApplicationPaths(_root));
+        var paths = new ApplicationPaths(_root);
+        var protector = new StoredSecretProtector(paths, "test-encryption-key-with-more-than-thirty-two-characters");
+        var store = new RemoteServerConnectionStore(paths, protector);
         store.Save(new RemoteServerConnection
         {
             Name = "vps-main",
@@ -112,16 +114,64 @@ public sealed class ServerManagementTests : IDisposable
             StartCommand = "systemctl start pzserver",
             RconHost = "rcon.example.com",
             RconPort = 28015,
-            RconPassword = "secret"
+            RconPassword = "rcon-plaintext-marker",
+            ApiToken = "pine-plaintext-marker"
         });
 
-        var reopened = new RemoteServerConnectionStore(new ApplicationPaths(_root)).Get("VPS-MAIN");
+        var storedJson = File.ReadAllText(paths.RemoteServersFile);
+        Assert.DoesNotContain("rcon-plaintext-marker", storedJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("pine-plaintext-marker", storedJson, StringComparison.Ordinal);
+
+        var reopened = new RemoteServerConnectionStore(paths, protector).Get("VPS-MAIN");
 
         Assert.NotNull(reopened);
         Assert.Equal("server.example.com", reopened.Host);
         Assert.Equal("systemctl start pzserver", reopened.StartCommand);
         Assert.Equal(28015, reopened.RconPort);
-        Assert.Equal("secret", reopened.RconPassword);
+        Assert.Equal("rcon-plaintext-marker", reopened.RconPassword);
+        Assert.Equal("pine-plaintext-marker", reopened.ApiToken);
+    }
+
+    [Fact]
+    public void LegacyPlaintextRemoteSecretsAreMigratedOnRead()
+    {
+        var paths = new ApplicationPaths(_root);
+        var protector = new StoredSecretProtector(paths, "migration-key-with-more-than-thirty-two-characters");
+        File.WriteAllText(paths.RemoteServersFile,
+            """
+            [{
+              "name": "legacy",
+              "rconPassword": "legacy-rcon-marker",
+              "apiToken": "legacy-api-marker"
+            }]
+            """);
+
+        var reopened = new RemoteServerConnectionStore(paths, protector).Get("legacy");
+
+        Assert.NotNull(reopened);
+        Assert.Equal("legacy-rcon-marker", reopened.RconPassword);
+        Assert.Equal("legacy-api-marker", reopened.ApiToken);
+        var migratedJson = File.ReadAllText(paths.RemoteServersFile);
+        Assert.DoesNotContain("legacy-rcon-marker", migratedJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("legacy-api-marker", migratedJson, StringComparison.Ordinal);
+        Assert.Contains("pzasm-secret:aes-v1:", migratedJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ChangingThePortableEncryptionKeyFailsWithoutOverwritingCredentials()
+    {
+        var paths = new ApplicationPaths(_root);
+        var original = new StoredSecretProtector(paths, "original-key-with-more-than-thirty-two-characters");
+        new RemoteServerConnectionStore(paths, original).Save(new RemoteServerConnection
+        {
+            Name = "protected",
+            RconPassword = "must-survive"
+        });
+        var storedJson = File.ReadAllText(paths.RemoteServersFile);
+        var replacement = new StoredSecretProtector(paths, "replacement-key-with-more-than-thirty-two-characters");
+
+        Assert.Throws<InvalidDataException>(() => new RemoteServerConnectionStore(paths, replacement).GetAll());
+        Assert.Equal(storedJson, File.ReadAllText(paths.RemoteServersFile));
     }
 
     [Fact]

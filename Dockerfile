@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM mcr.microsoft.com/dotnet/sdk:9.0-bookworm-slim AS build
+FROM mcr.microsoft.com/dotnet/sdk:9.0-noble AS build
 WORKDIR /source
 
 COPY PZAdvancedServerManager.sln ./
@@ -23,12 +23,17 @@ RUN dotnet publish src/PZAdvancedServerManager.Cli/PZAdvancedServerManager.Cli.c
     --output /out-cli \
     /p:UseAppHost=false
 
-FROM mcr.microsoft.com/dotnet/aspnet:9.0-bookworm-slim AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:9.0-noble AS runtime
+
+LABEL org.opencontainers.image.source="https://github.com/LemonCorp-Fab/PZAdvancedServerManager" \
+      org.opencontainers.image.title="PZ Advanced Server Manager" \
+      org.opencontainers.image.description="Project Zomboid mod packager and server manager" \
+      org.opencontainers.image.version="development"
 
 RUN apt-get update \
+    && apt-get upgrade --yes \
     && apt-get install --yes --no-install-recommends \
         ca-certificates \
-        curl \
         lib32gcc-s1 \
         lib32stdc++6 \
         openssh-client \
@@ -57,6 +62,6 @@ USER pzasm
 EXPOSE 5160
 
 HEALTHCHECK --interval=30s --timeout=8s --start-period=45s --retries=3 \
-    CMD curl --fail --silent --show-error http://127.0.0.1:5160/health/ready > /dev/null || exit 1
+    CMD /bin/bash -c 'exec 3<>/dev/tcp/127.0.0.1/5160 && printf "GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3 && grep -q "HTTP/1.1 200" <&3'
 
 ENTRYPOINT ["/usr/bin/tini", "--", "dotnet", "PZAdvancedServerManager.dll"]

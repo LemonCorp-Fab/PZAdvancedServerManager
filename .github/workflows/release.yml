@@ -1,0 +1,125 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
+        with:
+          dotnet-version: 9.0.x
+      - run: dotnet restore PZAdvancedServerManager.sln
+      - run: dotnet format PZAdvancedServerManager.sln --verify-no-changes --no-restore
+      - run: dotnet test PZAdvancedServerManager.sln --configuration Release --no-restore
+
+  package:
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
+        with:
+          dotnet-version: 9.0.x
+      - name: Publish self-contained applications
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          dotnet publish src/PZAdvancedServerManager.App --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:Version="$version" --output release/win-x64/ui
+          dotnet publish src/PZAdvancedServerManager.Cli --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:Version="$version" --output release/win-x64/cli
+          dotnet publish src/PZAdvancedServerManager.App --configuration Release --runtime linux-x64 --self-contained true -p:PublishSingleFile=true -p:Version="$version" --output release/linux-x64/ui
+          dotnet publish src/PZAdvancedServerManager.Cli --configuration Release --runtime linux-x64 --self-contained true -p:PublishSingleFile=true -p:Version="$version" --output release/linux-x64/cli
+          cp -R deploy/systemd release/linux-x64/systemd
+      - name: Create release archives
+        shell: bash
+        run: |
+          mkdir -p assets docker-deployment
+          cp Dockerfile compose.yaml compose.local.yaml .env.example docker-deployment/
+          cp docs/DOCKER-COOLIFY.md docker-deployment/
+          cp -R scripts docker-deployment/scripts
+          (cd release/win-x64 && zip -q -r "../../assets/PZAdvancedServerManager-${GITHUB_REF_NAME}-win-x64.zip" .)
+          tar -C release/linux-x64 -czf "assets/PZAdvancedServerManager-${GITHUB_REF_NAME}-linux-x64.tar.gz" .
+          (cd docker-deployment && zip -q -r "../assets/PZAdvancedServerManager-${GITHUB_REF_NAME}-docker.zip" .)
+          sha256sum assets/* > assets/SHA256SUMS.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-assets
+          path: assets/
+          if-no-files-found: error
+
+  container:
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: image
+        name: Resolve lowercase image name
+        shell: bash
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - id: metadata
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+      - id: build
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - uses: actions/attest@c32b4b8b198b65d0bd9d63490e847ff7b53989d4 # v4.0.0
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+  publish:
+    needs: [package, container]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-assets
+          path: assets
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME" assets/*
+          --verify-tag
+          --generate-notes
+          --title "PZ Advanced Server Manager $GITHUB_REF_NAME"

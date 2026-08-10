@@ -105,6 +105,7 @@ builder.Services.AddSingleton<MapPriorityService>();
 builder.Services.AddSingleton<ModConflictAnalyzer>();
 builder.Services.AddSingleton<TextConflictDiffService>();
 builder.Services.AddSingleton<ServerOrchestrationService>();
+builder.Services.AddSingleton<StoredSecretProtector>();
 builder.Services.AddSingleton<RemoteServerConnectionStore>();
 builder.Services.AddSingleton<LocalServerProfileStore>();
 builder.Services.AddSingleton<SshRemoteServerService>();

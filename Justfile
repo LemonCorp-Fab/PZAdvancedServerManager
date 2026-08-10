@@ -90,21 +90,25 @@ release: check publish-all
 
 # Build the production Linux container.
 docker-build:
-    docker compose build
+    {{ if os() == "windows" { "& './scripts/docker-local.ps1' -Action build" } else { "docker compose build" } }}
+
+# Store the local Docker administrator password with Windows DPAPI.
+docker-secret-setup:
+    {{ if os() == "windows" { "& './scripts/docker-local.ps1' -Action setup" } else { "echo 'Create a mode-600 .env file from .env.example on Linux.'" } }}
 
 # Start the container stack in the background.
 docker-up:
-    docker compose -f compose.yaml -f compose.local.yaml up --detach --build
+    {{ if os() == "windows" { "& './scripts/docker-local.ps1' -Action up" } else { "docker compose -f compose.yaml -f compose.local.yaml up --detach --build" } }}
 
 # Stop the container stack without deleting persistent data.
 docker-down:
-    docker compose -f compose.yaml -f compose.local.yaml down
+    {{ if os() == "windows" { "& './scripts/docker-local.ps1' -Action down" } else { "docker compose -f compose.yaml -f compose.local.yaml down" } }}
 
 # Follow manager container logs.
 docker-logs:
-    docker compose -f compose.yaml -f compose.local.yaml logs --follow manager
+    {{ if os() == "windows" { "& './scripts/docker-local.ps1' -Action logs" } else { "docker compose -f compose.yaml -f compose.local.yaml logs --follow manager" } }}
 
 # Validate the Compose model and build the container image.
 docker-check:
-    docker compose -f compose.yaml -f compose.local.yaml config --quiet
-    docker compose -f compose.yaml -f compose.local.yaml build
+    {{ if os() == "windows" { "& './scripts/docker-local.ps1' -Action check" } else { "docker compose -f compose.yaml -f compose.local.yaml config --quiet" } }}
+    {{ if os() == "windows" { "Write-Output 'Docker image built successfully.'" } else { "docker compose -f compose.yaml -f compose.local.yaml build" } }}

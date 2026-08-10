@@ -100,7 +100,7 @@ Cada proyecto es un paquete global independiente. Nada se actualiza automáticam
 
 El contenedor de producción incluye el gestor web, el planificador, el cliente SSH, las bibliotecas Linux de 32 bits de SteamCMD y su instalación automática. Todas las páginas de gestión requieren una cuenta. Los administradores gestionan usuarios y revocan sesiones; los operadores gestionan paquetes y servidores sin acceso a las cuentas.
 
-Coolify puede desplegar `compose.yaml` directamente. Configure `PZASM_ADMIN_PASSWORD` como variable protegida (Compose la monta como archivo secreto de solo lectura), asigne el puerto `5160` a un dominio HTTPS y conserve siempre el volumen `pzasm-data`. Este contiene cuentas, claves de sesión, proyectos, SteamCMD, su sesión portátil, descargas Workshop y builds. Consulte [Docker y Coolify](docs/DOCKER-COOLIFY.md).
+En Windows, `just docker-secret-setup` protege con DPAPI la contraseña inicial y una clave de datos independiente fuera del repositorio; las contraseñas RCON y los tokens API se cifran con AES-GCM. En Linux, use un `.env` con modo `600` o un gestor de secretos externo. En Coolify, configure `PZASM_ADMIN_PASSWORD` y una clave estable `PZASM_DATA_ENCRYPTION_KEY` con al menos 32 caracteres aleatorios como variables protegidas; Compose las monta como archivos secretos de solo lectura. Publique el puerto `5160` mediante HTTPS y conserve siempre el volumen `pzasm-data`. Consulte [Docker y Coolify](docs/DOCKER-COOLIFY.md).
 
 ## SteamCMD y servidores remotos
 

@@ -4,7 +4,7 @@ using PZAdvancedServerManager.Core.Domain;
 
 namespace PZAdvancedServerManager.Core.Infrastructure;
 
-public sealed class RemoteServerConnectionStore(ApplicationPaths paths)
+public sealed class RemoteServerConnectionStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -12,14 +12,26 @@ public sealed class RemoteServerConnectionStore(ApplicationPaths paths)
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         Converters = { new JsonStringEnumConverter() }
     };
+    private readonly ApplicationPaths _paths;
+    private readonly StoredSecretProtector _protector;
     private readonly object _sync = new();
+
+    public RemoteServerConnectionStore(ApplicationPaths paths)
+        : this(paths, new StoredSecretProtector(paths)) { }
+
+    public RemoteServerConnectionStore(ApplicationPaths paths, StoredSecretProtector protector)
+    {
+        _paths = paths;
+        _protector = protector;
+    }
 
     public IReadOnlyList<RemoteServerConnection> GetAll()
     {
         lock (_sync)
         {
-            if (!File.Exists(paths.RemoteServersFile)) return [];
-            return JsonSerializer.Deserialize<List<RemoteServerConnection>>(File.ReadAllText(paths.RemoteServersFile), JsonOptions) ?? [];
+            var connections = Read(out var requiresMigration);
+            if (requiresMigration) Write(connections);
+            return connections;
         }
     }
 
@@ -29,9 +41,7 @@ public sealed class RemoteServerConnectionStore(ApplicationPaths paths)
     {
         lock (_sync)
         {
-            var connections = File.Exists(paths.RemoteServersFile)
-                ? JsonSerializer.Deserialize<List<RemoteServerConnection>>(File.ReadAllText(paths.RemoteServersFile), JsonOptions) ?? []
-                : [];
+            var connections = Read(out _);
             var index = connections.FindIndex(x => x.Name.Equals(connection.Name, StringComparison.OrdinalIgnoreCase));
             connection.UpdatedAt = DateTimeOffset.UtcNow;
             if (index >= 0) connections[index] = connection;
@@ -44,8 +54,8 @@ public sealed class RemoteServerConnectionStore(ApplicationPaths paths)
     {
         lock (_sync)
         {
-            if (!File.Exists(paths.RemoteServersFile)) return false;
-            var connections = JsonSerializer.Deserialize<List<RemoteServerConnection>>(File.ReadAllText(paths.RemoteServersFile), JsonOptions) ?? [];
+            if (!File.Exists(_paths.RemoteServersFile)) return false;
+            var connections = Read(out _);
             var removed = connections.RemoveAll(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) > 0;
             if (removed) Write(connections);
             return removed;
@@ -54,11 +64,50 @@ public sealed class RemoteServerConnectionStore(ApplicationPaths paths)
 
     private void Write(IReadOnlyCollection<RemoteServerConnection> connections)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(paths.RemoteServersFile)!);
-        var temporary = paths.RemoteServersFile + ".tmp";
-        File.WriteAllText(temporary, JsonSerializer.Serialize(connections, JsonOptions));
-        File.Move(temporary, paths.RemoteServersFile, true);
+        Directory.CreateDirectory(Path.GetDirectoryName(_paths.RemoteServersFile)!);
+        var stored = connections.Select(CloneForStorage).ToList();
+        var temporary = _paths.RemoteServersFile + ".tmp";
+        File.WriteAllText(temporary, JsonSerializer.Serialize(stored, JsonOptions));
         if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(paths.RemoteServersFile, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            File.SetUnixFileMode(temporary, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        File.Move(temporary, _paths.RemoteServersFile, true);
     }
+
+    private List<RemoteServerConnection> Read(out bool requiresMigration)
+    {
+        requiresMigration = false;
+        if (!File.Exists(_paths.RemoteServersFile)) return [];
+        var connections = JsonSerializer.Deserialize<List<RemoteServerConnection>>(File.ReadAllText(_paths.RemoteServersFile), JsonOptions) ?? [];
+        foreach (var connection in connections)
+        {
+            requiresMigration |= NeedsProtection(connection.RconPassword) || NeedsProtection(connection.ApiToken);
+            connection.RconPassword = _protector.Unprotect(connection.RconPassword);
+            connection.ApiToken = _protector.Unprotect(connection.ApiToken);
+        }
+        return connections;
+    }
+
+    private bool NeedsProtection(string value) => !string.IsNullOrEmpty(value) && !_protector.IsProtected(value);
+
+    private RemoteServerConnection CloneForStorage(RemoteServerConnection source) => new()
+    {
+        Id = source.Id,
+        Name = source.Name,
+        Host = source.Host,
+        SshPort = source.SshPort,
+        SshUser = source.SshUser,
+        SshPrivateKeyPath = source.SshPrivateKeyPath,
+        RemoteIniPath = source.RemoteIniPath,
+        StartCommand = source.StartCommand,
+        RconHost = source.RconHost,
+        RconPort = source.RconPort,
+        RconPassword = _protector.Protect(source.RconPassword),
+        AutoRestartAfterRconQuit = source.AutoRestartAfterRconQuit,
+        Provider = source.Provider,
+        ApiBaseUrl = source.ApiBaseUrl,
+        ApiToken = _protector.Protect(source.ApiToken),
+        ApiServerIdentifier = source.ApiServerIdentifier,
+        ProviderServerName = source.ProviderServerName,
+        UpdatedAt = source.UpdatedAt
+    };
 }

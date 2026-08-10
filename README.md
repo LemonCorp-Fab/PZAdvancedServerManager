@@ -88,12 +88,12 @@ PZASM never modifies Steam sources during a build. It builds from private pinned
 The production container includes the web manager, scheduler, SSH client, SteamCMD's Linux 32-bit dependencies, and automatic SteamCMD installation. All pages require an authenticated manager account. Administrators manage accounts and can revoke sessions; operators can manage packs and servers without access to user administration.
 
 ```bash
-cp .env.example .env
-# Set a strong PZASM_ADMIN_PASSWORD in .env.
-docker compose -f compose.yaml -f compose.local.yaml up -d --build
+# Windows + Docker Desktop: encrypted DPAPI secret, then start.
+just docker-secret-setup
+just docker-up
 ```
 
-Coolify can deploy the same `compose.yaml`; configure `PZASM_ADMIN_PASSWORD` as a protected variable (Compose mounts it as a read-only secret file), route the `manager` service's port `5160` through HTTPS, and retain the `pzasm-data` volume. That volume contains accounts, cookie keys, projects, SteamCMD, its portable Steam session, Workshop downloads, and builds. See [Docker and Coolify deployment](docs/DOCKER-COOLIFY.md) for health checks, backup, SteamCMD, architecture, and host-process boundaries.
+The Windows wrapper keeps the bootstrap password and a separate generated data-encryption key protected with DPAPI instead of placing them in `.env`. RCON passwords and provider API tokens are encrypted at rest with AES-GCM. Linux can use a mode-`600` `.env` fallback or an external secret manager. Coolify can deploy the same `compose.yaml`; configure `PZASM_ADMIN_PASSWORD` and a stable `PZASM_DATA_ENCRYPTION_KEY` of at least 32 random characters as protected variables (Compose mounts them as read-only secret files), route port `5160` through HTTPS, and retain the `pzasm-data` volume. See [Docker and Coolify deployment](docs/DOCKER-COOLIFY.md) for details.
 
 ## Recommended workflow
 
@@ -187,7 +187,7 @@ Server profiles can point to a local `Zomboid/Server/*.ini` file or to a remote 
 
 Remote profiles can be RCON-only. RCON provides authenticated status, the command console, `save`/`quit`, and coordinated publication. With a systemd, Docker, panel, or hosting supervisor configured to restart the game after `quit`, the manager publishes first and then requests a graceful RCON restart. SSH remains optional and is used only when remote INI access or an explicit Project Zomboid start command is wanted. Host-level `reboot`, `shutdown`, and `poweroff` commands are rejected. PZASM never reboots the VPS or dedicated machine.
 
-Remote SSH is non-interactive and uses an SSH agent or private key. The RCON password is stored in the manager's local profile data because it is required for unattended status and graceful stops; protect the PZASM data directory like the Project Zomboid server INI files.
+Remote SSH is non-interactive and uses an SSH agent or private key. The RCON password is required for unattended status and graceful stops, so it is retained in the manager profile but encrypted at rest. Protect both the PZASM data directory and its separate deployment encryption key.
 
 Pine Hosting is available as a separate API backend. Enter an API key and server identifier to reuse the complete INI, SandboxVars, Lua, pack deployment, process-control, and data-management UI without SSH. Provider-native backups can be created, locked, downloaded, restored, or used as the default safety step before a fresh start. See [Pine Hosting provider](docs/PINE-HOSTING.md).
 

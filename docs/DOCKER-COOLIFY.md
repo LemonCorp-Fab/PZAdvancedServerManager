@@ -14,8 +14,11 @@ Every manager page is private by default. The only anonymous application pages a
 - Administrators can create operators or other administrators, reset passwords, disable accounts, and revoke active sessions.
 - Operators can use packs and servers but cannot manage manager accounts.
 - The final active administrator cannot be disabled or demoted.
+- Stored RCON passwords and provider API tokens are encrypted with AES-GCM before they enter profile JSON. Existing plaintext profiles are migrated atomically on their first read.
 
 The Compose deployment creates the first administrator from `PZASM_ADMIN_USERNAME`, `PZASM_ADMIN_PASSWORD`, and `PZASM_ADMIN_DISPLAY_NAME`. These values are read only while the user database is empty. Compose mounts the password as a read-only secret file instead of exposing it in the container environment. Set `PZASM_ADMIN_PASSWORD` as a protected Coolify secret; the application receives only `PZASM_ADMIN_PASSWORD_FILE=/run/secrets/pzasm_admin_password`. A non-container installation can provide either variable, or use the one-time setup page until the first account is created.
+
+`PZASM_DATA_ENCRYPTION_KEY` is a separate, stable deployment secret used to encrypt unattended RCON and provider credentials. Compose mounts it at `/run/secrets/pzasm_data_encryption_key`; it is never placed in the container environment. Generate at least 32 random characters, store it outside the data volume, include it in the deployment backup procedure, and do not rotate it without first decrypting or re-saving the profiles with a supported migration. Losing this key makes the encrypted credentials unrecoverable.
 
 ## Persistent data
 
@@ -30,15 +33,33 @@ Back up this volume before moving or rebuilding the deployment. Do not mount `/d
 
 ## Local Docker Compose
 
+### Windows with Docker Desktop
+
+Do not keep deployment secrets in a plaintext `.env` file. The Windows wrapper stores both the administrator password and an independently generated data-encryption key as DPAPI-encrypted values tied to the current Windows account, then restricts their file ACLs to that account and `SYSTEM`. It decrypts them only in the wrapper process, passes them to Compose as environment-backed secrets, and removes them from the process environment when the command finishes.
+
+```powershell
+just docker-secret-setup
+just docker-up
+curl http://127.0.0.1:5160/health/ready
+```
+
+The encrypted values are stored outside the repository below `%LOCALAPPDATA%\LemonCorp\PZAdvancedServerManager\secrets`. Docker grants only the manager service access and mounts the resulting secrets read-only below `/run/secrets`. Windows administrators and code already executing as your Windows account remain inside the trust boundary; no local secret system can protect against a fully compromised account.
+
+### Linux
+
 ```bash
 cp .env.example .env
-# Edit .env and set a long, unique PZASM_ADMIN_PASSWORD.
+# Set a long, unique PZASM_ADMIN_PASSWORD and an independent random
+# PZASM_DATA_ENCRYPTION_KEY containing at least 32 characters.
+chmod 600 .env
 docker compose -f compose.yaml -f compose.local.yaml up -d --build
 docker compose -f compose.yaml -f compose.local.yaml ps
 curl http://127.0.0.1:5160/health/ready
 ```
 
 The default host binding is `127.0.0.1:5160`. Put it behind an HTTPS reverse proxy for network access. To expose another local port, set `PZASM_HTTP_PORT`. Avoid setting `PZASM_BIND_ADDRESS=0.0.0.0` unless a firewall and HTTPS proxy protect the port.
+
+The Linux `.env` fallback is plaintext at rest even with mode `600`; use an external secret manager or an equivalent wrapper when the host's threat model requires encrypted local storage.
 
 Useful commands:
 
@@ -60,7 +81,7 @@ docker compose -f compose.yaml -f compose.local.yaml exec manager \
 
 1. Create a resource from this Git repository and select **Docker Compose**.
 2. Use only `compose.yaml`. It exposes the `manager` service on the internal container port `5160` without bypassing Coolify's proxy through a host port.
-3. Add `PZASM_ADMIN_PASSWORD` as a required protected variable. Compose converts it to the read-only `pzasm_admin_password` secret mounted in the container. Optionally set `PZASM_ADMIN_USERNAME` and `PZASM_ADMIN_DISPLAY_NAME`.
+3. Add `PZASM_ADMIN_PASSWORD` and an independent, stable `PZASM_DATA_ENCRYPTION_KEY` of at least 32 random characters as required protected variables. Compose converts them to read-only files mounted in the container. Optionally set `PZASM_ADMIN_USERNAME` and `PZASM_ADMIN_DISPLAY_NAME`.
 4. Assign an HTTPS domain to port `5160`. Do not remove the `pzasm-data` volume.
 5. Deploy and wait for `/health/ready` to report `status: ready`.
 6. Sign in, open the SteamCMD section, and verify its status. Automatic installation is enabled; the same action in the UI can retry a failed download.

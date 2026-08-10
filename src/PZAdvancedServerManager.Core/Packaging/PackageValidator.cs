@@ -27,6 +27,9 @@ public sealed class PackageValidator
             result.Issues.Add(new("STEAM_USERNAME", "Le compte Steam éditeur est requis avant publication; aucun mot de passe n'est stocké.", true, Scope: ValidationScope.PublishOnly));
         if (project.Automation.PostPublishRestartDelayMinutes is < 5 or > 60)
             result.Issues.Add(new("POST_PUBLISH_DELAY", "Le délai de redémarrage après publication doit être compris entre 5 et 60 minutes.", true, Scope: ValidationScope.AutomationOnly));
+        var workshopDescription = WorkshopDescriptionGenerator.GenerateResult(project);
+        if (!workshopDescription.CanPublish)
+            result.Issues.Add(new("WORKSHOP_DESCRIPTION_LIMIT", workshopDescription.ErrorMessage, true));
         var configuredMaps = project.MapOrder.Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
         var vanillaMapIndex = configuredMaps.FindIndex(x => x.Equals("Muldraugh, KY", StringComparison.OrdinalIgnoreCase));
         if (vanillaMapIndex >= 0 && vanillaMapIndex != configuredMaps.Count - 1)

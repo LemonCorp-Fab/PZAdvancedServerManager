@@ -45,6 +45,10 @@ public sealed class PackageBuildTests : IDisposable
         Assert.Contains("pzasmIsAdmin", controlClient);
         Assert.Contains("Events.OnClientCommand", File.ReadAllText(controlServerPath));
         var notice = File.ReadAllText(Path.Combine(result.WorkshopContentRoot, "mods", project.NoticeModId, "common", "media", "lua", "client", "PZASM_PackNotice.lua"));
+        Assert.Contains("rich.autosetheight = false", notice);
+        Assert.Contains("rich:ignoreHeightChange()", notice);
+        Assert.Contains("rich.vscroll:setVisible(true)", notice);
+        Assert.Contains("rich:setYScroll(0)", notice);
         Assert.Contains("Version: 1.2.3", notice);
         var publicManifest = File.ReadAllText(Path.Combine(result.WorkshopContentRoot, "pzasm-pack-manifest.json"));
         Assert.Contains("first-id", publicManifest);

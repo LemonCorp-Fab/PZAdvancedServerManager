@@ -333,7 +333,7 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
                     null,
                     project.NoticeModId,
                     project.NoticeModId,
-                    Fingerprint(new { engine = "notice-v3", metadata = GeneratedMetadata(project) }),
+                    Fingerprint(new { engine = "notice-v4", metadata = GeneratedMetadata(project) }),
                     string.Empty,
                     string.Empty,
                     false));
@@ -364,7 +364,7 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
                 null,
                 project.FusionModId,
                 project.FusionModId,
-                Fingerprint(new { engine = "fusion-v3", sourceHash, metadata = GeneratedMetadata(project) }),
+                Fingerprint(new { engine = "fusion-v4", sourceHash, metadata = GeneratedMetadata(project) }),
                 sourceHash,
                 string.Empty,
                 false));

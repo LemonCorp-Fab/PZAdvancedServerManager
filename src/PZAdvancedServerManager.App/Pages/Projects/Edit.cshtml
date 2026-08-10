@@ -212,6 +212,10 @@
 
                 <section class="setting-card wide">
                     <div class="panel-heading"><div><span class="eyebrow">APERÇU PUBLIC</span><h3>Description Workshop générée</h3></div><div class="inline-actions"><span class="count-pill">@enabledMods sources</span><span class="count-pill">@Model.WorkshopDescriptionUtf8Bytes / 8 000 octets</span>@if (Model.WorkshopDescriptionIsCompact) { <span class="status-pill warning">Mode compact exhaustif</span> }</div></div>
+                    @if (!string.IsNullOrWhiteSpace(Model.WorkshopDescriptionError))
+                    {
+                        <div class="warning-callout"><strong>Description trop volumineuse — publication bloquée</strong><p>@Model.WorkshopDescriptionError Le projet, ses mods et ses snapshots restent accessibles et modifiables.</p></div>
+                    }
                     <pre class="description-preview">@Model.WorkshopDescription</pre>
                 </section>
 

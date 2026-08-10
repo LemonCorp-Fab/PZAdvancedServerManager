@@ -34,6 +34,7 @@ public class EditModel(
     public string WorkshopDescription { get; private set; } = string.Empty;
     public int WorkshopDescriptionUtf8Bytes { get; private set; }
     public bool WorkshopDescriptionIsCompact { get; private set; }
+    public string WorkshopDescriptionError { get; private set; } = string.Empty;
     public IReadOnlyList<string> ServerConfigNames { get; private set; } = [];
     public MapOrderAnalysis MapAnalysis { get; private set; } = new([], []);
     public ModConflictAnalysis ConflictAnalysis { get; private set; } = new([], [], [], 0, 0, TimeSpan.Zero, string.Empty);
@@ -1096,6 +1097,7 @@ public class EditModel(
         WorkshopDescription = workshopDescription.Text;
         WorkshopDescriptionUtf8Bytes = workshopDescription.Utf8Bytes;
         WorkshopDescriptionIsCompact = workshopDescription.IsCompact;
+        WorkshopDescriptionError = workshopDescription.ErrorMessage;
         ServerConfigNames = servers.List().Select(x => x.Name).ToList();
         MapAnalysis = mapPriority.Analyze(project);
         ConflictAnalysis = conflicts.Analyze(project, refresh);

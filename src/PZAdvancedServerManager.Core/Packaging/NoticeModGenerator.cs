@@ -104,8 +104,16 @@ local function pzasmShowPackNotice()
     end
 
     local rich = ISRichTextPanel:new(22, 70, width - 44, height - 146)
+    rich.autosetheight = false
+    rich.marginLeft = 8
+    rich.marginRight = 18
+    rich.marginTop = 8
+    rich.marginBottom = 12
     rich:initialise()
     rich:addScrollBars()
+    rich:ignoreHeightChange()
+    rich.vscroll:setVisible(true)
+    rich.vscroll.background = false
     rich.background = false
     rich.clip = true
     rich.text = "<H1>" .. pzasmEscapeRichText({{title}}) .. "</H1><LINE>" ..
@@ -114,6 +122,7 @@ local function pzasmShowPackNotice()
         "<RGB:0.84,0.67,0.25>" .. text.rights .. "<RGB:1,1,1><LINE>" .. pzasmEscapeRichText(text.legal) ..
         "<LINE><LINE><H2>" .. text.mods .. "</H2><LINE>" .. string.gsub(pzasmEscapeRichText({{exhaustiveList}}), "\n", "<LINE>")
     rich:paginate()
+    rich:setYScroll(0)
     panel:addChild(rich)
 
     if PZASM_CONTROL_ENABLED then

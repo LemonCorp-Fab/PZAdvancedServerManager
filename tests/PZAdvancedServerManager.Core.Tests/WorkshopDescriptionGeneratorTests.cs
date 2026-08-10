@@ -27,6 +27,7 @@ public sealed class WorkshopDescriptionGeneratorTests
         var result = WorkshopDescriptionGenerator.GenerateResult(project);
 
         Assert.True(result.IsCompact);
+        Assert.True(result.CanPublish);
         Assert.True(result.Utf8Bytes <= PzasmConstants.GeneratedWorkshopDescriptionMaximumUtf8Bytes);
         foreach (var mod in project.Mods)
         {
@@ -34,6 +35,19 @@ public sealed class WorkshopDescriptionGeneratorTests
             Assert.Contains($"M:{mod.ModId}", result.Text);
         }
         Assert.Contains("pzasm-pack-manifest.json", result.Text);
+    }
+
+    [Fact]
+    public void CompactDescriptionGroupsModIdsFromTheSameWorkshopItem()
+    {
+        var project = CreateProject(183);
+        foreach (var mod in project.Mods.Take(12)) mod.WorkshopId = 123456789;
+
+        var result = WorkshopDescriptionGenerator.GenerateResult(project);
+
+        Assert.True(result.CanPublish);
+        Assert.Contains("W:123456789·M:mod.id.001,mod.id.002", result.Text);
+        Assert.Equal(1, result.Text.Split("W:123456789", StringSplitOptions.None).Length - 1);
     }
 
     [Fact]
@@ -56,8 +70,12 @@ public sealed class WorkshopDescriptionGeneratorTests
         var project = CreateProject(183);
         foreach (var mod in project.Mods) mod.ModId = new string('x', 100);
 
+        var preview = WorkshopDescriptionGenerator.GenerateResult(project);
         var exception = Assert.Throws<InvalidOperationException>(() => WorkshopDescriptionGenerator.Generate(project));
 
+        Assert.False(preview.CanPublish);
+        Assert.Contains("Le pack reste entièrement modifiable", preview.Text);
+        Assert.True(preview.Utf8Bytes > PzasmConstants.GeneratedWorkshopDescriptionMaximumUtf8Bytes);
         Assert.Contains("liste exhaustive", exception.Message);
         Assert.Contains("Scindez", exception.Message);
     }

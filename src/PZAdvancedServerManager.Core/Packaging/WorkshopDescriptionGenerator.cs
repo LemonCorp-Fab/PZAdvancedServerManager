@@ -7,11 +7,10 @@ public static class WorkshopDescriptionGenerator
 {
     public static string Generate(PackageProject project)
     {
-        var detailed = GenerateDetailed(project);
-        if (GetUtf8ByteCount(detailed) <= PzasmConstants.GeneratedWorkshopDescriptionMaximumUtf8Bytes)
-            return detailed;
-
-        return GenerateCompact(project);
+        var result = GenerateResult(project);
+        if (!result.CanPublish)
+            throw new InvalidOperationException(result.ErrorMessage);
+        return result.Text;
     }
 
     public static WorkshopDescriptionResult GenerateResult(PackageProject project)
@@ -20,8 +19,19 @@ public static class WorkshopDescriptionGenerator
         if (GetUtf8ByteCount(detailed) <= PzasmConstants.GeneratedWorkshopDescriptionMaximumUtf8Bytes)
             return new WorkshopDescriptionResult(detailed, GetUtf8ByteCount(detailed), false);
 
-        var compact = GenerateCompact(project);
-        return new WorkshopDescriptionResult(compact, GetUtf8ByteCount(compact), true);
+        try
+        {
+            var compact = GenerateCompact(project);
+            return new WorkshopDescriptionResult(compact, GetUtf8ByteCount(compact), true);
+        }
+        catch (WorkshopDescriptionLimitException exception)
+        {
+            return new WorkshopDescriptionResult(
+                GenerateOverflowPreview(project, exception.Message),
+                exception.RequiredUtf8Bytes,
+                true,
+                exception.Message);
+        }
     }
 
     public static int GetUtf8ByteCount(string value) => Encoding.UTF8.GetByteCount(value);
@@ -68,13 +78,17 @@ public static class WorkshopDescriptionGenerator
         suffixBuilder.AppendLine(project.Mode == PackageMode.Bundle
             ? "Ce Workshop item distribue ensemble plusieurs Mod IDs conservés tels quels sous un seul Workshop ID."
             : "Ce Workshop item utilise le mode Fusion stricte sous un Mod ID propre au pack.");
-        suffixBuilder.AppendLine("La présentation est automatiquement condensée pour respecter la limite Steam. La liste ci-dessous conserve toutes les références Mod ID et Workshop ID.");
+        suffixBuilder.AppendLine("La présentation est automatiquement condensée pour respecter la limite Steam. Chaque ligne associe un Workshop ID (W) à un ou plusieurs Mod IDs (M).");
         suffixBuilder.AppendLine();
         suffixBuilder.AppendLine($"[h2]Mods inclus — {mods.Length} références exhaustives[/h2]");
-        foreach (var mod in mods)
+        foreach (var group in mods.GroupBy(mod => mod.WorkshopId))
         {
-            var workshop = mod.WorkshopId == 0 ? "LOCAL" : mod.WorkshopId.ToString();
-            suffixBuilder.AppendLine($"[*]W:{workshop} · M:{OneLine(mod.ModId)}");
+            var workshop = group.Key == 0 ? "LOCAL" : group.Key.ToString();
+            var modIds = group
+                .Select(mod => OneLine(mod.ModId))
+                .Where(modId => modId.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase);
+            suffixBuilder.AppendLine($"[*]W:{workshop}·M:{string.Join(',', modIds)}");
         }
         suffixBuilder.AppendLine();
         suffixBuilder.AppendLine("Les noms complets, auteurs, versions et déclarations de droits restent disponibles dans Contents/pzasm-pack-manifest.json et dans le panneau PZASM en jeu.");
@@ -86,7 +100,9 @@ public static class WorkshopDescriptionGenerator
         var suffix = suffixBuilder.ToString().TrimEnd();
         var fixedBytes = GetUtf8ByteCount(prefix) + GetUtf8ByteCount(suffix) + GetUtf8ByteCount(Environment.NewLine + Environment.NewLine);
         if (fixedBytes > PzasmConstants.GeneratedWorkshopDescriptionMaximumUtf8Bytes)
-            throw new InvalidOperationException($"La liste exhaustive des Mod IDs dépasse à elle seule la limite de description Steam ({fixedBytes} octets). Scindez ce pack en plusieurs Workshop items avant de publier.");
+            throw new WorkshopDescriptionLimitException(
+                fixedBytes,
+                $"La liste exhaustive des Mod IDs dépasse à elle seule la limite de description Steam ({fixedBytes} octets). Scindez ce pack en plusieurs Workshop items avant de publier.");
 
         var descriptionBudget = PzasmConstants.GeneratedWorkshopDescriptionMaximumUtf8Bytes - fixedBytes;
         var description = TruncateUtf8(OneLine(project.Description), descriptionBudget);
@@ -95,8 +111,24 @@ public static class WorkshopDescriptionGenerator
             : prefix + description + Environment.NewLine + Environment.NewLine + suffix;
         var bytes = GetUtf8ByteCount(result);
         if (bytes > PzasmConstants.GeneratedWorkshopDescriptionMaximumUtf8Bytes)
-            throw new InvalidOperationException($"La description Workshop générée dépasse la limite de sécurité Steam ({bytes} octets). Scindez ce pack avant de publier.");
+            throw new WorkshopDescriptionLimitException(
+                bytes,
+                $"La description Workshop générée dépasse la limite de sécurité Steam ({bytes} octets). Scindez ce pack avant de publier.");
         return result.Trim();
+    }
+
+    private static string GenerateOverflowPreview(PackageProject project, string errorMessage)
+    {
+        var enabledCount = project.Mods.Count(mod => mod.Enabled);
+        var builder = new StringBuilder();
+        builder.AppendLine($"[h1]{OneLine(project.Name)}[/h1]");
+        builder.AppendLine();
+        builder.AppendLine("[h2]Description Workshop à corriger[/h2]");
+        builder.AppendLine(errorMessage);
+        builder.AppendLine();
+        builder.AppendLine($"Le pack reste entièrement modifiable. {enabledCount} Mod ID(s) sont actuellement activés.");
+        builder.AppendLine("La publication est bloquée avant tout envoi à Steam, sans modifier les snapshots ni la configuration du pack.");
+        return builder.ToString().Trim();
     }
 
     private static string OneLine(string? value) => string.IsNullOrWhiteSpace(value)
@@ -130,4 +162,16 @@ public static class WorkshopDescriptionGenerator
     };
 }
 
-public sealed record WorkshopDescriptionResult(string Text, int Utf8Bytes, bool IsCompact);
+public sealed record WorkshopDescriptionResult(
+    string Text,
+    int Utf8Bytes,
+    bool IsCompact,
+    string ErrorMessage = "")
+{
+    public bool CanPublish => string.IsNullOrWhiteSpace(ErrorMessage);
+}
+
+internal sealed class WorkshopDescriptionLimitException(int requiredUtf8Bytes, string message) : InvalidOperationException(message)
+{
+    public int RequiredUtf8Bytes { get; } = requiredUtf8Bytes;
+}

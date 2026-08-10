@@ -46,9 +46,8 @@ jobs:
         shell: bash
         run: |
           mkdir -p assets docker-deployment
-          cp Dockerfile compose.yaml compose.local.yaml .env.example docker-deployment/
+          cp compose.yaml .env.example docker-deployment/
           cp docs/DOCKER-COOLIFY.md docker-deployment/
-          cp -R scripts docker-deployment/scripts
           (cd release/win-x64 && zip -q -r "../../assets/PZAdvancedServerManager-${GITHUB_REF_NAME}-win-x64.zip" .)
           tar -C release/linux-x64 -czf "assets/PZAdvancedServerManager-${GITHUB_REF_NAME}-linux-x64.tar.gz" .
           (cd docker-deployment && zip -q -r "../assets/PZAdvancedServerManager-${GITHUB_REF_NAME}-docker.zip" .)

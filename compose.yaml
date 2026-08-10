@@ -1,9 +1,6 @@
 services:
   manager:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: pzadvanced-server-manager:local
+    image: ghcr.io/lemoncorp-fab/pzadvancedservermanager:${PZASM_IMAGE_TAG:-latest}
     platform: linux/amd64
     restart: unless-stopped
     environment:

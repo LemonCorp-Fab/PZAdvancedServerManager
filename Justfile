@@ -90,7 +90,7 @@ release: check publish-all
 
 # Build the production Linux container.
 docker-build:
-    {{ if os() == "windows" { "& './scripts/docker-local.ps1' -Action build" } else { "docker compose build" } }}
+    {{ if os() == "windows" { "& './scripts/docker-local.ps1' -Action build" } else { "docker compose -f compose.yaml -f compose.local.yaml build" } }}
 
 # Store the local Docker administrator password with Windows DPAPI.
 docker-secret-setup:

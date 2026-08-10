@@ -1,0 +1,86 @@
+# Docker and Coolify deployment
+
+The production image runs the complete web manager, scheduler, SteamCMD, Workshop downloads and publishing, SSH, RCON, and provider API backends. It uses a non-root Linux user and stores every durable file below `/data`.
+
+## Security model
+
+Every manager page is private by default. The only anonymous application pages are login, one-time first setup, access denied, error handling, and the two health endpoints.
+
+- Passwords are hashed by ASP.NET Core Identity and are never stored as clear text.
+- Five failed logins lock a user for 15 minutes.
+- Session cookies are `HttpOnly`, use `SameSite=Lax`, and become secure cookies when Coolify terminates HTTPS and forwards the original scheme.
+- Proxy headers are trusted only when `PZASM_TRUST_PROXY_HEADERS=true`; the production Compose file enables this for Coolify, while native local runs ignore forwarded headers.
+- Authentication encryption keys are persisted in `/data/identity/keys`, so valid sessions survive a container replacement.
+- Administrators can create operators or other administrators, reset passwords, disable accounts, and revoke active sessions.
+- Operators can use packs and servers but cannot manage manager accounts.
+- The final active administrator cannot be disabled or demoted.
+
+The Compose deployment creates the first administrator from `PZASM_ADMIN_USERNAME`, `PZASM_ADMIN_PASSWORD`, and `PZASM_ADMIN_DISPLAY_NAME`. These values are read only while the user database is empty. Compose mounts the password as a read-only secret file instead of exposing it in the container environment. Set `PZASM_ADMIN_PASSWORD` as a protected Coolify secret; the application receives only `PZASM_ADMIN_PASSWORD_FILE=/run/secrets/pzasm_admin_password`. A non-container installation can provide either variable, or use the one-time setup page until the first account is created.
+
+## Persistent data
+
+The named volume `pzasm-data` is mounted at `/data` and contains:
+
+- user accounts and persisted cookie encryption keys;
+- pack projects, source snapshots, builds, previews, and operation logs;
+- server profiles, provider state, and manager backups;
+- SteamCMD itself, `config/config.vdf`, the portable Steam session, Workshop manifests, and downloaded Workshop content.
+
+Back up this volume before moving or rebuilding the deployment. Do not mount `/data` as a temporary volume. If a bind mount is used instead of the named volume, its directory must be writable by UID/GID `10001`.
+
+## Local Docker Compose
+
+```bash
+cp .env.example .env
+# Edit .env and set a long, unique PZASM_ADMIN_PASSWORD.
+docker compose -f compose.yaml -f compose.local.yaml up -d --build
+docker compose -f compose.yaml -f compose.local.yaml ps
+curl http://127.0.0.1:5160/health/ready
+```
+
+The default host binding is `127.0.0.1:5160`. Put it behind an HTTPS reverse proxy for network access. To expose another local port, set `PZASM_HTTP_PORT`. Avoid setting `PZASM_BIND_ADDRESS=0.0.0.0` unless a firewall and HTTPS proxy protect the port.
+
+Useful commands:
+
+```bash
+docker compose -f compose.yaml -f compose.local.yaml logs -f manager
+docker compose -f compose.yaml -f compose.local.yaml restart manager
+docker compose -f compose.yaml -f compose.local.yaml down              # keeps pzasm-data
+docker compose -f compose.yaml -f compose.local.yaml down --volumes    # destructive: deletes all manager data
+```
+
+The headless CLI is included in the same image and shares `/data` with the UI:
+
+```bash
+docker compose -f compose.yaml -f compose.local.yaml exec manager \
+  dotnet /app/cli/pzasm.dll projects --data-root /data
+```
+
+## Coolify
+
+1. Create a resource from this Git repository and select **Docker Compose**.
+2. Use only `compose.yaml`. It exposes the `manager` service on the internal container port `5160` without bypassing Coolify's proxy through a host port.
+3. Add `PZASM_ADMIN_PASSWORD` as a required protected variable. Compose converts it to the read-only `pzasm_admin_password` secret mounted in the container. Optionally set `PZASM_ADMIN_USERNAME` and `PZASM_ADMIN_DISPLAY_NAME`.
+4. Assign an HTTPS domain to port `5160`. Do not remove the `pzasm-data` volume.
+5. Deploy and wait for `/health/ready` to report `status: ready`.
+6. Sign in, open the SteamCMD section, and verify its status. Automatic installation is enabled; the same action in the UI can retry a failed download.
+
+`/health/live` proves that the web process responds. `/health/ready` also verifies the Identity database and reports `steamCmd` as `installed` or `not-installed`. A missing SteamCMD does not make the web manager unhealthy, because installation can be retried without replacing the container.
+
+## SteamCMD in the container
+
+The Linux image includes SteamCMD's required 32-bit GCC and C++ libraries. On the first deployment, the manager downloads Valve's official Linux archive into `/data/tools/steamcmd`, extracts it safely, marks `steamcmd.sh` executable, and performs a bootstrap run. Later containers reuse that installation.
+
+Public Project Zomboid Workshop sources and the dedicated server AppID can use anonymous login. Publishing still requires a Steam account that owns Project Zomboid and owns the Workshop item. Steam Guard interaction is handled by the existing manager flow; SteamCMD's portable session remains in the persistent volume. Treat the volume as sensitive and never publish it as an image layer or back it up to an untrusted location.
+
+The image is pinned to `linux/amd64` because SteamCMD's Linux client depends on x86 compatibility. An ARM-only VPS needs x86 emulation and is not a recommended production target.
+
+## Server control boundaries
+
+Remote RCON, SSH, Pine Hosting, scheduled pack publication, and coordinated restarts work normally from the container. The SSH client is included in the image.
+
+A container cannot safely discover or control unrelated Project Zomboid processes running directly on the Docker host. The deployment intentionally does not mount the Docker socket or use host PID mode. Use a remote server profile with RCON, SSH, or a provider backend for those servers. Local dedicated-process discovery remains available in native Windows/Linux installations of the manager.
+
+## Updates and recovery
+
+Build and deploy the new image while retaining `pzasm-data`. Database, sessions, SteamCMD, and Workshop caches are independent of the image. If a release fails, roll back the image without rolling back or deleting the volume. For disaster recovery, restore a consistent backup of the entire volume rather than only individual JSON files.

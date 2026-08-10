@@ -21,8 +21,10 @@ public sealed class PackageValidator
             result.Issues.Add(new("NO_MODS", "Ajoutez au moins un mod activé au pack.", true));
         if (!project.LegalWarningAccepted)
             result.Issues.Add(new("LEGAL_ACK", "L'avertissement sur les droits et autorisations n'a pas été marqué comme lu. Cela ne bloque ni la construction ni la publication.", false, Scope: ValidationScope.Warning));
-        if (string.IsNullOrWhiteSpace(project.Automation.SteamCmdPath) || !File.Exists(project.Automation.SteamCmdPath))
-            result.Issues.Add(new("STEAMCMD_PATH", "Indiquez un exécutable SteamCMD existant avant publication.", true, Scope: ValidationScope.PublishOnly));
+        if (string.IsNullOrWhiteSpace(project.Automation.SteamCmdPath))
+            result.Issues.Add(new("STEAMCMD_MANAGED", "SteamCMD sera téléchargé et initialisé automatiquement dans l'espace portable du manager au premier besoin.", false, Scope: ValidationScope.Warning));
+        else if (!File.Exists(project.Automation.SteamCmdPath))
+            result.Issues.Add(new("STEAMCMD_FALLBACK", "Le chemin SteamCMD configuré n'existe plus. Le manager utilisera automatiquement son installation portable.", false, Scope: ValidationScope.Warning));
         if (string.IsNullOrWhiteSpace(project.Automation.SteamUsername))
             result.Issues.Add(new("STEAM_USERNAME", "Le compte Steam éditeur est requis avant publication; aucun mot de passe n'est stocké.", true, Scope: ValidationScope.PublishOnly));
         if (project.Automation.PostPublishRestartDelayMinutes is < 5 or > 60)

@@ -1,0 +1,62 @@
+@page
+@model PZAdvancedServerManager.App.Pages.Admin.UsersModel
+@{
+    ViewData["Title"] = "Utilisateurs";
+}
+
+<a class="back-link" asp-page="/Index">← Tableau de bord</a>
+<section class="project-hero account-hero">
+    <div><span class="eyebrow">SÉCURITÉ DU MANAGER</span><h1>Utilisateurs et accès</h1><p>Créez des opérateurs, révoquez leurs sessions et conservez toujours au moins un administrateur actif.</p></div>
+    <span class="count-pill">@Model.Users.Count compte(s)</span>
+</section>
+
+@if (TempData["Toast"] is string toast) { <div class="toast-message" role="status">@toast</div> }
+@if (!string.IsNullOrWhiteSpace(Model.ErrorMessage)) { <div class="error-message" role="alert">@Model.ErrorMessage</div> }
+
+<section class="account-grid">
+    <div class="panel account-create-panel">
+        <span class="eyebrow">NOUVEAU COMPTE</span>
+        <h2>Ajouter un utilisateur</h2>
+        <p>Un opérateur dispose du manager complet, sauf de la gestion des comptes.</p>
+        <div asp-validation-summary="ModelOnly" class="error-message" role="alert"></div>
+        <form method="post" asp-page-handler="Create" class="stack-form" data-loading-title="Création du compte…" data-loading-detail="Hachage du mot de passe et attribution du rôle.">
+            <label asp-for="Create.Username"><span>Nom d’utilisateur</span><input asp-for="Create.Username" autocomplete="off" /></label>
+            <span asp-validation-for="Create.Username" class="field-validation-error"></span>
+            <label asp-for="Create.DisplayName"><span>Nom affiché</span><input asp-for="Create.DisplayName" autocomplete="off" /></label>
+            <span asp-validation-for="Create.DisplayName" class="field-validation-error"></span>
+            <label asp-for="Create.Password"><span>Mot de passe initial</span><input asp-for="Create.Password" autocomplete="new-password" /><small>12 caractères minimum, majuscule, minuscule et chiffre.</small></label>
+            <span asp-validation-for="Create.Password" class="field-validation-error"></span>
+            <label asp-for="Create.Role"><span>Rôle</span><select asp-for="Create.Role"><option value="Operator">Opérateur</option><option value="Administrator">Administrateur</option></select></label>
+            <button class="button primary" type="submit">Créer le compte</button>
+        </form>
+    </div>
+
+    <div class="account-list">
+        @foreach (var user in Model.Users)
+        {
+            <article class="panel account-card @(user.IsEnabled ? string.Empty : "is-disabled")">
+                <div class="account-card-heading">
+                    <div><span class="eyebrow">@user.RoleLabel</span><h2>@user.DisplayName</h2><p>@@@user.Username</p></div>
+                    <span class="account-state @(user.IsEnabled ? "is-active" : "is-disabled")">@(user.IsEnabled ? "ACTIF" : "DÉSACTIVÉ")</span>
+                </div>
+                <dl class="account-metadata"><div><dt>Créé</dt><dd>@user.CreatedAtUtc.ToLocalTime().ToString("g")</dd></div><div><dt>Dernière connexion</dt><dd>@(user.LastLoginAtUtc?.ToLocalTime().ToString("g") ?? "Jamais")</dd></div></dl>
+                <div class="account-actions">
+                    <form method="post" asp-page-handler="SetRole" data-loading-title="Mise à jour du rôle…">
+                        <input type="hidden" name="id" value="@user.Id" />
+                        <label><span>Rôle</span><select name="role"><option value="Operator" selected="@(user.Role == "Operator")">Opérateur</option><option value="Administrator" selected="@(user.Role == "Administrator")">Administrateur</option></select></label>
+                        <button class="button secondary compact" type="submit">Appliquer</button>
+                    </form>
+                    <form method="post" asp-page-handler="ResetPassword" data-loading-title="Réinitialisation du mot de passe…" data-confirm-title="Réinitialiser le mot de passe ?" data-confirm-message="Toutes les sessions actives de ce compte seront invalidées." data-confirm-action="Réinitialiser">
+                        <input type="hidden" name="id" value="@user.Id" />
+                        <label><span>Nouveau mot de passe</span><input type="password" name="newPassword" minlength="12" autocomplete="new-password" required /></label>
+                        <button class="button secondary compact" type="submit">Réinitialiser</button>
+                    </form>
+                    <form method="post" asp-page-handler="Toggle" data-loading-title="Mise à jour de l’accès…" data-confirm-title="@(user.IsEnabled ? "Désactiver ce compte ?" : "Réactiver ce compte ?")" data-confirm-message="@(user.IsEnabled ? "Toutes ses sessions seront révoquées immédiatement." : "Le compte pourra de nouveau se connecter avec son mot de passe actuel.")" data-confirm-action="@(user.IsEnabled ? "Désactiver" : "Réactiver")" data-confirm-tone="@(user.IsEnabled ? "danger" : string.Empty)">
+                        <input type="hidden" name="id" value="@user.Id" />
+                        <button class="button @(user.IsEnabled ? "danger-outline" : "primary") compact" type="submit" disabled="@user.IsCurrentUser">@(user.IsEnabled ? "Désactiver" : "Réactiver")</button>
+                    </form>
+                </div>
+            </article>
+        }
+    </div>
+</section>

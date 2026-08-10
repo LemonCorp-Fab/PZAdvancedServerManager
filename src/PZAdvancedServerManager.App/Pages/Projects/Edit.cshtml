@@ -59,7 +59,7 @@
     <span class="project-health-arrow">→</span>
 </a>
 
-<form id="install-steamcmd-form" method="post" asp-page-handler="InstallSteamCmd" data-loading-title="Installation de SteamCMD…" data-loading-detail="Téléchargement depuis Valve, extraction dans l’espace portable du gestionnaire et première initialisation."></form>
+<form id="install-steamcmd-form" method="post" asp-page-handler="InstallSteamCmd" data-operation-progress data-loading-title="Installation de SteamCMD…" data-loading-detail="Téléchargement depuis Valve, extraction dans l’espace portable du gestionnaire et première initialisation." data-loading-steps="Téléchargement officiel|Extraction contrôlée|Initialisation Steam|Vérification finale" data-loading-phase-map="steamcmd-missing:0,steamcmd-download:0,steamcmd-extract:1,steamcmd-bootstrap:2,steamcmd-ready:3"></form>
 
 <div class="workspace" data-tabs="project-editor">
     <nav class="workspace-tabs" aria-label="Sections du pack" role="tablist">
@@ -155,15 +155,15 @@
                 <section class="setting-card wide steamcmd-card @(Model.SteamCmdStatus.Installed ? "is-ready" : "needs-setup")">
                     <div class="tool-status">
                         <span class="tool-icon">SC</span>
-                        <div><span class="eyebrow">OUTIL PORTABLE</span><h3>@(Model.SteamCmdStatus.Installed ? "SteamCMD est prêt" : "SteamCMD n’est pas encore installé")</h3><p>@(Model.SteamCmdStatus.Installed ? Model.SteamCmdStatus.ExecutablePath : "Télécharge l’archive officielle de Valve dans le dossier de données du gestionnaire, sans modifier votre installation Steam.")</p></div>
-                        <button class="button @(Model.SteamCmdStatus.Installed ? "ghost" : "primary")" type="submit" form="install-steamcmd-form">@(Model.SteamCmdStatus.Installed ? "Réinstaller / vérifier" : "Installer en un clic")</button>
+                        <div><span class="eyebrow">OUTIL PORTABLE GÉRÉ</span><h3>@(Model.SteamCmdStatus.Installed ? "SteamCMD est prêt" : "SteamCMD sera installé automatiquement")</h3><p>@(Model.SteamCmdStatus.Installed ? Model.SteamCmdStatus.ExecutablePath : "Au premier import, update ou publish, le manager téléchargera l’archive officielle de Valve dans son propre dossier. Vous pouvez aussi le préparer maintenant.")</p></div>
+                        <button class="button @(Model.SteamCmdStatus.Installed ? "ghost" : "primary")" type="submit" form="install-steamcmd-form">@(Model.SteamCmdStatus.Installed ? "Réinstaller / vérifier" : "Installer maintenant")</button>
                     </div>
                 </section>
 
                 <section class="setting-card">
                     <div class="setting-heading"><span class="step-number">01</span><div><h3>Sources Workshop</h3><p>Les serveurs peuvent télécharger les contenus publics sans compte.</p></div></div>
                     <label class="switch-row"><input asp-for="Form.AnonymousWorkshopDownloads" /><span><strong>Utiliser la connexion anonyme</strong><small>Recommandé pour importer et actualiser les sources. En cas de restriction d’un item, désactivez cette option pour utiliser le compte éditeur.</small></span></label>
-                    <label><span>Chemin SteamCMD</span><input asp-for="Form.SteamCmdPath" placeholder="steamcmd.exe ou /opt/steamcmd/steamcmd.sh" /></label>
+                    <label><span>Chemin SteamCMD personnalisé (optionnel)</span><input asp-for="Form.SteamCmdPath" placeholder="Laisser vide pour l’installation portable gérée" /><small>Un chemin existant reste prioritaire. S’il devient invalide, le manager rebascule automatiquement vers sa copie portable.</small></label>
                 </section>
 
                 <section class="setting-card">

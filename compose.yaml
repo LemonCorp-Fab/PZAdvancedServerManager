@@ -1,0 +1,42 @@
+services:
+  manager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: pzadvanced-server-manager:local
+    platform: linux/amd64
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:5160
+      PZASM_DATA_ROOT: /data
+      PZASM_STEAMCMD_AUTO_INSTALL: "true"
+      PZASM_TRUST_PROXY_HEADERS: "true"
+      PZASM_ADMIN_USERNAME: ${PZASM_ADMIN_USERNAME:-admin}
+      PZASM_ADMIN_PASSWORD_FILE: /run/secrets/pzasm_admin_password
+      PZASM_ADMIN_DISPLAY_NAME: ${PZASM_ADMIN_DISPLAY_NAME:-Server administrator}
+    expose:
+      - "5160"
+    volumes:
+      - pzasm-data:/data
+    secrets:
+      - source: pzasm_admin_password
+        uid: "10001"
+        gid: "10001"
+        mode: 0440
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:5160/health/ready"]
+      interval: 30s
+      timeout: 8s
+      start_period: 45s
+      retries: 3
+
+volumes:
+  pzasm-data:
+
+secrets:
+  pzasm_admin_password:
+    environment: PZASM_ADMIN_PASSWORD

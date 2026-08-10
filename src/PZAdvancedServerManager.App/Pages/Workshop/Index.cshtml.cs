@@ -154,7 +154,6 @@ public class IndexModel(
             if (includeDependencies) ids = dependencies.Select(item => item.WorkshopId).Concat(ids).Distinct().ToArray();
             if (Project is not null)
             {
-                EnsureProjectSteamCmd(Project);
                 var importedItems = 0;
                 var importedMods = 0;
                 foreach (var id in ids)
@@ -167,13 +166,11 @@ public class IndexModel(
             }
             else if (Server is not null)
             {
-                var status = steamCmdInstaller.GetStatus();
-                if (!status.Installed) throw new FileNotFoundException("Installez SteamCMD depuis le tableau de bord avant de télécharger des mods serveur.", status.ExecutablePath);
                 var downloadSettings = new PackageProject
                 {
                     Name = "Server content import",
                     TargetPzVersion = PzasmConstants.DefaultTargetVersion,
-                    Automation = { SteamCmdPath = status.ExecutablePath, AnonymousWorkshopDownloads = true }
+                    Automation = { AnonymousWorkshopDownloads = true }
                 };
                 var discovered = new List<DiscoveredMod>();
                 foreach (var id in ids)
@@ -221,7 +218,6 @@ public class IndexModel(
             var addedMods = 0;
             if (Project is not null)
             {
-                EnsureProjectSteamCmd(Project);
                 for (var index = 0; index < ids.Length; index++)
                 {
                     var id = ids[index];
@@ -234,13 +230,11 @@ public class IndexModel(
             }
             else if (Server is not null)
             {
-                var status = steamCmdInstaller.GetStatus();
-                if (!status.Installed) throw new FileNotFoundException("Installez SteamCMD depuis le tableau de bord avant de télécharger des mods serveur.", status.ExecutablePath);
                 var downloadSettings = new PackageProject
                 {
                     Name = "Server content import",
                     TargetPzVersion = PzasmConstants.DefaultTargetVersion,
-                    Automation = { SteamCmdPath = status.ExecutablePath, AnonymousWorkshopDownloads = true }
+                    Automation = { AnonymousWorkshopDownloads = true }
                 };
                 var discovered = new List<DiscoveredMod>();
                 for (var index = 0; index < ids.Length; index++)
@@ -483,16 +477,6 @@ public class IndexModel(
             .Where(item => !requested.Contains(item.WorkshopId) && !IncludedWorkshopIds.Contains(item.WorkshopId))
             .DistinctBy(item => item.WorkshopId)
             .ToArray();
-    }
-
-    private void EnsureProjectSteamCmd(PackageProject project)
-    {
-        if (!string.IsNullOrWhiteSpace(project.Automation.SteamCmdPath) && System.IO.File.Exists(project.Automation.SteamCmdPath)) return;
-        var status = steamCmdInstaller.GetStatus();
-        if (!status.Installed) throw new FileNotFoundException("Installez SteamCMD depuis le tableau de bord avant l’import Workshop.", status.ExecutablePath);
-        project.Automation.SteamCmdPath = status.ExecutablePath;
-        project.Automation.AnonymousWorkshopDownloads = true;
-        projectStore.Save(project);
     }
 
     private IReadOnlyList<DiscoveredMod> ExpandDependencies(IEnumerable<DiscoveredMod> selected, IEnumerable<DiscoveredMod> available)

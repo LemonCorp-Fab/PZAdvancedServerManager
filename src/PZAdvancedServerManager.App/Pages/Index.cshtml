@@ -42,7 +42,7 @@
         </dl>
         <div class="dashboard-actions">
             <a class="button secondary" asp-page="/Server/Index">Gérer les serveurs</a>
-            <form method="post" asp-page-handler="InstallSteamCmd" data-loading-title="Installation de SteamCMD…" data-loading-detail="Téléchargement depuis Valve, extraction dans l’espace portable du gestionnaire et première initialisation."><button class="button @(Model.SteamCmdStatus.Installed ? "ghost" : "primary")" type="submit">@(Model.SteamCmdStatus.Installed ? "Vérifier SteamCMD" : "Installer SteamCMD")</button></form>
+            <form method="post" asp-page-handler="InstallSteamCmd" data-operation-progress data-loading-title="Installation de SteamCMD…" data-loading-detail="Téléchargement depuis Valve, extraction dans l’espace portable du gestionnaire et première initialisation." data-loading-steps="Téléchargement officiel|Extraction contrôlée|Initialisation Steam|Vérification finale" data-loading-phase-map="steamcmd-missing:0,steamcmd-download:0,steamcmd-extract:1,steamcmd-bootstrap:2,steamcmd-ready:3"><button class="button @(Model.SteamCmdStatus.Installed ? "ghost" : "primary")" type="submit">@(Model.SteamCmdStatus.Installed ? "Réinstaller / vérifier" : "Préparer SteamCMD maintenant")</button></form>
         </div>
     </article>
 

@@ -139,6 +139,20 @@ public sealed class PackageBuildTests : IDisposable
     }
 
     [Fact]
+    public void MissingSteamCmdPath_UsesManagedFallbackWithoutBlockingPublication()
+    {
+        var source = CreateMod("ManagedSteamCmd", "managed-steamcmd", "return true");
+        var project = ValidProject(PackageMode.Bundle, Ref("managed-steamcmd", "Managed SteamCMD", source));
+        project.Automation.SteamCmdPath = Path.Combine(_root, "missing", "steamcmd.exe");
+        project.Automation.SteamUsername = "publisher";
+
+        var validation = new PackageValidator().Validate(project);
+
+        Assert.True(validation.CanPublish);
+        Assert.Contains(validation.Issues, issue => issue.Code == "STEAMCMD_FALLBACK" && !issue.IsError);
+    }
+
+    [Fact]
     public void Snapshot_KeepsPinnedVersion_UntilExplicitUpdate()
     {
         var source = CreateMod("Pinned", "pinned-id", "return 'v1'");

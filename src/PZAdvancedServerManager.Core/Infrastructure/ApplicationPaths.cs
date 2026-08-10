@@ -19,6 +19,7 @@ public sealed class ApplicationPaths
         ServerDataRoot = Path.Combine(DataRoot, "server-data");
         AssetsRoot = Path.Combine(DataRoot, "assets");
         ToolsRoot = Path.Combine(DataRoot, "tools");
+        RuntimeHomeRoot = Path.Combine(DataRoot, "home");
 
         Directory.CreateDirectory(ProjectsRoot);
         Directory.CreateDirectory(BuildsRoot);
@@ -29,6 +30,7 @@ public sealed class ApplicationPaths
         Directory.CreateDirectory(ServerDataRoot);
         Directory.CreateDirectory(AssetsRoot);
         Directory.CreateDirectory(ToolsRoot);
+        Directory.CreateDirectory(RuntimeHomeRoot);
     }
 
     public string DataRoot { get; }
@@ -41,6 +43,7 @@ public sealed class ApplicationPaths
     public string ServerDataRoot { get; }
     public string AssetsRoot { get; }
     public string ToolsRoot { get; }
+    public string RuntimeHomeRoot { get; }
     public string SteamCmdRoot => Path.Combine(ToolsRoot, "steamcmd");
     public string SteamCmdExecutable => Path.Combine(SteamCmdRoot, OperatingSystem.IsWindows() ? "steamcmd.exe" : "steamcmd.sh");
 

@@ -8,7 +8,7 @@ using PZAdvancedServerManager.Core.Pz;
 
 namespace PZAdvancedServerManager.Core.Publishing;
 
-public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogService catalog)
+public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogService catalog, SteamCmdInstaller installer)
 {
     public async Task<SteamCmdResult> UpdateDedicatedServerAsync(
         string steamCmdPath,
@@ -16,7 +16,7 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
         CancellationToken cancellationToken = default,
         IProgress<OperationProgress>? progress = null)
     {
-        ValidateExecutable(steamCmdPath);
+        steamCmdPath = await ResolveExecutableAsync(steamCmdPath, cancellationToken, progress);
         if (string.IsNullOrWhiteSpace(dedicatedServerRoot))
             throw new ArgumentException("Le dossier du serveur dédié est requis.", nameof(dedicatedServerRoot));
 
@@ -44,11 +44,11 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
     public async Task<WorkshopDownloadResult> DownloadWorkshopItemAsync(PackageProject project, ulong workshopId, CancellationToken cancellationToken = default, IProgress<OperationProgress>? progress = null)
     {
         if (workshopId == 0) throw new ArgumentOutOfRangeException(nameof(workshopId), "Workshop ID invalide.");
-        ValidateExecutable(project.Automation.SteamCmdPath);
+        var steamCmdPath = await ResolveExecutableAsync(project, cancellationToken, progress);
         var login = ResolveDownloadLogin(project);
-        var result = await RunAsync(project.Automation.SteamCmdPath,
+        var result = await RunAsync(steamCmdPath,
             ["+login", login, "+workshop_download_item", PzasmConstants.ProjectZomboidSteamAppId, workshopId.ToString(), "validate", "+quit"], cancellationToken, progress: progress);
-        var steamCmdRoot = Path.GetDirectoryName(project.Automation.SteamCmdPath)!;
+        var steamCmdRoot = Path.GetDirectoryName(steamCmdPath)!;
         var contentRoot = Path.Combine(steamCmdRoot, "steamapps", "workshop", "content", PzasmConstants.ProjectZomboidSteamAppId, workshopId.ToString());
         return new WorkshopDownloadResult(result, contentRoot);
     }
@@ -84,9 +84,9 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
             return new SteamWorkshopRefreshResult(
                 new SteamCmdResult(0, "Aucune source Workshop à actualiser.", string.Empty),
                 [], 0, 0, 0, 0);
-        ValidateExecutable(project.Automation.SteamCmdPath);
+        var steamCmdPath = await ResolveExecutableAsync(project, cancellationToken, progress);
 
-        var steamCmdRoot = Path.GetDirectoryName(project.Automation.SteamCmdPath)!;
+        var steamCmdRoot = Path.GetDirectoryName(steamCmdPath)!;
         var workshopRoot = Path.Combine(steamCmdRoot, "steamapps", "workshop");
         var contentRoot = Path.Combine(workshopRoot, "content", PzasmConstants.ProjectZomboidSteamAppId);
         var manifestPath = Path.Combine(workshopRoot, $"appworkshop_{PzasmConstants.ProjectZomboidSteamAppId}.acf");
@@ -130,7 +130,7 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
                 if (installedBefore.ContainsKey(id) && !HasWorkshopContent(contentRoot, id)) arguments.Add("validate");
             }
             arguments.Add("+quit");
-            commandResult = await RunAsync(project.Automation.SteamCmdPath, arguments, cancellationToken, progress: progress, timeout: TimeSpan.FromHours(1));
+            commandResult = await RunAsync(steamCmdPath, arguments, cancellationToken, progress: progress, timeout: TimeSpan.FromHours(1));
             if (!commandResult.Success)
                 return new SteamWorkshopRefreshResult(commandResult, [], workshopIds.Length, pendingIds.Length, reusedCount, 0);
         }
@@ -244,7 +244,7 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
             return new WorkshopPublishResult(noOp, plan, plan.RemoteBefore, project.Publication.RemoteContentHandle);
         }
 
-        ValidateExecutable(project.Automation.SteamCmdPath);
+        var steamCmdPath = await ResolveExecutableAsync(project, cancellationToken, progress);
         if (string.IsNullOrWhiteSpace(project.Automation.SteamUsername))
             throw new InvalidOperationException("Le nom de compte Steam est requis. Le mot de passe n'est jamais conservé par PZASM.");
 
@@ -265,16 +265,16 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
             ? new OperationProgress("manifest-scan", "Prévalidation réussie. Steam peut maintenant inventorier le contenu et calculer le delta.")
             : new OperationProgress("workshop-commit", "Prévalidation réussie. Aucun scan du contenu n'est requis pour cette mise à jour."));
 
-        var workshopLogPath = GetWorkshopLogPath(project.Automation.SteamCmdPath);
+        var workshopLogPath = GetWorkshopLogPath(steamCmdPath);
         var workshopLogOffset = GetFileLength(workshopLogPath);
-        var depotBuildLogPath = GetDepotBuildLogPath(project.Automation.SteamCmdPath);
+        var depotBuildLogPath = GetDepotBuildLogPath(steamCmdPath);
         var submittedAt = DateTimeOffset.UtcNow;
-        var result = await RunAsync(project.Automation.SteamCmdPath,
+        var result = await RunAsync(steamCmdPath,
             ["+login", project.Automation.SteamUsername, "+workshop_build_item", publishVdfPath, "+quit"], cancellationToken, progress: progress, timeout: TimeSpan.FromHours(12), workshopBuildLogPath: depotBuildLogPath);
         var id = ApplyPublishedFileId(project, publishVdfPath);
         result = ValidateWorkshopSubmissionResult(result, id, ReadAppendedLog(workshopLogPath, workshopLogOffset));
         WorkshopRemoteState? confirmedRemote = null;
-        var publishedContentHandle = ReadPublishedContentHandle(project.Automation.SteamCmdPath);
+        var publishedContentHandle = ReadPublishedContentHandle(steamCmdPath);
         if (result.ExitCode == 0)
         {
             if (id == 0)
@@ -291,27 +291,27 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
 
     public async Task<SteamCmdResult> AuthenticateAsync(PackageProject project, SteamCredentials credentials, CancellationToken cancellationToken = default, IProgress<OperationProgress>? progress = null)
     {
-        ValidateExecutable(project.Automation.SteamCmdPath);
+        var steamCmdPath = await ResolveExecutableAsync(project, cancellationToken, progress);
         if (string.IsNullOrWhiteSpace(project.Automation.SteamUsername))
             throw new InvalidOperationException("Enregistrez d'abord le nom du compte Steam éditeur.");
         if (string.IsNullOrEmpty(credentials.Password))
             throw new InvalidOperationException("Le mot de passe Steam est requis pour créer ou renouveler la session portable.");
         progress?.Report(new OperationProgress("steamcmd", "Ouverture de la session SteamCMD portable."));
         if (!string.IsNullOrWhiteSpace(credentials.GuardCode)) ValidateSteamGuardCode(credentials.GuardCode);
-        return await RunAsync(project.Automation.SteamCmdPath,
+        return await RunAsync(steamCmdPath,
             string.IsNullOrWhiteSpace(credentials.GuardCode) ? CreateAuthenticationArguments(project.Automation.SteamUsername) : [],
             cancellationToken, credentials, progress, TimeSpan.FromMinutes(5), project.Automation.SteamUsername);
     }
 
     public async Task<SteamCmdResult> VerifyCachedSessionAsync(PackageProject project, CancellationToken cancellationToken = default, IProgress<OperationProgress>? progress = null)
     {
-        ValidateExecutable(project.Automation.SteamCmdPath);
+        var steamCmdPath = await ResolveExecutableAsync(project, cancellationToken, progress);
         if (string.IsNullOrWhiteSpace(project.Automation.SteamUsername))
             throw new InvalidOperationException("Enregistrez d'abord le nom du compte Steam éditeur.");
 
         progress?.Report(new OperationProgress("steamcmd", "Vérification de la session déjà conservée par SteamCMD, sans mot de passe ni renouvellement de jeton."));
         return await RunAsync(
-            project.Automation.SteamCmdPath,
+            steamCmdPath,
             CreateCachedSessionVerificationArguments(project.Automation.SteamUsername),
             cancellationToken,
             new SteamCredentials(string.Empty, string.Empty),
@@ -626,7 +626,7 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
             await Task.CompletedTask;
         }
 
-        async Task ObserveAsync(string rawChunk, StringBuilder? destination)
+        async Task ObserveAsync(string rawChunk, StringBuilder? destination, bool reportClassifiedProgress = true)
         {
             if (string.IsNullOrEmpty(rawChunk)) return;
             var chunk = RedactSecrets(rawChunk, credentials);
@@ -640,7 +640,7 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
                 if (promptWindow.Length > 8192) promptWindow = promptWindow[^8192..];
 
                 var message = Regex.Replace(chunk, "\\s+", " ").Trim();
-                if (exposeRawOutput && message.Length > 0 && !SteamCmdPromptClassifier.IsSecretPrompt(message))
+                if (reportClassifiedProgress && exposeRawOutput && message.Length > 0 && !SteamCmdPromptClassifier.IsSecretPrompt(message))
                 {
                     var classified = ClassifySteamCmdProgress(promptWindow);
                     var classificationKey = classified is null ? string.Empty : classified.Phase + "\n" + classified.Message;
@@ -649,8 +649,6 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
                         lastClassifiedProgress = classificationKey;
                         progress?.Report(classified);
                     }
-                    else if (classified is null)
-                        progress?.Report(new OperationProgress("steamcmd", message.Length <= 500 ? message : message[^500..]));
                 }
 
                 if (!passwordSent && SteamCmdPromptClassifier.RequestsPassword(promptWindow))
@@ -777,8 +775,8 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
 
         var stdoutTask = PumpAsync(process.StandardOutput, standardOutput);
         var stderrTask = PumpAsync(process.StandardError, standardError);
-        var consoleLogTask = TailLogAsync(consoleLogPath, consoleLogOffset, chunk => ObserveAsync(chunk, standardOutput), process, pumpCancellation.Token);
-        var connectionLogTask = TailLogAsync(connectionLogPath, connectionLogOffset, chunk => ObserveAsync(chunk, null), process, pumpCancellation.Token);
+        var consoleLogTask = TailLogAsync(consoleLogPath, consoleLogOffset, chunk => ObserveAsync(chunk, null, false), process, pumpCancellation.Token);
+        var connectionLogTask = TailLogAsync(connectionLogPath, connectionLogOffset, chunk => ObserveAsync(chunk, null, false), process, pumpCancellation.Token);
         var workshopProgressBuffer = new StringBuilder();
         Task ObserveWorkshopBuildLogAsync(string chunk)
         {
@@ -846,15 +844,38 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
 
     private static OperationProgress? ClassifySteamCmdProgress(string message)
     {
-        var candidates = new[]
+        var candidates = new List<(int Index, OperationProgress Progress)>
         {
             (Index: message.LastIndexOf("Preparing update", StringComparison.OrdinalIgnoreCase), Progress: new OperationProgress("manifest-scan", "Steam prépare la comparaison du package avec le manifeste distant.")),
             (Index: message.LastIndexOf("Uploading content", StringComparison.OrdinalIgnoreCase), Progress: new OperationProgress("workshop-upload", "Envoi du contenu différentiel vers Steam Workshop.")),
             (Index: message.LastIndexOf("Uploading preview", StringComparison.OrdinalIgnoreCase), Progress: new OperationProgress("workshop-upload", "Envoi de la preview Workshop.")),
-            (Index: message.LastIndexOf("Committing update", StringComparison.OrdinalIgnoreCase), Progress: new OperationProgress("workshop-commit", "Validation finale des paramètres et rattachement du manifeste à l'item Workshop."))
+            (Index: message.LastIndexOf("Committing update", StringComparison.OrdinalIgnoreCase), Progress: new OperationProgress("workshop-commit", "Validation finale des paramètres et rattachement du manifeste à l'item Workshop.")),
+            (Index: message.LastIndexOf("Connecting anonymously to Steam Public", StringComparison.OrdinalIgnoreCase), Progress: new OperationProgress("steam-connect", "Connexion anonyme au réseau Steam.")),
+            (Index: message.LastIndexOf("Waiting for client config", StringComparison.OrdinalIgnoreCase), Progress: new OperationProgress("steam-config", "Configuration du client Steam reçue; préparation du téléchargement.")),
+            (Index: message.LastIndexOf("Waiting for user info", StringComparison.OrdinalIgnoreCase), Progress: new OperationProgress("steam-account", "Session Steam validée; récupération des droits Workshop."))
         };
+
+        AddLatestRegex("Downloading item\\s+(\\d+)\\s+\\.\\.\\.", match => new OperationProgress("workshop-download", $"Téléchargement du Workshop item {match.Groups[1].Value}."));
+        AddLatestRegex("Success\\.\\s*Downloaded item\\s+(\\d+)\\s+to\\s+", match => new OperationProgress("workshop-download", $"Workshop item {match.Groups[1].Value} téléchargé et vérifié."));
+        AddLatestRegex("Update state .*?progress:\\s*([0-9.]+)", match =>
+        {
+            var percentage = double.TryParse(match.Groups[1].Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var value)
+                ? (int)Math.Clamp(Math.Round(value), 0, 100)
+                : 0;
+            return new OperationProgress("dedicated", $"Mise à jour de l'installation dédiée : {percentage} %.", percentage, 100);
+        });
+        AddLatestRegex("Success!\\s+App ['\"]?(\\d+)['\"]? fully installed", match => new OperationProgress("dedicated", $"Installation Steam {match.Groups[1].Value} vérifiée et à jour."));
+
         var latest = candidates.Where(candidate => candidate.Index >= 0).OrderByDescending(candidate => candidate.Index).FirstOrDefault();
         return latest.Index >= 0 ? latest.Progress : null;
+
+        void AddLatestRegex(string pattern, Func<Match, OperationProgress> create)
+        {
+            var matches = Regex.Matches(message, pattern, RegexOptions.IgnoreCase);
+            if (matches.Count == 0) return;
+            var match = matches[^1];
+            candidates.Add((match.Index, create(match)));
+        }
     }
 
     private static async Task TailLogAsync(
@@ -991,11 +1012,43 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
 
     private readonly record struct ReferenceRefreshStatus(bool RequiresIndex, bool RequiresSnapshot);
 
+    private async Task<string> ResolveExecutableAsync(
+        PackageProject project,
+        CancellationToken cancellationToken,
+        IProgress<OperationProgress>? progress)
+    {
+        var executable = await ResolveExecutableAsync(project.Automation.SteamCmdPath, cancellationToken, progress);
+        project.Automation.SteamCmdPath = executable;
+        return executable;
+    }
+
+    private async Task<string> ResolveExecutableAsync(
+        string? configuredPath,
+        CancellationToken cancellationToken,
+        IProgress<OperationProgress>? progress)
+    {
+        if (IsExecutable(configuredPath)) return Path.GetFullPath(configuredPath!);
+
+        if (!string.IsNullOrWhiteSpace(configuredPath))
+            progress?.Report(new OperationProgress("steamcmd-fallback", $"Le chemin SteamCMD configuré n'est plus utilisable ({configuredPath}). Bascule vers l'installation portable gérée."));
+
+        var installed = await installer.EnsureInstalledAsync(cancellationToken, progress);
+        ValidateExecutable(installed.ExecutablePath);
+        return Path.GetFullPath(installed.ExecutablePath);
+    }
+
+    private static bool IsExecutable(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return false;
+        var fileName = Path.GetFileName(path);
+        return fileName.Equals("steamcmd.exe", StringComparison.OrdinalIgnoreCase) ||
+               fileName.Equals("steamcmd.sh", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static void ValidateExecutable(string path)
     {
-        var fileName = Path.GetFileName(path);
-        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path) || (!fileName.Equals("steamcmd.exe", StringComparison.OrdinalIgnoreCase) && !fileName.Equals("steamcmd.sh", StringComparison.OrdinalIgnoreCase)))
-            throw new FileNotFoundException("SteamCMD est introuvable. Indiquez le chemin exact vers steamcmd.exe ou steamcmd.sh.", path);
+        if (!IsExecutable(path))
+            throw new FileNotFoundException("SteamCMD est introuvable et l'installation portable automatique n'a pas abouti.", path);
     }
 
     private static string ResolveDownloadLogin(PackageProject project) =>

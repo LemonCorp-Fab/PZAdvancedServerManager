@@ -877,6 +877,22 @@ public class EditModel(
         return RedirectToPage(new { id });
     }
 
+    public async Task<IActionResult> OnPostInstallSteamCmdStreamAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var project = store.Get(id);
+        if (project is null) return NotFound();
+        return await StreamOperationAsync(async progress =>
+        {
+            var result = await steamCmdInstaller.InstallAsync(cancellationToken, progress);
+            if (!result.Bootstrapped)
+                throw new InvalidOperationException("SteamCMD a été extrait, mais son initialisation a échoué : " + Limit(result.Output, 1200));
+            project.Automation.SteamCmdPath = result.ExecutablePath;
+            store.Save(project);
+            environment.Invalidate();
+            return "SteamCMD portable téléchargé, initialisé et prêt";
+        }, Url.Page("/Projects/Edit", null, new { id, tab = "distribution" })!, cancellationToken);
+    }
+
     public static string SelectionKey(DiscoveredMod mod) => Convert.ToBase64String(Encoding.UTF8.GetBytes($"{mod.WorkshopId}|{mod.ModId}|{mod.ModRoot}"));
 
     public static string ModImportEntryValue(string modId) => "mod:" + Convert.ToBase64String(Encoding.UTF8.GetBytes(modId));

@@ -166,6 +166,8 @@ Creating another project therefore creates another independent pack. The UI and 
 
 The .NET core detects standard Steam locations on Windows and Linux, `steamcmd.exe` or `steamcmd.sh`, and `StartServer64.bat` or `start-server.sh`. The local web UI requires no native desktop toolkit.
 
+SteamCMD is a managed dependency, not a prerequisite. On the first import, source refresh, publication, session check, or dedicated-server repair that needs it, PZASM uses a valid configured executable or downloads Valve's platform archive into `<data-root>/tools/steamcmd`, extracts it safely, runs its bootstrap, and reuses that same portable cache and session afterward. A stale custom path falls back to the managed copy automatically. Public Project Zomboid Workshop downloads use anonymous login by default. The UI streams download, extraction, bootstrap, and verification phases, and cancellation terminates the bootstrap process as well as the request.
+
 The CLI covers inventory, project creation and duplication, source add/remove/import/refresh, permission records, validation, build, explicit publication, server configuration, status, startup, graceful shutdown, pack application, and scheduled daemon operation. It is suitable for SSH-managed servers, persistent containers, and systemd services.
 
 The UI worker and `pzasm automation run` use the same `PackageAutomationService`. A global scheduler lock prevents duplicate schedule execution, and per-project locks prevent concurrent refresh, build, and publish operations across processes.

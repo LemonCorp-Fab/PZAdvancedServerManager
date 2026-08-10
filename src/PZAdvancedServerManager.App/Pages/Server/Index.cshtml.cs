@@ -420,13 +420,12 @@ public class IndexModel(
                     if (adminStatus.IsRequired && string.IsNullOrEmpty(initialAdminPassword))
                         throw new InvalidOperationException("Aucun compte « admin » n’existe dans la base joueurs. Saisissez et confirmez son mot de passe pour permettre la première initialisation non interactive.");
                 }
-                var steamStatus = steamCmdInstaller.GetStatus();
-                if (steamStatus.Installed)
+                var workshopItems = servers.ReadSummary(name).WorkshopItems;
+                if (workshopItems.Count > 0)
                 {
                     var downloadContext = new PackageProject();
-                    downloadContext.Automation.SteamCmdPath = steamStatus.ExecutablePath;
                     downloadContext.Automation.AnonymousWorkshopDownloads = true;
-                    foreach (var value in servers.ReadSummary(name).WorkshopItems)
+                    foreach (var value in workshopItems)
                     {
                         if (!ulong.TryParse(value, out var workshopId) || workshopId == 0) continue;
                         var availability = await steamCmd.VerifyWorkshopItemAvailableAsync(downloadContext, workshopId, 1, cancellationToken);
@@ -813,9 +812,6 @@ public class IndexModel(
         if (string.IsNullOrWhiteSpace(installation.DedicatedServerRoot))
             throw new DirectoryNotFoundException("Aucune installation locale de Project Zomboid Dedicated Server n'a été détectée.");
         var steamStatus = steamCmdInstaller.GetStatus();
-        if (!steamStatus.Installed)
-            throw new FileNotFoundException("Installez d'abord SteamCMD depuis le tableau de bord.", steamStatus.ExecutablePath);
-
         var result = await steamCmd.UpdateDedicatedServerAsync(steamStatus.ExecutablePath, installation.DedicatedServerRoot, cancellationToken, progress);
         if (!result.Success)
             throw new InvalidOperationException($"SteamCMD n'a pas pu mettre à jour le serveur dédié : {Limit(result.CombinedOutput, 1800)}");

@@ -1,0 +1,31 @@
+@page
+@model PZAdvancedServerManager.App.Pages.Account.SetupModel
+@{
+    ViewData["Title"] = "Configuration initiale";
+}
+
+<section class="auth-shell">
+    <div class="auth-intro">
+        <span class="brand-mark auth-brand">PZ</span>
+        <span class="eyebrow">PREMIER DÉMARRAGE</span>
+        <h1>Créez le propriétaire du manager.</h1>
+        <p>Ce compte pourra gérer les utilisateurs, les serveurs, les clés d’hébergement et les sessions SteamCMD.</p>
+    </div>
+    <div class="auth-card">
+        <span class="eyebrow">ÉTAPE UNIQUE</span>
+        <h2>Premier administrateur</h2>
+        <p>Cette page se désactive définitivement dès que le premier compte est créé.</p>
+        <div asp-validation-summary="ModelOnly" class="error-message" role="alert"></div>
+        <form method="post" class="stack-form auth-form" data-loading-title="Sécurisation du manager…" data-loading-detail="Création du compte administrateur et ouverture de la session.">
+            <label asp-for="Input.Username"><span>Nom d’utilisateur</span><input asp-for="Input.Username" autocomplete="username" autofocus /></label>
+            <span asp-validation-for="Input.Username" class="field-validation-error"></span>
+            <label asp-for="Input.DisplayName"><span>Nom affiché</span><input asp-for="Input.DisplayName" autocomplete="name" /></label>
+            <span asp-validation-for="Input.DisplayName" class="field-validation-error"></span>
+            <label asp-for="Input.Password"><span>Mot de passe</span><input asp-for="Input.Password" autocomplete="new-password" /><small>12 caractères minimum, avec majuscule, minuscule et chiffre.</small></label>
+            <span asp-validation-for="Input.Password" class="field-validation-error"></span>
+            <label asp-for="Input.ConfirmPassword"><span>Confirmer le mot de passe</span><input asp-for="Input.ConfirmPassword" autocomplete="new-password" /></label>
+            <span asp-validation-for="Input.ConfirmPassword" class="field-validation-error"></span>
+            <button class="button primary" type="submit">Créer l’administrateur</button>
+        </form>
+    </div>
+</section>

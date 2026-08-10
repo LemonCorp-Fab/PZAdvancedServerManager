@@ -1,0 +1,4 @@
+services:
+  manager:
+    ports:
+      - "${PZASM_BIND_ADDRESS:-127.0.0.1}:${PZASM_HTTP_PORT:-5160}:5160"

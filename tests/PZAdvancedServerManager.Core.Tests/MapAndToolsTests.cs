@@ -178,12 +178,32 @@ public sealed class MapAndToolsTests : IDisposable
         var paths = new ApplicationPaths(Path.Combine(_root, "data"));
         using var client = new HttpClient(new ArchiveHandler(CreateSteamCmdArchive()));
         var installer = new SteamCmdInstaller(paths, client);
+        var phases = new List<string>();
 
-        var result = await installer.InstallAsync();
+        var result = await installer.InstallAsync(progress: new InlineProgress<OperationProgress>(value => phases.Add(value.Phase)));
 
         Assert.Equal(paths.SteamCmdExecutable, result.ExecutablePath);
         Assert.True(File.Exists(result.ExecutablePath));
         Assert.True(installer.GetStatus().Installed);
+        Assert.Contains("steamcmd-download", phases);
+        Assert.Contains("steamcmd-extract", phases);
+        Assert.Contains("steamcmd-bootstrap", phases);
+    }
+
+    [Fact]
+    public async Task SteamCmdInstaller_ReusesManagedExecutableWithoutDownloadingAgain()
+    {
+        var paths = new ApplicationPaths(Path.Combine(_root, "existing-data"));
+        Directory.CreateDirectory(paths.SteamCmdRoot);
+        File.WriteAllText(paths.SteamCmdExecutable, "existing");
+        using var client = new HttpClient(new ArchiveHandler(CreateSteamCmdArchive()));
+        var installer = new SteamCmdInstaller(paths, client);
+
+        var result = await installer.EnsureInstalledAsync();
+
+        Assert.True(result.Bootstrapped);
+        Assert.False(result.Downloaded);
+        Assert.Equal(paths.SteamCmdExecutable, result.ExecutablePath);
     }
 
     private string CreateMapMod()
@@ -255,5 +275,10 @@ public sealed class MapAndToolsTests : IDisposable
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
             Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(archive) });
+    }
+
+    private sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
+    {
+        public void Report(T value) => report(value);
     }
 }

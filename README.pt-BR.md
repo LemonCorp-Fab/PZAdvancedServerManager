@@ -30,7 +30,7 @@ Leia o [estudo completo de arquitetura](docs/ARCHITECTURE.pt-BR.md).
 - importação por Workshop ID e inclusão das dependências `require=` disponíveis;
 - catálogo Workshop interno com pesquisa, ordenação, tags, prévias, paginação, acesso direto por ID e cesta de seleção persistente entre páginas com remoção individual;
 - mesmo seletor visual para packs e listas `WorkshopItems`/`Mods` de servidores locais ou dedicados, mantendo a edição bruta;
-- instalação portátil do SteamCMD em um clique diretamente da Valve no Windows e Linux, também com `pzasm steamcmd install`;
+- instalação portátil gerenciada automaticamente do SteamCMD diretamente da Valve no Windows e Linux na primeira operação que precisar dele, com preparação manual opcional pela interface ou `pzasm steamcmd install`;
 - downloads anônimos de fontes públicas do Workshop, separados da conta autenticada de publicação;
 - Bundle sem reescrever manifests, Lua, scripts, mapas ou assets;
 - Strict Fusion com desduplicação de arquivos idênticos e relatório de conflitos;
@@ -66,7 +66,7 @@ chmod +x Start-PZASM.sh
 ```
 
 A UI escuta localmente em `http://localhost:5160`. Use `--data-root <caminho>` para compartilhar o diretório de dados entre a UI e o CLI.
-O SteamCMD pode ser instalado pelo painel ou pela aba Distribuição. Fontes públicas do Project Zomboid são baixadas anonimamente por padrão; somente a publicação exige a conta editora.
+O SteamCMD é baixado, extraído de forma controlada e inicializado na pasta do gerenciador quando é necessário pela primeira vez. O painel, a aba Distribuição e a CLI também podem prepará-lo ou reinstalá-lo imediatamente. Fontes públicas do Project Zomboid são baixadas anonimamente por padrão; somente a publicação exige a conta editora.
 
 O SteamCMD baixa IDs conhecidos, mas não oferece pesquisa completa. O catálogo interno enumera resultados públicos da Steam Community, obtém metadados públicos e entrega a seleção ao SteamCMD. A publicação agendada não exige um servidor local; a coordenação RCON é opcional.
 
@@ -77,7 +77,7 @@ O SteamCMD baixa IDs conhecidos, mas não oferece pesquisa completa. O catálogo
 3. Registre autor e autorização de cada origem.
 4. Revise a ordem dos mods e mapas.
 5. Construa e examine `pack.lock.json` e `server-config.txt`.
-6. Instale o SteamCMD em um clique, configure a conta editora, use **Conectar / renovar sessão** e publique primeiro como privado.
+6. Deixe o gerenciador preparar o SteamCMD automaticamente (ou prepare-o imediatamente em Distribuição), configure a conta editora, use **Conectar / renovar sessão** e publique primeiro como privado.
 7. Teste em um servidor de staging antes da produção.
 
 ## CLI headless
@@ -95,6 +95,12 @@ dotnet run --project src/PZAdvancedServerManager.Cli -- automation run --interva
 ```
 
 Cada projeto representa um pacote global independente. Nada é atualizado automaticamente até o administrador ativar a automação. Unidades systemd de referência estão em `deploy/systemd/`.
+
+## Docker, Coolify e acesso seguro
+
+O contêiner de produção inclui o gerenciador web, o agendador, o cliente SSH, as bibliotecas Linux de 32 bits do SteamCMD e sua instalação automática. Todas as páginas administrativas exigem uma conta. Administradores gerenciam usuários e revogam sessões; operadores gerenciam pacotes e servidores sem acesso às contas.
+
+O Coolify pode implantar `compose.yaml` diretamente. Configure `PZASM_ADMIN_PASSWORD` como variável protegida (o Compose a monta como arquivo secreto somente leitura), direcione a porta `5160` por um domínio HTTPS e preserve sempre o volume `pzasm-data`. Ele contém contas, chaves de sessão, projetos, SteamCMD, sua sessão portátil, downloads do Workshop e builds. Consulte [Docker e Coolify](docs/DOCKER-COOLIFY.md).
 
 ## SteamCMD e servidores remotos
 

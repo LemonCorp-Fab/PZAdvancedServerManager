@@ -65,6 +65,8 @@ SteamCMD abre una sesión de Steam independiente, por lo que la automatización 
 
 Un mod ejecutado dentro del juego no puede administrar de forma fiable SteamCMD, horarios sin el juego, archivos privados ni varios perfiles de servidor. Por eso PZASM usa una aplicación ASP.NET Core local y un CLI headless con el mismo núcleo. Solo el aviso Lua generado se ejecuta en Project Zomboid.
 
+SteamCMD es una dependencia gestionada, no un requisito manual. En la primera importación, actualización de fuentes, publicación, comprobación de sesión o reparación del servidor dedicado que lo necesite, PZASM usa un ejecutable configurado válido o descarga el archivo de Valve para la plataforma en `<data-root>/tools/steamcmd`, lo extrae de forma controlada, lo inicializa y reutiliza después la misma caché y sesión portátiles. Una ruta personalizada obsoleta vuelve automáticamente a la copia gestionada. Las descargas públicas del Workshop de Project Zomboid usan acceso anónimo de forma predeterminada. La interfaz transmite las fases de descarga, extracción, inicialización y verificación; cancelar también detiene el proceso de inicialización.
+
 ## Seguridad y derechos
 
 La [política oficial](https://projectzomboid.com/blog/modding-policy/) se presenta al administrador, que sigue siendo el único responsable de sus decisiones. Los estados de permiso, las pruebas y la confirmación de lectura son únicamente informativos: nunca bloquean la compilación, publicación o automatización. Las situaciones desconocidas, sin prueba o rechazadas siguen mostrándose claramente; las pruebas privadas no entran en `Contents` y la descripción pública enumera todas las fuentes.

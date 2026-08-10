@@ -31,7 +31,7 @@ See the complete [architecture and feasibility study](docs/ARCHITECTURE.md).
 - direct Workshop ID import through SteamCMD, including every compatible `mod.info` and available dependency;
 - internal Project Zomboid Workshop catalog with search, sorting, tags, metadata, previews, pagination, direct ID lookup, and a persistent cross-page selection cart with per-item removal;
 - one shared selector for pack sources and local/dedicated-server `WorkshopItems` and `Mods` lists, while preserving raw editors;
-- one-click portable SteamCMD installation from Valve on Windows and Linux, also available as `pzasm steamcmd install`;
+- automatic managed SteamCMD installation from Valve on Windows and Linux at the first operation that needs it, with optional pre-installation from the UI or `pzasm steamcmd install`;
 - anonymous Workshop source downloads for public server content, kept separate from the authenticated publisher account;
 - project duplication and local deletion without changing source mods or deleting Workshop items;
 - automatic addition of available `require=` dependencies and validation errors for missing dependencies;
@@ -64,7 +64,7 @@ Build, Update mods, and Publish are presented as the project's primary commands.
 
 ## Getting started
 
-Building from source requires Windows or Linux and the [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0). Self-contained CI artifacts do not require the .NET runtime. SteamCMD can be installed from the dashboard, a project’s Distribution tab, or the CLI. Public source items are downloaded anonymously by default; publishing still requires the owner account.
+Building from source requires Windows or Linux and the [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0). Self-contained CI artifacts do not require the .NET runtime. SteamCMD is downloaded, safely extracted, and bootstrapped in the manager data directory at first use; the dashboard, Distribution tab, and CLI can prepare or reinstall it explicitly. Public source items are downloaded anonymously by default; publishing still requires the owner account.
 
 On Windows, run `Start-PZASM.cmd`, or:
 
@@ -83,6 +83,18 @@ Use `--data-root <path>` to share an explicit data directory between the UI and 
 
 PZASM never modifies Steam sources during a build. It builds from private pinned snapshots in its own data directory.
 
+## Docker, Coolify, and authenticated access
+
+The production container includes the web manager, scheduler, SSH client, SteamCMD's Linux 32-bit dependencies, and automatic SteamCMD installation. All pages require an authenticated manager account. Administrators manage accounts and can revoke sessions; operators can manage packs and servers without access to user administration.
+
+```bash
+cp .env.example .env
+# Set a strong PZASM_ADMIN_PASSWORD in .env.
+docker compose -f compose.yaml -f compose.local.yaml up -d --build
+```
+
+Coolify can deploy the same `compose.yaml`; configure `PZASM_ADMIN_PASSWORD` as a protected variable (Compose mounts it as a read-only secret file), route the `manager` service's port `5160` through HTTPS, and retain the `pzasm-data` volume. That volume contains accounts, cookie keys, projects, SteamCMD, its portable Steam session, Workshop downloads, and builds. See [Docker and Coolify deployment](docs/DOCKER-COOLIFY.md) for health checks, backup, SteamCMD, architecture, and host-process boundaries.
+
 ## Recommended workflow
 
 1. Create a project and keep **Bundle** mode.
@@ -91,7 +103,7 @@ PZASM never modifies Steam sources during a build. It builds from private pinned
 4. Record the author and permission or license evidence for every source.
 5. Review mod and map order.
 6. Build locally and inspect `pack.lock.json` and `server-config.txt`.
-7. Install SteamCMD in one click and configure a dedicated publisher account that owns Project Zomboid. Use **Create / replace session** once, then use **Verify existing session** for later checks and publish with private visibility. If Steam Guard is enabled, approve SteamCMD's mobile notification first or use a current code as a fallback. Passwords and codes are never persisted by the manager.
+7. Let the manager prepare SteamCMD automatically (or prepare it immediately from Distribution), then configure a dedicated publisher account that owns Project Zomboid. Use **Create / replace session** once, then use **Verify existing session** for later checks and publish with private visibility. If Steam Guard is enabled, approve SteamCMD's mobile notification first or use a current code as a fallback. Passwords and codes are never persisted by the manager.
 8. Test on a staging server.
 9. Apply the pack from the Servers page; PZASM backs up the `.ini` first.
 
@@ -165,9 +177,9 @@ dotnet test PZAdvancedServerManager.sln
 dotnet publish src/PZAdvancedServerManager.App -c Release -o publish
 ```
 
-GitHub Actions tests Windows and Linux and produces self-contained `win-x64` and `linux-x64` artifacts containing the local UI and headless CLI. Do not expose the PZASM port to the Internet: the UI is a local administration tool and does not provide network authentication.
+GitHub Actions tests Windows and Linux and produces self-contained `win-x64` and `linux-x64` artifacts containing the local UI and headless CLI. Network deployments must use the built-in authentication and an HTTPS reverse proxy; never expose stored server or Steam credentials over plain HTTP.
 
-The project targets .NET 9 and requires no database. JSON writes are atomic, and snapshots and builds are prepared in temporary directories before replacement.
+The project targets .NET 9. Pack and server data use atomic JSON writes, while manager users and roles use a dedicated SQLite Identity database. Snapshots and builds are prepared in temporary directories before replacement.
 
 ## Local and remote Project Zomboid control
 

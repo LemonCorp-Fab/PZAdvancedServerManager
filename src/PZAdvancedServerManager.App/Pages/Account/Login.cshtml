@@ -1,0 +1,36 @@
+@page
+@model PZAdvancedServerManager.App.Pages.Account.LoginModel
+@{
+    ViewData["Title"] = "Connexion";
+}
+
+<section class="auth-shell">
+    <div class="auth-intro">
+        <span class="brand-mark auth-brand">PZ</span>
+        <span class="eyebrow">ACCÈS SÉCURISÉ</span>
+        <h1>Administrer vos serveurs en sécurité.</h1>
+        <p>Connectez-vous pour accéder aux packs, aux identifiants Steam et aux configurations de vos serveurs.</p>
+    </div>
+    <div class="auth-card">
+        <span class="eyebrow">PZ ADVANCED SERVER MANAGER</span>
+        <h2>Connexion</h2>
+        <p>Les tentatives échouées répétées verrouillent temporairement le compte.</p>
+        @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
+        {
+            <div class="error-message" role="alert">@Model.ErrorMessage</div>
+        }
+        <form method="post" class="stack-form auth-form" data-loading-title="Connexion…" data-loading-detail="Vérification sécurisée de votre compte.">
+            <input type="hidden" asp-for="ReturnUrl" />
+            <label asp-for="Input.Username"><span>Nom d’utilisateur</span><input asp-for="Input.Username" autocomplete="username" autofocus /></label>
+            <span asp-validation-for="Input.Username" class="field-validation-error"></span>
+            <label asp-for="Input.Password"><span>Mot de passe</span><input asp-for="Input.Password" autocomplete="current-password" /></label>
+            <span asp-validation-for="Input.Password" class="field-validation-error"></span>
+            <label class="auth-remember"><input asp-for="Input.RememberMe" /><span>Rester connecté sur cet appareil</span></label>
+            <button class="button primary" type="submit">Se connecter</button>
+        </form>
+        @if (Model.SetupAvailable)
+        {
+            <div class="auth-setup-note"><strong>Aucun administrateur configuré</strong><span>Le setup initial est encore disponible sur cette installation.</span><a asp-page="/Account/Setup">Créer le premier administrateur</a></div>
+        }
+    </div>
+</section>

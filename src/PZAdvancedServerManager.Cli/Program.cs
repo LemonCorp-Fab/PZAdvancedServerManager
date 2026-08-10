@@ -115,7 +115,7 @@ internal sealed class PzasmCli
             case "import-workshop":
                 {
                     var workshopId = args.GetUlong("workshop-id") ?? throw new ArgumentException("Option --workshop-id requise.");
-                    var result = await services.WorkshopImport.ImportAsync(current, workshopId);
+                    var result = await services.WorkshopImport.ImportAsync(current, workshopId, progress: new CliOperationProgress());
                     WriteJson(result);
                     return 0;
                 }
@@ -170,8 +170,8 @@ internal sealed class PzasmCli
                 {
                     var refresh = args.Get("mod-id") is { } modId
                         ? await services.Lifecycle.RefreshModAsync(current, current.Mods.FirstOrDefault(x => x.ModId.Equals(modId, StringComparison.OrdinalIgnoreCase))?.Id
-                            ?? throw new InvalidOperationException("Mod absent du projet."))
-                        : await services.Lifecycle.RefreshSourcesAsync(current);
+                            ?? throw new InvalidOperationException("Mod absent du projet."), progress: new CliOperationProgress())
+                        : await services.Lifecycle.RefreshSourcesAsync(current, progress: new CliOperationProgress());
                     current.Automation.LastResult = refresh.CombinedOutput;
                     services.Store.Save(current);
                     Console.WriteLine(refresh.CombinedOutput);
@@ -194,7 +194,7 @@ internal sealed class PzasmCli
                     if (!args.Has("yes")) return Fail("Publication non exécutée. Ajoutez --yes pour confirmer l'envoi vers Steam Workshop.", 3);
                     if (string.IsNullOrWhiteSpace(current.Automation.CoordinatedServerName))
                         Console.Error.WriteLine("ATTENTION: aucun serveur coordonné; --yes confirme que l'administrateur gère lui-même le redémarrage.");
-                    var result = await services.Lifecycle.PublishAsync(current, refreshSources: false, requireCoordinatedServer: false, force: args.Has("force"));
+                    var result = await services.Lifecycle.PublishAsync(current, refreshSources: false, requireCoordinatedServer: false, progress: new CliOperationProgress(), force: args.Has("force"));
                     current.Automation.LastResult = result.Output;
                     services.Store.Save(current);
                     Console.WriteLine(result.Output);
@@ -597,7 +597,7 @@ internal sealed class PzasmCli
                 else Console.WriteLine(status.Installed ? $"SteamCMD prêt : {status.ExecutablePath}" : $"SteamCMD non installé. Emplacement prévu : {status.ExecutablePath}");
                 return status.Installed ? 0 : 4;
             case "install":
-                var result = await services.SteamCmdInstaller.InstallAsync();
+                var result = await services.SteamCmdInstaller.InstallAsync(progress: new CliOperationProgress());
                 if (args.Get("id") is { } projectId)
                 {
                     if (!Guid.TryParse(projectId, out var parsedId)) throw new ArgumentException("--id doit être un GUID de projet.");
@@ -861,12 +861,12 @@ internal sealed class CliServices
         WorldData = new ServerWorldDataStore(paths);
         var builder = new PackageBuildService(paths, Validator);
         WorkshopCatalog = new WorkshopCatalogService();
-        SteamCmd = new SteamCmdService(Validator, WorkshopCatalog);
+        SteamCmdInstaller = new SteamCmdInstaller(paths);
+        SteamCmd = new SteamCmdService(Validator, WorkshopCatalog, SteamCmdInstaller);
         MapPriority = new MapPriorityService();
         Lifecycle = new PackageLifecycleService(paths, Store, snapshots, builder, SteamCmd, Servers);
         Automation = new PackageAutomationService(paths, Store, Lifecycle);
         WorkshopImport = new WorkshopImportService(SteamCmd, discovery, Environment, Projects);
-        SteamCmdInstaller = new SteamCmdInstaller(paths);
     }
 
     public ApplicationPaths Paths { get; }

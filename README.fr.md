@@ -30,7 +30,7 @@ Consultez l’[étude d’architecture complète](docs/ARCHITECTURE.fr.md).
 - import par Workshop ID et ajout des dépendances `require=` disponibles ;
 - catalogue Workshop interne avec recherche, tris, tags, aperçus, pagination, accès direct par ID et panier de sélection persistant entre les pages avec retrait individuel ;
 - même sélecteur visuel pour les packs et les listes `WorkshopItems`/`Mods` des serveurs locaux ou dédiés, avec édition brute conservée ;
-- installation portable de SteamCMD en un clic depuis Valve sous Windows et Linux, également disponible avec `pzasm steamcmd install` ;
+- installation portable gérée automatiquement depuis Valve sous Windows et Linux dès la première opération qui en a besoin, avec préparation manuelle facultative via l’UI ou `pzasm steamcmd install` ;
 - téléchargement anonyme des sources Workshop publiques, séparé du compte authentifié utilisé pour publier ;
 - Bundle sans réécriture des dossiers, manifests, Lua, scripts, cartes ou assets ;
 - Fusion stricte avec déduplication des fichiers identiques et rapport des collisions ;
@@ -71,7 +71,7 @@ chmod +x Start-PZASM.sh
 ```
 
 L’UI écoute localement sur `http://localhost:5160`. Utilisez `--data-root <dossier>` pour partager explicitement les données entre l’UI et le CLI.
-SteamCMD s’installe depuis le tableau de bord ou l’onglet Distribution. Les sources publiques Project Zomboid sont téléchargées anonymement par défaut ; seul le compte éditeur est requis pour publier.
+SteamCMD est téléchargé, extrait de façon contrôlée et initialisé dans le dossier du manager au premier besoin. Le tableau de bord, l’onglet Distribution et le CLI permettent aussi de le préparer ou le réinstaller immédiatement. Les sources publiques Project Zomboid sont téléchargées anonymement par défaut ; seul le compte éditeur est requis pour publier.
 
 SteamCMD télécharge un Workshop ID connu mais ne fournit pas de recherche complète. Le catalogue interne énumère les résultats publics Steam Community, récupère leurs métadonnées publiques, puis transmet uniquement la sélection à SteamCMD. Une publication planifiée ne nécessite aucun serveur local ; la coordination RCON reste facultative.
 
@@ -82,7 +82,7 @@ SteamCMD télécharge un Workshop ID connu mais ne fournit pas de recherche comp
 3. Renseignez l’auteur et les autorisations de chaque source.
 4. Vérifiez l’ordre des mods et des cartes.
 5. Construisez et examinez `pack.lock.json` et `server-config.txt`.
-6. Installez SteamCMD en un clic, configurez le compte éditeur, utilisez **Connecter / renouveler la session**, puis publiez d’abord en privé.
+6. Laissez le manager préparer SteamCMD automatiquement (ou préparez-le immédiatement depuis Distribution), configurez le compte éditeur, utilisez **Connecter / renouveler la session**, puis publiez d’abord en privé.
 7. Testez sur un serveur de staging avant la production.
 
 ## CLI headless
@@ -100,6 +100,12 @@ dotnet run --project src/PZAdvancedServerManager.Cli -- automation run --interva
 ```
 
 Chaque projet représente un pack global séparé. Rien ne se met à jour automatiquement sans activation explicite. Des unités systemd de référence se trouvent dans `deploy/systemd/`.
+
+## Docker, Coolify et accès sécurisé
+
+Le conteneur de production inclut le manager web, le planificateur, le client SSH, les bibliothèques Linux 32 bits de SteamCMD et son installation automatique. Toutes les pages de gestion exigent un compte. Les administrateurs gèrent les utilisateurs et révoquent leurs sessions; les opérateurs gèrent les packs et serveurs sans accès aux comptes.
+
+Coolify peut déployer directement `compose.yaml`. Ajoutez `PZASM_ADMIN_PASSWORD` comme variable protégée (Compose la monte comme fichier secret en lecture seule), associez le port `5160` à un domaine HTTPS et conservez impérativement le volume `pzasm-data`. Celui-ci contient les comptes, les clés de session, les projets, SteamCMD, sa session portable, les téléchargements Workshop et les builds. La procédure complète est décrite dans [Docker et Coolify](docs/DOCKER-COOLIFY.md).
 
 ## SteamCMD et serveurs distants
 

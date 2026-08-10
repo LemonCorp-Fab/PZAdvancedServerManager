@@ -1,0 +1,13 @@
+@page
+@model PZAdvancedServerManager.App.Pages.Account.AccessDeniedModel
+@{
+    ViewData["Title"] = "Accès refusé";
+}
+<section class="auth-shell auth-single">
+    <div class="auth-card">
+        <span class="eyebrow">AUTORISATION REQUISE</span>
+        <h1>Accès refusé</h1>
+        <p>Votre compte est connecté, mais son rôle ne permet pas d’ouvrir cette page.</p>
+        <a class="button primary" asp-page="/Index">Retour aux packs</a>
+    </div>
+</section>

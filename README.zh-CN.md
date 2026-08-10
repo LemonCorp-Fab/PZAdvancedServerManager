@@ -30,7 +30,7 @@ Mods=ModIdA;ModIdB;ModIdC;PZASM_Notice_SUFFIX
 - 按 Workshop ID 导入，并加入可用的 `require=` 依赖；
 - 内置 Workshop 目录，支持搜索、排序、标签、预览、分页、直接输入 ID，以及跨页面保留并可逐项移除的选择清单；
 - 模组包与本地/专用服务器的 `WorkshopItems`、`Mods` 共用可视化选择器，同时保留原始编辑；
-- 在 Windows 和 Linux 上从 Valve 一键安装便携式 SteamCMD，也可运行 `pzasm steamcmd install`；
+- 在 Windows 和 Linux 上首次需要时自动从 Valve 安装托管便携式 SteamCMD，也可通过界面或 `pzasm steamcmd install` 提前准备；
 - 匿名下载公开的 Workshop 来源内容，并与发布所用的认证账号分离；
 - Bundle 不重写 manifest、Lua、脚本、地图或资源；
 - Strict Fusion 对相同文件去重，并报告冲突；
@@ -66,7 +66,7 @@ chmod +x Start-PZASM.sh
 ```
 
 UI 默认仅监听本机的 `http://localhost:5160`。使用 `--data-root <路径>` 可让 UI 与 CLI 共用指定数据目录。
-可从仪表板或“分发”标签安装 SteamCMD。公开的 Project Zomboid 来源默认匿名下载；只有发布操作需要发布者账号。
+首次需要时，SteamCMD 会自动下载到管理器目录，经过安全解压并完成初始化。也可以从仪表板、“分发”标签或 CLI 立即准备或重新安装。公开的 Project Zomboid 来源默认匿名下载；只有发布操作需要发布者账号。
 
 SteamCMD 可以下载已知 Workshop ID，但不提供完整搜索。内置目录会枚举 Steam Community 的公开结果、获取公开元数据，再把所选条目交给 SteamCMD。定时发布不要求游戏服务器位于本机；RCON 协调是可选功能。
 
@@ -77,7 +77,7 @@ SteamCMD 可以下载已知 Workshop ID，但不提供完整搜索。内置目�
 3. 为每个来源记录作者和授权信息。
 4. 检查模组与地图顺序。
 5. 本地构建并检查 `pack.lock.json` 和 `server-config.txt`。
-6. 一键安装 SteamCMD，配置发布者账号，先执行**连接 / 更新会话**，再以私有可见性发布。
+6. 让管理器自动准备 SteamCMD（或在“分发”中立即准备），配置发布者账号，先执行**连接 / 更新会话**，再以私有可见性发布。
 7. 在投入生产前使用测试服务器验证。
 
 ## 无界面 CLI
@@ -95,6 +95,12 @@ dotnet run --project src/PZAdvancedServerManager.Cli -- automation run --interva
 ```
 
 每个项目都是独立的全局模组包。管理员未明确启用自动化前，不会自动更新。`deploy/systemd/` 中提供了 systemd 服务示例。
+
+## Docker、Coolify 与安全访问
+
+生产容器包含 Web 管理器、计划任务、SSH 客户端、SteamCMD 所需的 Linux 32 位库以及自动安装功能。所有管理页面都必须登录。管理员可管理用户并撤销会话；操作员可管理模组包和服务器，但不能管理账户。
+
+Coolify 可直接部署 `compose.yaml`。请将 `PZASM_ADMIN_PASSWORD` 配置为受保护变量（Compose 会将其挂载为只读密钥文件），将容器端口 `5160` 绑定到 HTTPS 域名，并始终保留 `pzasm-data` 卷。该卷包含账户、会话密钥、项目、SteamCMD、便携会话、Workshop 下载和构建结果。详见 [Docker 与 Coolify](docs/DOCKER-COOLIFY.md)。
 
 ## SteamCMD 与远程服务器
 

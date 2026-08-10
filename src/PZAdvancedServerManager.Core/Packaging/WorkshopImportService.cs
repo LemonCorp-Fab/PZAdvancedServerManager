@@ -10,9 +10,13 @@ public sealed class WorkshopImportService(
     PzEnvironmentService environment,
     PackageProjectService projects)
 {
-    public async Task<WorkshopImportResult> ImportAsync(PackageProject project, ulong workshopId, CancellationToken cancellationToken = default)
+    public async Task<WorkshopImportResult> ImportAsync(
+        PackageProject project,
+        ulong workshopId,
+        CancellationToken cancellationToken = default,
+        IProgress<OperationProgress>? progress = null)
     {
-        var download = await DownloadAsync(project, workshopId, cancellationToken);
+        var download = await DownloadAsync(project, workshopId, cancellationToken, progress);
         var allKnown = environment.GetMods(project.TargetPzVersion, refresh: true)
             .Concat(download.Mods)
             .GroupBy(x => $"{x.WorkshopId}:{x.ModId}:{x.ModRoot}", StringComparer.OrdinalIgnoreCase)
@@ -22,9 +26,13 @@ public sealed class WorkshopImportService(
         return new WorkshopImportResult(workshopId, count, download.Mods.Select(x => x.ModId).ToArray(), download.Output);
     }
 
-    public async Task<WorkshopDownloadResult> DownloadAsync(PackageProject project, ulong workshopId, CancellationToken cancellationToken = default)
+    public async Task<WorkshopDownloadResult> DownloadAsync(
+        PackageProject project,
+        ulong workshopId,
+        CancellationToken cancellationToken = default,
+        IProgress<OperationProgress>? progress = null)
     {
-        var download = await steamCmd.DownloadWorkshopItemAsync(project, workshopId, cancellationToken);
+        var download = await steamCmd.DownloadWorkshopItemAsync(project, workshopId, cancellationToken, progress);
         if (!download.SteamCmd.Success)
             throw new InvalidOperationException("Téléchargement SteamCMD échoué : " + Tail(download.SteamCmd.CombinedOutput));
         if (!Directory.Exists(download.ContentRoot))

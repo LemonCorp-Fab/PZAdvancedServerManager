@@ -87,3 +87,24 @@ publish-all: publish-win publish-linux
 
 # Run checks and publish every supported runtime.
 release: check publish-all
+
+# Build the production Linux container.
+docker-build:
+    docker compose build
+
+# Start the container stack in the background.
+docker-up:
+    docker compose -f compose.yaml -f compose.local.yaml up --detach --build
+
+# Stop the container stack without deleting persistent data.
+docker-down:
+    docker compose -f compose.yaml -f compose.local.yaml down
+
+# Follow manager container logs.
+docker-logs:
+    docker compose -f compose.yaml -f compose.local.yaml logs --follow manager
+
+# Validate the Compose model and build the container image.
+docker-check:
+    docker compose -f compose.yaml -f compose.local.yaml config --quiet
+    docker compose -f compose.yaml -f compose.local.yaml build

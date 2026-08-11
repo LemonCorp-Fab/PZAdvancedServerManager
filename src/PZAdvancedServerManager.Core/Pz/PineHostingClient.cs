@@ -72,6 +72,7 @@ public sealed class PineHostingClient
         var persisted = await ReadFileAsync(connection, path, cancellationToken);
         if (!NormalizeText(persisted).Equals(NormalizeText(content), StringComparison.Ordinal))
             throw new IOException($"Pine Hosting a accepté l'écriture de « {path} », mais la relecture diffère. La sauvegarde reste disponible : {backupPath}");
+        await RetainConfigurationBackupsAsync(connection, path, 20, cancellationToken);
         return backupPath;
     }
 
@@ -172,6 +173,32 @@ public sealed class PineHostingClient
         foreach (var file in validated) ValidateFileName(file);
         if (validated.Length == 0) return;
         using var response = await SendJsonAsync(connection, HttpMethod.Post, ServerPath(connection) + "/files/delete", new { root, files = validated }, cancellationToken);
+    }
+
+    private async Task RetainConfigurationBackupsAsync(RemoteServerConnection connection, string path, int keep, CancellationToken cancellationToken)
+    {
+        var separator = path.LastIndexOf('/');
+        var directory = separator <= 0 ? "/" : path[..separator];
+        var fileName = path[(separator + 1)..];
+        try
+        {
+            using var response = await SendAsync(connection, HttpMethod.Get, ServerPath(connection) + "/files/list?directory=" + Uri.EscapeDataString(directory), cancellationToken: cancellationToken);
+            var root = await ReadJsonAsync(response, cancellationToken);
+            if (!root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array) return;
+            var obsolete = data.EnumerateArray()
+                .Select(Attributes)
+                .Where(item => Bool(item, "is_file"))
+                .Select(item => new { Name = String(item, "name"), ModifiedAt = Date(item, "modified_at") })
+                .Where(item => item.Name.StartsWith(fileName + ".pzasm.", StringComparison.Ordinal) && item.Name.EndsWith(".bak", StringComparison.Ordinal))
+                .OrderByDescending(item => item.ModifiedAt)
+                .Skip(keep)
+                .Select(item => item.Name)
+                .ToArray();
+            await DeleteFilesAsync(connection, directory, obsolete, cancellationToken);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or PineHostingApiException or InvalidDataException or JsonException)
+        {
+        }
     }
 
     private async Task WriteFileUncheckedAsync(RemoteServerConnection connection, string path, string content, CancellationToken cancellationToken)

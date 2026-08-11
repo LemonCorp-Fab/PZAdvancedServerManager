@@ -56,6 +56,26 @@ public sealed class PackageProjectStore(ApplicationPaths paths)
         }
     }
 
+    public PackageProject SaveImported(PackageProject project)
+    {
+        lock (_sync)
+        {
+            if (project.Id == Guid.Empty) throw new InvalidDataException("The imported project identifier is missing.");
+            var target = paths.ProjectFile(project.Id);
+            var temporary = target + $".{Guid.NewGuid():N}.tmp";
+            try
+            {
+                File.WriteAllText(temporary, JsonSerializer.Serialize(project, JsonOptions));
+                File.Move(temporary, target, true);
+            }
+            finally
+            {
+                if (File.Exists(temporary)) File.Delete(temporary);
+            }
+            return project;
+        }
+    }
+
     public PackageProject Create(string name)
     {
         var project = new PackageProject { Name = string.IsNullOrWhiteSpace(name) ? "Nouveau pack serveur" : name.Trim() };

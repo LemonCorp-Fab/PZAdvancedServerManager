@@ -4,6 +4,7 @@ using PZAdvancedServerManager.Core.Infrastructure;
 using PZAdvancedServerManager.Core.Packaging;
 using PZAdvancedServerManager.Core.Publishing;
 using PZAdvancedServerManager.Core.Pz;
+using PZAdvancedServerManager.Core.Transfer;
 using System.Diagnostics;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
@@ -90,7 +91,13 @@ builder.Services.AddRazorPages(options =>
     options.Conventions.AllowAnonymousToPage("/Account/AccessDenied");
     options.Conventions.AllowAnonymousToPage("/Error");
 });
-builder.Services.Configure<FormOptions>(options => options.ValueCountLimit = 20000);
+builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = PackTransferService.MaximumUniqueArchiveBytes + 1024L * 1024 * 1024);
+builder.Services.Configure<FormOptions>(options =>
+{
+    options.ValueCountLimit = 20000;
+    options.MemoryBufferThreshold = 64 * 1024;
+    options.MultipartBodyLengthLimit = PackTransferService.MaximumUniqueArchiveBytes + 1024L * 1024 * 1024;
+});
 builder.Services.AddSingleton(applicationPaths);
 builder.Services.AddSingleton<PackageProjectStore>();
 builder.Services.AddSingleton<PzDiscoveryService>();
@@ -121,6 +128,11 @@ builder.Services.AddSingleton<PackageProjectService>();
 builder.Services.AddSingleton<PackageLifecycleService>();
 builder.Services.AddSingleton<PackageAutomationService>();
 builder.Services.AddSingleton<WorkshopImportService>();
+builder.Services.AddSingleton<PackTransferService>();
+builder.Services.AddSingleton<ServerConnectionTransferService>();
+builder.Services.AddSingleton<TransferWorkspaceCleaner>();
+builder.Services.AddSingleton<StorageMaintenanceService>();
+builder.Services.AddHostedService<TransferCleanupWorker>();
 builder.Services.AddHostedService<PackageAutomationWorker>();
 
 var app = builder.Build();

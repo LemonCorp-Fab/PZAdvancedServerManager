@@ -148,8 +148,12 @@ public sealed class ServerProfileService(
             var original = ServerConfigDocument.ReadText(profile.Path);
             var newLine = original.Text.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
             var temp = profile.Path + ".pzasm.tmp";
-            File.WriteAllText(temp, content.Replace("\r\n", "\n").Replace("\n", newLine), original.Encoding);
-            File.Move(temp, profile.Path, true);
+            try
+            {
+                File.WriteAllText(temp, content.Replace("\r\n", "\n").Replace("\n", newLine), original.Encoding);
+                File.Move(temp, profile.Path, true);
+            }
+            finally { if (File.Exists(temp)) File.Delete(temp); }
         }
         var persisted = profile.IsRemote
             ? remoteBackends.Resolve(profile.Remote!).ReadFileAsync(profile.Remote!, profile.Path).GetAwaiter().GetResult()
@@ -523,8 +527,12 @@ public sealed class ServerProfileService(
             backup = File.Exists(path) ? Backup(path) : string.Empty;
             var encoding = File.Exists(path) ? ServerConfigDocument.ReadText(path).Encoding : new UTF8Encoding(false);
             var temporary = path + ".pzasm.tmp";
-            File.WriteAllText(temporary, content, encoding);
-            File.Move(temporary, path, true);
+            try
+            {
+                File.WriteAllText(temporary, content, encoding);
+                File.Move(temporary, path, true);
+            }
+            finally { if (File.Exists(temporary)) File.Delete(temporary); }
         }
         var persisted = ReadLuaFile(name, kind);
         if (!NormalizeText(persisted).Equals(NormalizeText(content), StringComparison.Ordinal))
@@ -671,6 +679,14 @@ public sealed class ServerProfileService(
     {
         var backup = path + $".pzasm.{DateTime.Now:yyyyMMdd-HHmmss-fff}.bak";
         File.Copy(path, backup, false);
+        foreach (var obsolete in Directory.EnumerateFiles(Path.GetDirectoryName(path)!, Path.GetFileName(path) + ".pzasm.*.bak", SearchOption.TopDirectoryOnly)
+                     .OrderByDescending(File.GetLastWriteTimeUtc)
+                     .Skip(20))
+        {
+            try { File.Delete(obsolete); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
         return backup;
     }
 

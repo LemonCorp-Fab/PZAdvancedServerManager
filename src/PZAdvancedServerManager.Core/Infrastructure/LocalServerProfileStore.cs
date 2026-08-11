@@ -50,8 +50,12 @@ public sealed class LocalServerProfileStore(ApplicationPaths paths)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(paths.LocalServerProfilesFile)!);
         var temporary = paths.LocalServerProfilesFile + ".tmp";
-        File.WriteAllText(temporary, JsonSerializer.Serialize(entries.OrderBy(entry => entry.Name), JsonOptions));
-        File.Move(temporary, paths.LocalServerProfilesFile, true);
+        try
+        {
+            File.WriteAllText(temporary, JsonSerializer.Serialize(entries.OrderBy(entry => entry.Name), JsonOptions));
+            File.Move(temporary, paths.LocalServerProfilesFile, true);
+        }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
     private sealed class LocalServerProfilePreference

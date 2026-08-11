@@ -28,6 +28,7 @@ The named volume `pzasm-data` is mounted at `/data` and contains:
 - pack projects, source snapshots, builds, previews, and operation logs;
 - server profiles, provider state, and manager backups;
 - SteamCMD itself, `config/config.vdf`, the portable Steam session, Workshop manifests, and downloaded Workshop content.
+- temporary transfer workspaces below `/data/transfers`; completed operations remove them immediately and the manager reclaims abandoned manager-owned transfer files after six hours.
 
 Back up this volume before moving or rebuilding the deployment. Do not mount `/data` as a temporary volume. If a bind mount is used instead of the named volume, its directory must be writable by UID/GID `10001`.
 
@@ -80,13 +81,29 @@ docker compose -f compose.yaml -f compose.local.yaml exec manager \
 ## Coolify
 
 1. Create a resource from this Git repository and select **Docker Compose**.
-2. Use only `compose.yaml`. It pulls the public `ghcr.io/lemoncorp-fab/pzadvancedservermanager` image and exposes the `manager` service on the internal container port `5160` without bypassing Coolify's proxy through a host port. Set `PZASM_IMAGE_TAG` to a release such as `0.1.0` when you want immutable deployments; the default is `latest`.
+2. Use only `compose.yaml`. It pulls the public `ghcr.io/lemoncorp-fab/pzadvancedservermanager` image and exposes the `manager` service on the internal container port `5160` without bypassing Coolify's proxy through a host port. Set `PZASM_IMAGE_TAG` to a release such as `0.2.0` when you want immutable deployments; the default is `latest`.
 3. Add `PZASM_ADMIN_PASSWORD` and an independent, stable `PZASM_DATA_ENCRYPTION_KEY` of at least 32 random characters as required protected variables. Compose converts them to read-only files mounted in the container. Optionally set `PZASM_ADMIN_USERNAME` and `PZASM_ADMIN_DISPLAY_NAME`.
 4. Assign an HTTPS domain to port `5160`. Do not remove the `pzasm-data` volume.
 5. Deploy and wait for `/health/ready` to report `status: ready`.
 6. Sign in, open the SteamCMD section, and verify its status. Automatic installation is enabled; the same action in the UI can retry a failed download.
 
 `/health/live` proves that the web process responds. `/health/ready` also verifies the Identity database and reports `steamCmd` as `installed` or `not-installed`. A missing SteamCMD does not make the web manager unhealthy, because installation can be retried without replacing the container.
+
+## Large portable transfers and disk usage
+
+The default `.pzasm-pack` export is configuration-only: it excludes downloaded mods and the generated build, stays small, and marks the imported project as requiring a Workshop download before build or publication. Use the explicit complete mode only when the destination must receive byte-identical frozen revisions or local mods. In complete archives, identical source, asset, snapshot, and build files are represented by one SHA-256-addressed blob. Imports verify every blob before changing an existing project and use hard links when the destination filesystem supports them. Server connection exports use a small password-encrypted `.pzasm-servers` file.
+
+The manager rejects pack archives above its documented safety limits and checks available disk space before materializing an import. Atomic replacement temporarily needs room for the incoming verified data while the previous project remains recoverable. Keep enough free space for the archive, its unique extracted blobs, and any files that cannot be hard-linked. Successful and failed operations remove their transaction workspace; the background cleaner handles remnants left by a process or container crash and skips workspaces that are still locked by an active operation. It also reclaims abandoned build/source transactions and installer files, caps inactive SteamCMD logs, and removes unreferenced Workshop download caches after seven days.
+
+Browser uploads also pass through Coolify's reverse proxy. Increase the proxy request-body limit and timeout when importing multi-gigabyte packs; otherwise the proxy can reject or interrupt the request before the manager receives it. For very large archives, mount or copy the file into storage visible to the container and use the included CLI to avoid HTTP proxy buffering:
+
+```bash
+dotnet /app/cli/pzasm.dll project import \
+  --file /imports/my-pack.pzasm-pack \
+  --data-root /data
+```
+
+Pack exports deliberately exclude the Steam login session and rebind SteamCMD to the destination manager. Server connection files are encrypted with their separate transfer password, while pack archives are not encrypted because their mod sources and permission evidence must remain portable. Protect pack archives accordingly.
 
 ## SteamCMD in the container
 

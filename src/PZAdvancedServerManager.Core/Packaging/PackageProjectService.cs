@@ -96,16 +96,22 @@ public sealed class PackageProjectService(
         clone.Automation.Enabled = false;
         clone.Automation.LastAttemptAt = clone.Automation.LastSuccessAt = null;
         clone.Automation.LastResult = string.Empty;
+        var requiresPortableSources = source.PortableSourcesRequired;
         var refreshSources = new Dictionary<Guid, string>();
         foreach (var mod in clone.Mods)
         {
             mod.Id = Guid.NewGuid();
             refreshSources[mod.Id] = mod.SourceModRoot;
-            if (Directory.Exists(mod.PinnedSourceRoot)) mod.SourceModRoot = mod.PinnedSourceRoot;
+            if (!requiresPortableSources && Directory.Exists(mod.PinnedSourceRoot)) mod.SourceModRoot = mod.PinnedSourceRoot;
+            else if (requiresPortableSources) mod.SourceModRoot = string.Empty;
             mod.PinnedSourceRoot = string.Empty;
             mod.PinnedAt = null;
             mod.PinnedContentHash = string.Empty;
+            mod.PinnedMetadataStamp = string.Empty;
+            mod.ValidatedContentHash = string.Empty;
+            mod.SourceUpdateToken = string.Empty;
         }
+        if (requiresPortableSources) return store.Save(clone);
         try
         {
             snapshots.UpdateAll(clone);
@@ -125,6 +131,8 @@ public sealed class PackageProjectService(
         store.Delete(id);
         snapshots.DeleteProject(id);
         SafeFileTree.DeleteScopedDirectory(paths.BuildsRoot, paths.BuildRoot(id));
+        SafeFileTree.DeleteScopedDirectory(paths.AssetsRoot, paths.ProjectAssetsRoot(id));
+        if (File.Exists(paths.ProjectLockFile(id))) File.Delete(paths.ProjectLockFile(id));
     }
 
     private static void NormalizeOrder(PackageProject project)

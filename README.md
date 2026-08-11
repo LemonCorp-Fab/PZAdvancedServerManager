@@ -26,6 +26,8 @@ See the complete [architecture and feasibility study](docs/ARCHITECTURE.md).
 - detection of Steam libraries, the game, the dedicated server, SteamCMD, local mods, and Workshop app `108600` items;
 - Build 41/42 layout parsing, including `common`, `42`, `42.13`, and other compatible version folders;
 - reopenable `.pzasm.json` projects with stable GUID/suffix, published Workshop ID, sources, versions, order, maps, automation, and permission records;
+- lightweight `.pzasm-pack` export/import by default (configuration, IDs, rights, order, assets, publication and automation, with source download required), plus an explicit complete deduplicated mode carrying byte-identical pinned sources and the build;
+- AES-256-GCM encrypted `.pzasm-servers` export/import for remote connections, including API/RCON secrets and optional SSH private keys, with destination-side secret re-encryption and explicit conflict replacement;
 - private SHA-256 source snapshots created when a mod is added, preventing a local Steam update from silently changing a future build;
 - explicit snapshot refresh, kept separate from build and publish operations;
 - direct Workshop ID import through SteamCMD, including every compatible `mod.info` and available dependency;
@@ -57,6 +59,7 @@ See the complete [architecture and feasibility study](docs/ARCHITECTURE.md).
 - `automation run` CLI daemon with inter-process locks when the UI and CLI are active at the same time.
 
 See [server data management](docs/SERVER-DATA-MANAGEMENT.md) for the exact backup scope, safety model, restore behavior, and CLI commands.
+See [portable transfers](docs/PORTABLE-TRANSFERS.md) for archive contents, encryption, atomic replacement, disk deduplication, cleanup, limits, and CLI usage.
 
 ### Project command and update workflow
 

@@ -7,6 +7,12 @@ namespace PZAdvancedServerManager.Core.Infrastructure;
 
 public static class SafeFileTree
 {
+    public static bool TryCreateHardLink(string destination, string source)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(destination))!);
+        return TryCreateHardLinkCore(destination, source);
+    }
+
     public static void CopyDirectory(string source, string destination, Action<string, string>? onFile = null)
     {
         var sourceRoot = Path.GetFullPath(source);
@@ -53,7 +59,7 @@ public static class SafeFileTree
             }
 
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            var linked = linkFactory?.Invoke(target, entry) ?? TryCreateHardLink(target, entry);
+            var linked = linkFactory?.Invoke(target, entry) ?? TryCreateHardLinkCore(target, entry);
             if (!linked) File.Copy(entry, target, true);
             onFile?.Invoke(entry, target, linked);
         }
@@ -201,7 +207,7 @@ public static class SafeFileTree
                     File.SetAttributes(target, attributes & ~FileAttributes.ReadOnly);
                 File.Delete(target);
             }
-            if (!TryCreateHardLink(target, file)) File.Copy(file, target, false);
+            if (!TryCreateHardLinkCore(target, file)) File.Copy(file, target, false);
         }
 
         foreach (var file in Directory.EnumerateFiles(destination, "*", SearchOption.AllDirectories).ToArray())
@@ -290,7 +296,7 @@ public static class SafeFileTree
 
     private sealed record SafeFileEntry(string Path, string RelativePath, long Length, long LastWriteTimeUtcTicks);
 
-    private static bool TryCreateHardLink(string destination, string source)
+    private static bool TryCreateHardLinkCore(string destination, string source)
     {
         try
         {

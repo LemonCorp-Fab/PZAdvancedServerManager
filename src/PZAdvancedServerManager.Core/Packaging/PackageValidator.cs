@@ -19,6 +19,8 @@ public sealed class PackageValidator
             result.Issues.Add(new("PROJECT_NAME_LENGTH", "Le nom du pack ne peut pas dépasser 120 caractères.", true));
         if (project.Mods.All(x => !x.Enabled))
             result.Issues.Add(new("NO_MODS", "Ajoutez au moins un mod activé au pack.", true));
+        if (project.PortableSourcesRequired)
+            result.Issues.Add(new("PORTABLE_SOURCES_REQUIRED", "Ce pack a été importé en mode léger. Téléchargez ses sources Workshop avant toute construction ou publication.", true));
         if (!project.LegalWarningAccepted)
             result.Issues.Add(new("LEGAL_ACK", "L'avertissement sur les droits et autorisations n'a pas été marqué comme lu. Cela ne bloque ni la construction ni la publication.", false, Scope: ValidationScope.Warning));
         if (string.IsNullOrWhiteSpace(project.Automation.SteamCmdPath))

@@ -56,6 +56,17 @@
             <button class="button primary" type="submit">Créer le pack</button>
         </form>
     </article>
+    <article class="panel transfer-panel">
+        <span class="eyebrow">TRANSFERT ENTRE ADMINISTRATEURS</span>
+        <h2>Importer un pack portable</h2>
+        <p>Le format conserve l'identifiant stable, le Workshop ID, les droits, l'ordre et l'automatisation. Une archive légère exige ensuite un téléchargement Workshop ; une archive complète transporte aussi les versions figées et le build.</p>
+        <form method="post" enctype="multipart/form-data" asp-page-handler="ImportPack" class="stack-form" data-loading-title="Import du pack portable…" data-loading-detail="Envoi de l'archive, validation de chaque blob puis installation atomique dans l'espace de ce manager." data-loading-steps="Envoi de l'archive|Lecture du manifeste|Vérification SHA-256|Reconstruction dédupliquée|Installation transactionnelle" data-confirm-title="Importer ce pack ?" data-confirm-message="L'identité du pack et son Workshop ID seront conservés. Une archive légère sera clairement bloquée jusqu'au téléchargement de ses sources. Si le remplacement est activé, le projet local sera remplacé uniquement après validation intégrale." data-confirm-action="Vérifier et importer">
+            <label><span>Archive portable</span><input type="file" name="archive" accept=".pzasm-pack,application/vnd.pzasm.pack+zip" required /></label>
+            <label class="switch-row"><input type="checkbox" name="replaceExisting" value="true" /><span><strong>Remplacer le même pack s'il existe</strong><small>Désactivé par défaut. Le remplacement est transactionnel et exige le même identifiant stable.</small></span></label>
+            <button class="button primary" type="submit">Importer le pack</button>
+        </form>
+        <div class="transfer-note"><strong>Deux niveaux de portabilité</strong><span>L'export léger, recommandé, ne transporte aucun mod ni build et reste très petit. L'export complet garantit les anciennes versions figées grâce à des blobs dédupliqués. Les preuves privées sont incluses en clair ; la session Steam, liée à la machine, n'est jamais exportée.</span></div>
+    </article>
 </section>
 
 <section class="section-heading">
@@ -80,6 +91,13 @@ else
                     <div class="project-meta"><span>@project.Mods.Count(x => x.Enabled) mods</span><span>PZ @project.TargetPzVersion</span><span>Workshop: @(project.PublishedWorkshopId == 0 ? "à créer" : project.PublishedWorkshopId)</span></div>
                 </a>
                 <div class="project-card-actions">
+                    <details class="project-export-menu">
+                        <summary class="button secondary">Exporter</summary>
+                        <div class="project-export-options">
+                            <form method="post" asp-page-handler="ExportPack" data-file-download data-loading-title="Export de la configuration…" data-loading-detail="Création d'une archive légère sans les mods ni le build. Les sources devront être téléchargées après import." data-loading-steps="Copie de la configuration|Ajout des preuves et assets|Création de l'archive|Téléchargement"><input type="hidden" name="id" value="@project.Id" /><input type="hidden" name="contentMode" value="ConfigurationOnly" /><input type="hidden" name="downloadToken" value="" data-download-token /><button class="button primary" type="submit"><strong>Configuration légère</strong><small>Recommandé · téléchargement requis à l'import</small></button></form>
+                            <form method="post" asp-page-handler="ExportPack" data-file-download data-loading-title="Export du pack complet…" data-loading-detail="Calcul des SHA-256, déduplication des snapshots et du build, puis création de l'archive portable." data-loading-steps="Inventaire complet|Calcul SHA-256|Déduplication des blobs|Création de l'archive|Téléchargement"><input type="hidden" name="id" value="@project.Id" /><input type="hidden" name="contentMode" value="Complete" /><input type="hidden" name="downloadToken" value="" data-download-token /><button class="button secondary" type="submit"><strong>Archive complète</strong><small>Versions figées et build inclus</small></button></form>
+                        </div>
+                    </details>
                     <form method="post" asp-page-handler="Duplicate" data-loading-title="Duplication du pack…" data-loading-detail="Copie de la configuration et création de snapshots indépendants."><input type="hidden" name="id" value="@project.Id" /><button class="button ghost" type="submit">Dupliquer</button></form>
                     <form method="post" asp-page-handler="Delete" data-loading-title="Suppression du projet…" data-loading-detail="Suppression des données locales du projet sans modifier le Workshop ni les mods originaux." data-confirm-title="Supprimer ce projet ?" data-confirm-message="Le projet, ses snapshots et ses builds locaux seront supprimés. Le Workshop publié et les mods originaux ne seront pas modifiés." data-confirm-action="Supprimer le projet" data-confirm-tone="danger"><input type="hidden" name="id" value="@project.Id" /><button class="button danger" type="submit">Supprimer</button></form>
                 </div>

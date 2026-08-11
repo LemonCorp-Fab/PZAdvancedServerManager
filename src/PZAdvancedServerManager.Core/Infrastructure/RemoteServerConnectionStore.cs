@@ -62,15 +62,43 @@ public sealed class RemoteServerConnectionStore
         }
     }
 
+    public void Import(IReadOnlyCollection<RemoteServerConnection> imported, bool replaceExisting)
+    {
+        lock (_sync)
+        {
+            var duplicateId = imported.GroupBy(connection => connection.Id).FirstOrDefault(group => group.Count() > 1);
+            if (duplicateId is not null) throw new InvalidDataException($"Duplicate server identifier in transfer: {duplicateId.Key}.");
+            var duplicateName = imported.GroupBy(connection => connection.Name, StringComparer.OrdinalIgnoreCase).FirstOrDefault(group => group.Count() > 1);
+            if (duplicateName is not null) throw new InvalidDataException($"Duplicate server name in transfer: {duplicateName.Key}.");
+
+            var connections = Read(out _);
+            foreach (var connection in imported)
+            {
+                var conflicts = connections
+                    .Where(existing => existing.Id == connection.Id || existing.Name.Equals(connection.Name, StringComparison.OrdinalIgnoreCase))
+                    .ToArray();
+                if (conflicts.Length > 0 && !replaceExisting)
+                    throw new InvalidOperationException($"A server connection named '{connection.Name}' or using identifier {connection.Id} already exists.");
+                foreach (var conflict in conflicts) connections.Remove(conflict);
+                connections.Add(connection);
+            }
+            Write(connections);
+        }
+    }
+
     private void Write(IReadOnlyCollection<RemoteServerConnection> connections)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(_paths.RemoteServersFile)!);
         var stored = connections.Select(CloneForStorage).ToList();
         var temporary = _paths.RemoteServersFile + ".tmp";
-        File.WriteAllText(temporary, JsonSerializer.Serialize(stored, JsonOptions));
-        if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(temporary, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-        File.Move(temporary, _paths.RemoteServersFile, true);
+        try
+        {
+            File.WriteAllText(temporary, JsonSerializer.Serialize(stored, JsonOptions));
+            if (!OperatingSystem.IsWindows())
+                File.SetUnixFileMode(temporary, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            File.Move(temporary, _paths.RemoteServersFile, true);
+        }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
     private List<RemoteServerConnection> Read(out bool requiresMigration)

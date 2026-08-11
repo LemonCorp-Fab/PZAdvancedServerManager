@@ -22,7 +22,8 @@ public sealed class SshRemoteServerService
         var temporary = target + ".pzasm.tmp";
         var backup = target + $".pzasm.{timestamp}.bak";
         var directory = Path.GetDirectoryName(target)?.Replace('\\', '/') ?? ".";
-        var command = $"set -e; mkdir -p -- {Quote(directory)}; if [ -f {Quote(target)} ]; then cp -- {Quote(target)} {Quote(backup)}; fi; cat > {Quote(temporary)}; mv -- {Quote(temporary)} {Quote(target)}";
+        var backupPattern = Path.GetFileName(target) + ".pzasm.*.bak";
+        var command = $"set -e; mkdir -p -- {Quote(directory)}; if [ -f {Quote(target)} ]; then cp -- {Quote(target)} {Quote(backup)}; fi; cat > {Quote(temporary)}; mv -- {Quote(temporary)} {Quote(target)}; (find {Quote(directory)} -maxdepth 1 -type f -name {Quote(backupPattern)} -printf '%T@ %p\\0' | sort -z -nr | tail -z -n +21 | cut -z -d ' ' -f 2- | xargs -0 -r rm --) 2>/dev/null || true";
         var result = await RunAsync(connection, command, content, cancellationToken);
         EnsureSuccess(result, "écriture de la configuration distante");
         return backup;

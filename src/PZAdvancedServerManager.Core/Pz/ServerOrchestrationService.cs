@@ -7,11 +7,15 @@ using System.Security.Cryptography;
 using System.Runtime.Versioning;
 using System.Text;
 using System.Text.RegularExpressions;
+using PZAdvancedServerManager.Core.Infrastructure;
 
 namespace PZAdvancedServerManager.Core.Pz;
 
-public sealed class ServerOrchestrationService
+public sealed class ServerOrchestrationService(ApplicationPaths? paths = null)
 {
+    private readonly string _launcherRoot = paths is null
+        ? Path.Combine(Path.GetTempPath(), "PZAdvancedServerManager", "launchers")
+        : Path.Combine(paths.RuntimeHomeRoot, "launchers");
     private readonly ConcurrentDictionary<string, Process> _managedServerProcesses = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, RuntimeLogBuffer> _runtimeLogs = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, RuntimeLogFileCache> _serverConsoleCache = new(StringComparer.OrdinalIgnoreCase);
@@ -276,7 +280,7 @@ public sealed class ServerOrchestrationService
         return password;
     }
 
-    private static string PrepareWindowsLauncher(string sourceScript, string dedicatedServerRoot)
+    private string PrepareWindowsLauncher(string sourceScript, string dedicatedServerRoot)
     {
         var source = File.ReadAllText(sourceScript);
         var installationPrefix = Path.GetFullPath(dedicatedServerRoot).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
@@ -289,10 +293,9 @@ public sealed class ServerOrchestrationService
                 return !command.Equals("pause", StringComparison.OrdinalIgnoreCase)
                     && !command.StartsWith("pause ", StringComparison.OrdinalIgnoreCase);
             });
-        var launcherRoot = Path.Combine(Path.GetTempPath(), "PZAdvancedServerManager", "launchers");
-        Directory.CreateDirectory(launcherRoot);
+        Directory.CreateDirectory(_launcherRoot);
         var sourceHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(sourceScript))))[..16].ToLowerInvariant();
-        var target = Path.Combine(launcherRoot, $"pzasm-{sourceHash}-{Guid.NewGuid():N}.bat");
+        var target = Path.Combine(_launcherRoot, $"pzasm-{sourceHash}-{Guid.NewGuid():N}.bat");
         File.WriteAllText(target, string.Join("\r\n", lines), new UTF8Encoding(false));
         return target;
     }

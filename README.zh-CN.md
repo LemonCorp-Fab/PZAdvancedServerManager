@@ -26,6 +26,8 @@ Mods=ModIdA;ModIdB;ModIdC;PZASM_Notice_SUFFIX
 - 检测游戏、专用服务器、Steam 库、SteamCMD 以及本地和 Workshop 模组；
 - 支持 Build 41/42 目录结构和兼容版本目录；
 - 可重新打开的独立项目，每个项目拥有自己的 GUID 和 Workshop ID；
+- 默认使用轻量 `.pzasm-pack` 导出/导入（配置、ID、权限、顺序、资源、发布状态和自动化，导入后需下载源文件），并提供显式的完整去重模式以携带字节完全一致的固定源文件和构建；
+- 使用 AES-256-GCM 加密的 `.pzasm-servers` 远程连接导出/导入，包含 API/RCON 机密和可选 SSH 私钥，并在目标端使用本地密钥重新加密，冲突替换必须明确确认；
 - 通过私有 SHA-256 快照精确固定来源版本；
 - 按 Workshop ID 导入，并加入可用的 `require=` 依赖；
 - 内置 Workshop 目录，支持搜索、排序、标签、预览、分页、直接输入 ID，以及跨页面保留并可逐项移除的选择清单；
@@ -47,6 +49,8 @@ Mods=ModIdA;ModIdB;ModIdC;PZASM_Notice_SUFFIX
 - 发布、SteamCMD 登录和模组更新均提供详细且可取消的进度、实时输出和超时保护；
 - Windows/Linux 本地 UI 与无界面 CLI；
 - 带跨进程锁的 `automation run` 守护进程。
+
+有关归档内容、加密、原子替换、磁盘去重、清理、限制和 CLI 用法，请参阅[便携传输](docs/PORTABLE-TRANSFERS.md)。
 
 ### 项目命令与更新流程
 

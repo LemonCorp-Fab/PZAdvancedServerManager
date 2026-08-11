@@ -26,6 +26,8 @@ Siehe die vollständige [Architektur- und Machbarkeitsstudie](docs/ARCHITECTURE.
 - Erkennung von Spiel, Dedicated Server, Steam-Bibliotheken, SteamCMD und lokalen/Workshop-Mods;
 - Unterstützung der Build-41/42-Strukturen und kompatibler Versionsordner;
 - unabhängige, erneut öffnbare Projekte mit eigener GUID und Workshop-ID;
+- standardmäßig leichter `.pzasm-pack`-Export/-Import (Konfiguration, IDs, Rechte, Reihenfolge, Assets, Veröffentlichung und Automatisierung mit anschließendem Quelldownload) sowie ein expliziter vollständiger, deduplizierter Modus mit bytegleichen fixierten Quellen und Build;
+- AES-256-GCM-verschlüsselter `.pzasm-servers`-Export/-Import für Remote-Verbindungen einschließlich API-/RCON-Geheimnissen und optionalen SSH-Schlüsseln, mit lokaler Neuverschlüsselung am Ziel und explizitem Konfliktersatz;
 - private SHA-256-Snapshots zum exakten Fixieren der Quellversionen;
 - Import per Workshop-ID und Ergänzung verfügbarer `require=`-Abhängigkeiten;
 - interner Workshop-Katalog mit Suche, Sortierung, Tags, Vorschauen, Seitennavigation, direkter ID-Suche und seitenübergreifendem Auswahlkorb mit einzelnem Entfernen;
@@ -47,6 +49,8 @@ Siehe die vollständige [Architektur- und Machbarkeitsstudie](docs/ARCHITECTURE.
 - detaillierter, abbrechbarer Fortschritt für Veröffentlichung, SteamCMD-Anmeldung und Mod-Aktualisierung mit Live-Ausgabe und Zeitlimit;
 - lokale UI und Headless-CLI für Windows und Linux;
 - `automation run`-Daemon mit prozessübergreifenden Sperren.
+
+Siehe [portable Übertragungen](docs/PORTABLE-TRANSFERS.md) für Archivinhalt, Verschlüsselung, atomaren Austausch, Festplattendeduplizierung, Bereinigung, Grenzen und CLI-Nutzung.
 
 ### Projektbefehle und Aktualisierungen
 

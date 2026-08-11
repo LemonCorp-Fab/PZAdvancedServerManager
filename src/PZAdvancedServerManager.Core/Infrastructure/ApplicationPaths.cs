@@ -31,6 +31,7 @@ public sealed class ApplicationPaths
         Directory.CreateDirectory(AssetsRoot);
         Directory.CreateDirectory(ToolsRoot);
         Directory.CreateDirectory(RuntimeHomeRoot);
+        Directory.CreateDirectory(TransfersRoot);
     }
 
     public string DataRoot { get; }
@@ -55,6 +56,8 @@ public sealed class ApplicationPaths
     public string ProjectLockFile(Guid id) => Path.Combine(LocksRoot, $"{id:N}.lock");
     public string AutomationLockFile => Path.Combine(LocksRoot, "automation.lock");
     public string RemoteServersFile => Path.Combine(ProfilesRoot, "remote-servers.json");
+    public string ImportedServerKeysRoot => Path.Combine(ProfilesRoot, "imported-keys");
+    public string TransfersRoot => Path.Combine(DataRoot, "transfers");
     public string LocalServerProfilesFile => Path.Combine(ProfilesRoot, "local-server-profiles.json");
     public string ServerBackupsRoot(string profileName) => Path.Combine(ServerDataRoot, profileName, "backups");
 }

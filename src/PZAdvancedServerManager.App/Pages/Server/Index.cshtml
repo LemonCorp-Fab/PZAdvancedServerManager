@@ -77,6 +77,24 @@
                 <button class="button primary" type="submit">Connecter le serveur distant</button>
             </form>
         </details>
+        <details class="remote-profile-creator connection-transfer-panel">
+            <summary>Exporter ou importer les connexions</summary>
+            <div class="connection-transfer-copy"><strong>Transfert chiffré de bout en bout</strong><p>Les clés API, mots de passe RCON et clés SSH sont chiffrés par AES-256-GCM avec un mot de passe de transfert distinct. À l'import, les secrets sont rechiffrés avec la clé locale du manager destinataire.</p></div>
+            <form method="post" asp-page-handler="ExportServerConnections" class="stack-form" data-file-download data-loading-title="Export sécurisé des connexions…" data-loading-detail="Collecte des profils, chiffrement des secrets et création de l'archive portable." data-loading-steps="Sélection des connexions|Collecte des clés SSH|Dérivation de la clé|Chiffrement AES-256-GCM|Téléchargement">
+                <label><span>Connexions à exporter</span><select name="connectionName"><option value="">Toutes les connexions distantes (@Model.RemoteConfigs.Count())</option>@foreach (var config in Model.RemoteConfigs) { <option value="@config.Name">@config.Name</option> }</select></label>
+                <label><span>Mot de passe de transfert</span><input name="transferPassword" type="password" minlength="12" autocomplete="new-password" required /></label>
+                <label><span>Confirmer le mot de passe</span><input name="transferPasswordConfirmation" type="password" minlength="12" autocomplete="new-password" required /></label>
+                <label class="switch-row"><input type="checkbox" name="includePrivateKeys" value="true" checked /><span><strong>Inclure les clés privées SSH</strong><small>Recommandé pour obtenir des connexions réellement identiques sur l'autre manager.</small></span></label>
+                <input type="hidden" name="downloadToken" value="" data-download-token />
+                <button class="button secondary" type="submit" disabled="@(!Model.RemoteConfigs.Any())">Exporter les connexions</button>
+            </form>
+            <form method="post" enctype="multipart/form-data" asp-page-handler="ImportServerConnections" class="stack-form connection-import-form" data-loading-title="Import sécurisé des connexions…" data-loading-detail="Déchiffrement en mémoire, contrôle d'intégrité puis rechiffrement avec la clé locale." data-loading-steps="Lecture de l'enveloppe|Dérivation de la clé|Authentification AES-GCM|Restauration des clés SSH|Rechiffrement local" data-confirm-title="Importer ces connexions serveur ?" data-confirm-message="Les secrets ne seront jamais enregistrés en clair. Le remplacement éventuel ne sera appliqué qu'après déchiffrement et validation complets de l'archive." data-confirm-action="Déchiffrer et importer">
+                <label><span>Archive chiffrée</span><input type="file" name="archive" accept=".pzasm-servers,application/vnd.pzasm.servers+json" required /></label>
+                <label><span>Mot de passe de transfert</span><input name="transferPassword" type="password" minlength="12" autocomplete="current-password" required /></label>
+                <label class="switch-row"><input type="checkbox" name="replaceExisting" value="true" /><span><strong>Remplacer les connexions existantes</strong><small>Correspondance par identifiant stable ou par nom, désactivée par défaut.</small></span></label>
+                <button class="button primary" type="submit">Importer les connexions</button>
+            </form>
+        </details>
     </aside>
 
     <div class="server-content">

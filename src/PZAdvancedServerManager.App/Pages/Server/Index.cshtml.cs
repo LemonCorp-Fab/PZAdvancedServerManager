@@ -9,6 +9,7 @@ using PZAdvancedServerManager.Core.Infrastructure;
 using PZAdvancedServerManager.Core.Packaging;
 using PZAdvancedServerManager.Core.Publishing;
 using PZAdvancedServerManager.Core.Pz;
+using PZAdvancedServerManager.Core.Transfer;
 
 namespace PZAdvancedServerManager.App.Pages.Server;
 
@@ -19,7 +20,8 @@ public class IndexModel(
     SteamCmdService steamCmd,
     ServerWorldDataStore worldData,
     RconConsoleStore rconConsole,
-    ModConflictAnalyzer conflicts) : PageModel
+    ModConflictAnalyzer conflicts,
+    ServerConnectionTransferService connectionTransfers) : PageModel
 {
     public IReadOnlyList<ServerConfigEntry> Configs { get; private set; } = [];
     public IEnumerable<ServerConfigEntry> HostedConfigs => Configs.Where(config => config.IsHostedLocal);
@@ -398,6 +400,45 @@ public class IndexModel(
         }
         catch (Exception exception) { TempData["Error"] = exception.Message; }
         return RedirectToPage();
+    }
+
+    public IActionResult OnPostExportServerConnections(string? connectionName, string transferPassword, string transferPasswordConfirmation, bool includePrivateKeys, string? downloadToken)
+    {
+        try
+        {
+            if (!transferPassword.Equals(transferPasswordConfirmation, StringComparison.Ordinal))
+                throw new ValidationException("Les deux mots de passe de transfert ne correspondent pas.");
+            IReadOnlyCollection<string>? names = string.IsNullOrWhiteSpace(connectionName) ? null : new[] { connectionName };
+            var result = connectionTransfers.Export(transferPassword, names, includePrivateKeys);
+            MarkDownload(downloadToken, true);
+            var stream = new FileStream(result.Path, FileMode.Open, FileAccess.Read, FileShare.Read, 128 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan | FileOptions.DeleteOnClose);
+            return File(stream, "application/vnd.pzasm.servers+json", result.FileName);
+        }
+        catch (Exception exception)
+        {
+            MarkDownload(downloadToken, false);
+            TempData["Error"] = exception.Message;
+            return RedirectToPage(new { name = connectionName });
+        }
+    }
+
+    public IActionResult OnPostImportServerConnections(IFormFile archive, string transferPassword, bool replaceExisting)
+    {
+        try
+        {
+            if (archive is null || archive.Length == 0) throw new InvalidDataException("Sélectionnez une archive .pzasm-servers chiffrée.");
+            if (!Path.GetExtension(archive.FileName).Equals(".pzasm-servers", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("Le fichier doit utiliser l'extension .pzasm-servers.");
+            using var stream = archive.OpenReadStream();
+            var result = connectionTransfers.Import(stream, transferPassword, replaceExisting);
+            TempData["Message"] = $"{result.Connections} connexion(s) distante(s) importée(s), secrets rechiffrés localement et {result.PrivateKeys} clé(s) SSH restaurée(s).";
+            return RedirectToPage(new { name = result.ConnectionNames.FirstOrDefault() });
+        }
+        catch (Exception exception)
+        {
+            TempData["Error"] = exception.Message;
+            return RedirectToPage();
+        }
     }
 
     public async Task<IActionResult> OnPostStartAsync(string name, string? initialAdminPassword, string? initialAdminPasswordConfirmation, CancellationToken cancellationToken)
@@ -1053,6 +1094,20 @@ public class IndexModel(
             RconPassword = string.Empty,
             AutoRestartAfterRconQuit = connection.AutoRestartAfterRconQuit
         };
+    }
+
+    private void MarkDownload(string? token, bool success)
+    {
+        if (string.IsNullOrWhiteSpace(token) || token.Length > 80) return;
+        Response.Cookies.Append("PZASM.Download", token + ":" + (success ? "ok" : "error"), new CookieOptions
+        {
+            HttpOnly = false,
+            IsEssential = true,
+            SameSite = SameSiteMode.Strict,
+            Secure = Request.IsHttps,
+            Path = "/",
+            MaxAge = TimeSpan.FromMinutes(5)
+        });
     }
 
     public static string FormatBytes(long bytes) => bytes switch

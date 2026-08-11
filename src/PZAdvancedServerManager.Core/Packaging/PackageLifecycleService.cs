@@ -23,7 +23,7 @@ public sealed class PackageLifecycleService(
     public async Task<SteamCmdResult> RefreshSourcesAsync(PackageProject project, CancellationToken cancellationToken = default, IProgress<OperationProgress>? progress = null)
     {
         await using var operationLock = Acquire(project.Id);
-        var targets = project.Mods.Where(x => x.Enabled && x.IncludeInGlobalUpdates).ToArray();
+        var targets = project.Mods.Where(x => x.Enabled && (project.PortableSourcesRequired || x.IncludeInGlobalUpdates)).ToArray();
         return await RefreshSourcesCoreAsync(project, targets, cancellationToken, progress);
     }
 
@@ -50,7 +50,7 @@ public sealed class PackageLifecycleService(
         var output = new List<string>();
         if (refreshSources)
         {
-            var targets = project.Mods.Where(x => x.Enabled && x.IncludeInGlobalUpdates).ToArray();
+            var targets = project.Mods.Where(x => x.Enabled && (project.PortableSourcesRequired || x.IncludeInGlobalUpdates)).ToArray();
             progress?.Report(new OperationProgress("refresh", $"Actualisation de {targets.Length} source(s) Workshop."));
             var refresh = await RefreshSourcesCoreAsync(project, targets, cancellationToken, progress);
             output.Add(refresh.CombinedOutput);
@@ -228,6 +228,7 @@ public sealed class PackageLifecycleService(
                     : $"Mise à jour atomique de {changedTargets.Length} snapshot(s); les sources inchangées sont conservées."));
             foreach (var target in localTargets) RefreshMetadata(project, target);
             snapshots.Update(project, changedTargets);
+            project.PortableSourcesRequired = project.Mods.Any(mod => mod.Enabled && !Directory.Exists(mod.PinnedSourceRoot));
             store.Save(project);
         }
         return refresh.SteamCmd;

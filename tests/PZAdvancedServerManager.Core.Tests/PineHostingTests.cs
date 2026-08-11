@@ -40,6 +40,8 @@ public sealed class PineHostingTests : IDisposable
         {
             var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync();
             requests.Add((request.Method, request.RequestUri!.ToString(), body));
+            if (request.RequestUri.AbsolutePath.EndsWith("/files/list", StringComparison.Ordinal))
+                return Json("{\"data\":[]}");
             if (request.Method == HttpMethod.Get)
             {
                 targetReads++;
@@ -52,13 +54,45 @@ public sealed class PineHostingTests : IDisposable
 
         Assert.Contains(".pzasm.", backup);
         Assert.EndsWith(".bak", backup);
-        Assert.Equal(4, requests.Count);
+        Assert.Equal(5, requests.Count);
         Assert.Equal(HttpMethod.Get, requests[0].Method);
         Assert.Contains(Uri.EscapeDataString(PineHostingClient.DefaultIniPath + ".pzasm."), requests[1].Url);
         Assert.Equal("PublicName=Old\n", requests[1].Body);
         Assert.Contains(Uri.EscapeDataString(PineHostingClient.DefaultIniPath), requests[2].Url);
         Assert.Equal("PublicName=New\n", requests[2].Body);
         Assert.Equal(HttpMethod.Get, requests[3].Method);
+        Assert.Contains("/files/list", requests[4].Url);
+    }
+
+    [Fact]
+    public async Task ConfigurationWriteRetainsOnlyTwentyManagerBackups()
+    {
+        var deleteBody = string.Empty;
+        var targetReads = 0;
+        var entries = string.Join(',', Enumerable.Range(0, 22).Select(index =>
+            $"{{\"attributes\":{{\"name\":\"Zomboid.ini.pzasm.{index:00}.bak\",\"is_file\":true,\"modified_at\":\"2025-01-01T00:{index:00}:00Z\"}}}}"));
+        var client = Client(async request =>
+        {
+            if (request.RequestUri!.AbsolutePath.EndsWith("/files/list", StringComparison.Ordinal))
+                return Json("{\"data\":[" + entries + "]}");
+            if (request.RequestUri.AbsolutePath.EndsWith("/files/delete", StringComparison.Ordinal))
+            {
+                deleteBody = await request.Content!.ReadAsStringAsync();
+                return Empty();
+            }
+            if (request.Method == HttpMethod.Get)
+            {
+                targetReads++;
+                return Text(targetReads == 1 ? "PublicName=Old\n" : "PublicName=New\n");
+            }
+            return Empty();
+        });
+
+        await client.WriteFileAsync(Connection(), PineHostingClient.DefaultIniPath, "PublicName=New\n");
+
+        Assert.Contains("Zomboid.ini.pzasm.00.bak", deleteBody);
+        Assert.Contains("Zomboid.ini.pzasm.01.bak", deleteBody);
+        Assert.DoesNotContain("Zomboid.ini.pzasm.21.bak", deleteBody);
     }
 
     [Fact]

@@ -80,8 +80,12 @@ public sealed partial class SandboxSettingsDocument
     public void Save(string path)
     {
         var temp = path + ".pzasm.tmp";
-        File.WriteAllText(temp, Render(), _encoding);
-        File.Move(temp, path, true);
+        try
+        {
+            File.WriteAllText(temp, Render(), _encoding);
+            File.Move(temp, path, true);
+        }
+        finally { if (File.Exists(temp)) File.Delete(temp); }
     }
 
     private IReadOnlyList<StructuredServerSetting> ParseEntries()

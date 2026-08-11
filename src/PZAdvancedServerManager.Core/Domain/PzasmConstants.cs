@@ -13,6 +13,6 @@ public static class PzasmConstants
     public const int SteamWorkshopTitleMaximumUtf8Bytes = 128;
     public const int SteamWorkshopDescriptionMaximumUtf8Bytes = 8000;
     public const int GeneratedWorkshopDescriptionMaximumUtf8Bytes = 7900;
-    public const int CurrentProjectSchemaVersion = 5;
+    public const int CurrentProjectSchemaVersion = 6;
     public static readonly TimeSpan AutomationPollInterval = TimeSpan.FromSeconds(30);
 }

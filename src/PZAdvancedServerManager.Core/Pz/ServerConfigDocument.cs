@@ -51,8 +51,12 @@ public sealed class ServerConfigDocument
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path) ?? ".");
         var temp = path + ".pzasm.tmp";
-        File.WriteAllText(temp, Render(), _encoding);
-        File.Move(temp, path, true);
+        try
+        {
+            File.WriteAllText(temp, Render(), _encoding);
+            File.Move(temp, path, true);
+        }
+        finally { if (File.Exists(temp)) File.Delete(temp); }
     }
 
     public string Render()

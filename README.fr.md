@@ -26,6 +26,8 @@ Consultez l’[étude d’architecture complète](docs/ARCHITECTURE.fr.md).
 - détection du jeu, du serveur dédié, des bibliothèques Steam, de SteamCMD et des mods locaux/Workshop ;
 - lecture des structures Build 41/42 et sélection des dossiers de version compatibles ;
 - projets indépendants et réouvrables, chacun avec son GUID et son Workshop ID ;
+- export/import `.pzasm-pack` léger par défaut (configuration, IDs, droits, ordre, assets, publication et automatisation, puis téléchargement des sources obligatoire), avec un mode complet dédupliqué explicite transportant les sources figées et le build à l’identique ;
+- export/import `.pzasm-servers` chiffré par AES-256-GCM pour les connexions distantes, incluant les secrets API/RCON et les clés SSH facultatives, avec rechiffrement local à destination et remplacement explicite des conflits ;
 - snapshots privés SHA-256 empêchant une mise à jour Steam locale de modifier silencieusement un build ;
 - import par Workshop ID et ajout des dépendances `require=` disponibles ;
 - catalogue Workshop interne avec recherche, tris, tags, aperçus, pagination, accès direct par ID et panier de sélection persistant entre les pages avec retrait individuel ;
@@ -48,6 +50,8 @@ Consultez l’[étude d’architecture complète](docs/ARCHITECTURE.fr.md).
 - progression détaillée et annulable pour la publication, l’authentification SteamCMD et les mises à jour de mods, avec sortie SteamCMD en direct et délai maximal ;
 - UI locale et CLI headless sous Windows et Linux ;
 - daemon `automation run` avec verrous entre processus.
+
+Consultez [les transferts portables](docs/PORTABLE-TRANSFERS.md) pour le contenu des archives, le chiffrement, le remplacement atomique, la déduplication disque, le nettoyage, les limites et le CLI.
 
 ### Commandes du projet et mises à jour
 

@@ -53,6 +53,7 @@ public sealed class PackageProject
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? LastBuiltAt { get; set; }
     public DateTimeOffset? LastPublishedAt { get; set; }
+    public bool PortableSourcesRequired { get; set; }
     public WorkshopPublicationState Publication { get; set; } = new();
     public PackageAutomationSettings Automation { get; set; } = new();
 

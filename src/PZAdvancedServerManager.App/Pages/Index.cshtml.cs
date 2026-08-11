@@ -7,10 +7,13 @@ using PZAdvancedServerManager.Core.Infrastructure;
 using PZAdvancedServerManager.Core.Packaging;
 using PZAdvancedServerManager.Core.Publishing;
 using PZAdvancedServerManager.Core.Pz;
+using PZAdvancedServerManager.Core.Transfer;
 
 namespace PZAdvancedServerManager.App.Pages;
 
-public class IndexModel(PackageProjectStore store, PackageProjectService projects, PzEnvironmentService environment, ApplicationPaths paths, SteamCmdInstaller steamCmdInstaller) : PageModel
+[RequestSizeLimit(PackTransferService.MaximumUniqueArchiveBytes + 1024L * 1024 * 1024)]
+[RequestFormLimits(MultipartBodyLengthLimit = PackTransferService.MaximumUniqueArchiveBytes + 1024L * 1024 * 1024)]
+public class IndexModel(PackageProjectStore store, PackageProjectService projects, PzEnvironmentService environment, ApplicationPaths paths, SteamCmdInstaller steamCmdInstaller, PackTransferService transfers) : PageModel
 {
     public IReadOnlyList<PackageProject> Projects { get; private set; } = [];
     public PzInstallation Installation { get; private set; } = new();
@@ -42,6 +45,44 @@ public class IndexModel(PackageProjectStore store, PackageProjectService project
         projects.Delete(id);
         TempData["Message"] = "Projet, snapshots et builds PZASM supprimés. Les mods d'origine et l'item Workshop n'ont pas été touchés.";
         return RedirectToPage();
+    }
+
+    public IActionResult OnPostExportPack(Guid id, PackTransferContentMode contentMode, string? downloadToken)
+    {
+        try
+        {
+            var result = transfers.Export(id, contentMode);
+            MarkDownload(downloadToken, true);
+            var stream = new FileStream(result.Path, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan | FileOptions.DeleteOnClose);
+            return File(stream, "application/vnd.pzasm.pack+zip", result.FileName);
+        }
+        catch (Exception exception)
+        {
+            MarkDownload(downloadToken, false);
+            TempData["Error"] = exception.Message;
+            return RedirectToPage();
+        }
+    }
+
+    public IActionResult OnPostImportPack(IFormFile archive, bool replaceExisting)
+    {
+        try
+        {
+            if (archive is null || archive.Length == 0) throw new InvalidDataException("Sélectionnez une archive .pzasm-pack complète.");
+            if (!Path.GetExtension(archive.FileName).Equals(".pzasm-pack", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("Le fichier doit utiliser l'extension .pzasm-pack.");
+            using var stream = archive.OpenReadStream();
+            var result = transfers.Import(stream, replaceExisting);
+            TempData["Message"] = result.ContentMode == PackTransferContentMode.ConfigurationOnly
+                ? $"Configuration du pack « {result.Project.Name} » importée avec son identifiant {result.Project.Id}. Téléchargez maintenant les sources Workshop avant de construire ou publier."
+                : $"Pack complet « {result.Project.Name} » importé avec son identifiant {result.Project.Id}, {result.Files:N0} fichiers et {result.UniqueBlobs:N0} blobs uniques vérifiés.";
+            return RedirectToPage("/Projects/Edit", new { id = result.Project.Id });
+        }
+        catch (Exception exception)
+        {
+            TempData["Error"] = exception.Message;
+            return RedirectToPage();
+        }
     }
 
     public IActionResult OnPostRefreshDiscovery()
@@ -99,6 +140,20 @@ public class IndexModel(PackageProjectStore store, PackageProjectService project
     }
 
     private static string Tail(string value) => value.Length <= 1200 ? value : value[^1200..];
+
+    private void MarkDownload(string? token, bool success)
+    {
+        if (string.IsNullOrWhiteSpace(token) || token.Length > 80) return;
+        Response.Cookies.Append("PZASM.Download", token + ":" + (success ? "ok" : "error"), new CookieOptions
+        {
+            HttpOnly = false,
+            IsEssential = true,
+            SameSite = SameSiteMode.Strict,
+            Secure = Request.IsHttps,
+            Path = "/",
+            MaxAge = TimeSpan.FromMinutes(5)
+        });
+    }
 
     private sealed class CallbackProgress<T>(Action<T> callback) : IProgress<T>
     {

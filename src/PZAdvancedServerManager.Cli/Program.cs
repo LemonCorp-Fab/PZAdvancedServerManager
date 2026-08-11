@@ -5,6 +5,7 @@ using PZAdvancedServerManager.Core.Infrastructure;
 using PZAdvancedServerManager.Core.Packaging;
 using PZAdvancedServerManager.Core.Publishing;
 using PZAdvancedServerManager.Core.Pz;
+using PZAdvancedServerManager.Core.Transfer;
 
 Console.OutputEncoding = Encoding.UTF8;
 return await new PzasmCli().RunAsync(args);
@@ -73,7 +74,7 @@ internal sealed class PzasmCli
 
     private static async Task<int> ProjectAsync(string[] raw, CliArguments args, CliServices services)
     {
-        if (raw.Length < 2) return Fail("Sous-commande requise : create, show, duplicate, delete, add, import-workshop, remove, rights, configure, maps, refresh, validate, build ou publish.");
+        if (raw.Length < 2) return Fail("Sous-commande requise : create, show, duplicate, delete, export, import, add, import-workshop, remove, rights, configure, maps, refresh, validate, build ou publish.");
         var action = raw[1].ToLowerInvariant();
         if (action == "create")
         {
@@ -81,6 +82,14 @@ internal sealed class PzasmCli
             if (args.Get("mode") is { } mode) project.Mode = ParseMode(mode);
             services.Store.Save(project);
             WriteJson(new { project.Id, project.Name, project.Mode, project.StableSuffix, projectFile = services.Paths.ProjectFile(project.Id) });
+            return 0;
+        }
+        if (action == "import")
+        {
+            var replace = args.Has("replace");
+            if (replace && !args.Has("yes")) return Fail("Import non exécuté. Ajoutez --yes avec --replace pour confirmer le remplacement transactionnel.", 3);
+            var result = services.PackTransfers.ImportFile(Path.GetFullPath(args.Require("file")), replace);
+            WriteJson(new { result.Project.Id, result.Project.Name, result.Project.PublishedWorkshopId, result.ContentMode, result.Project.PortableSourcesRequired, result.Files, result.RestoredBytes, result.UniqueBlobs, result.ReplacedExisting });
             return 0;
         }
 
@@ -101,6 +110,14 @@ internal sealed class PzasmCli
                 services.Projects.Delete(current.Id);
                 Console.WriteLine("Projet PZASM supprimé. Les sources d'origine et le Workshop n'ont pas été touchés.");
                 return 0;
+            case "export":
+                {
+                    var mode = args.Has("complete") ? PackTransferContentMode.Complete : PackTransferContentMode.ConfigurationOnly;
+                    var destination = Path.GetFullPath(args.Require("file"));
+                    var result = services.PackTransfers.Export(current.Id, mode, destination);
+                    WriteJson(new { file = destination, result.ContentMode, result.Files, result.RestoredBytes, result.UniqueBlobs, result.UniqueBytes });
+                    return 0;
+                }
             case "add":
                 {
                     var discovered = services.Environment.GetMods(current.TargetPzVersion);
@@ -211,7 +228,7 @@ internal sealed class PzasmCli
 
     private static async Task<int> ServerAsync(string[] raw, CliArguments args, CliServices services)
     {
-        if (raw.Length < 2) return Fail("Sous-commande requise : list, create, show, set, status, start, stop, apply, data-status, backup, backups, restore, reset-world ou delete-backup.");
+        if (raw.Length < 2) return Fail("Sous-commande requise : list, export-connections, import-connections, create, show, set, status, start, stop, apply, data-status, backup, backups, restore, reset-world ou delete-backup.");
         var action = raw[1].ToLowerInvariant();
         if (action == "list")
         {
@@ -232,6 +249,24 @@ internal sealed class PzasmCli
                 profile.Remote?.RconPort
             }));
             else foreach (var profile in configs) Console.WriteLine($"{profile.Name,-30} {(profile.IsRemote ? "Remote" : profile.LocalMode),-10} {profile.Location}");
+            return 0;
+        }
+        if (action == "export-connections")
+        {
+            var password = ReadTransferPassword(args, confirmInteractive: true);
+            var names = args.Get("names")?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var destination = Path.GetFullPath(args.Require("file"));
+            var result = services.ServerTransfers.Export(password, names, includePrivateKeys: !args.Has("no-ssh-keys"), destinationPath: destination);
+            WriteJson(new { file = destination, result.Connections, result.PrivateKeys });
+            return 0;
+        }
+        if (action == "import-connections")
+        {
+            var replace = args.Has("replace");
+            if (replace && !args.Has("yes")) return Fail("Import non exécuté. Ajoutez --yes avec --replace pour confirmer le remplacement.", 3);
+            var password = ReadTransferPassword(args, confirmInteractive: false);
+            var result = services.ServerTransfers.ImportFile(Path.GetFullPath(args.Require("file")), password, replace);
+            WriteJson(result);
             return 0;
         }
 
@@ -556,6 +591,28 @@ internal sealed class PzasmCli
         return File.ReadAllText(path).TrimEnd('\r', '\n');
     }
 
+    private static string ReadTransferPassword(CliArguments args, bool confirmInteractive)
+    {
+        var selected = new[] { "transfer-password", "transfer-password-file", "transfer-password-env" }.Where(args.Has).ToArray();
+        if (selected.Length > 1) throw new ArgumentException("Utilisez une seule source pour le mot de passe de transfert.");
+        if (selected.Length == 0)
+        {
+            var password = ReadSecret("Transfer password: ");
+            if (confirmInteractive && !password.Equals(ReadSecret("Confirm transfer password: "), StringComparison.Ordinal))
+                throw new InvalidOperationException("Les mots de passe de transfert ne correspondent pas.");
+            return password;
+        }
+        if (selected[0] == "transfer-password") return args.Require("transfer-password");
+        if (selected[0] == "transfer-password-env")
+        {
+            var variable = args.Require("transfer-password-env");
+            return Environment.GetEnvironmentVariable(variable) ?? throw new InvalidOperationException($"La variable d'environnement {variable} n'est pas définie.");
+        }
+        var path = Path.GetFullPath(args.Require("transfer-password-file"));
+        if (!File.Exists(path)) throw new FileNotFoundException("Fichier de mot de passe de transfert introuvable.", path);
+        return File.ReadAllText(path).TrimEnd('\r', '\n');
+    }
+
     private static async Task<int> AutomationAsync(string[] raw, CliArguments args, CliServices services)
     {
         if (raw.Length < 2) return Fail("Sous-commande requise : once, execute ou run.");
@@ -767,6 +824,8 @@ Chaque projet représente un pack global indépendant avec son propre Workshop I
   pzasm project show --id <guid>
   pzasm project duplicate --id <guid> [--name "Copie"]
   pzasm project delete --id <guid> --yes
+  pzasm project export --id <guid> --file <archive.pzasm-pack> [--complete]
+  pzasm project import --file <archive.pzasm-pack> [--replace --yes]
   pzasm project add --id <guid> --mod-id <id> [--workshop-id <id>]
   pzasm project import-workshop --id <guid> --workshop-id <id>
   pzasm project remove --id <guid> --mod-id <id>
@@ -779,6 +838,8 @@ Chaque projet représente un pack global indépendant avec son propre Workshop I
   pzasm project build --id <guid>
   pzasm project publish --id <guid> --yes [--force]
   pzasm server list [--json]
+  pzasm server export-connections --file <archive.pzasm-servers> [--names nom1,nom2] [--no-ssh-keys] [--transfer-password-file <fichier> | --transfer-password-env <variable>]
+  pzasm server import-connections --file <archive.pzasm-servers> [--replace --yes] [--transfer-password-file <fichier> | --transfer-password-env <variable>]
   pzasm server create --name <profil> [--local-mode dedicated|hosted]
   pzasm server set-local-mode --name <profil> --local-mode dedicated|hosted
   pzasm server create-remote --provider pine --name <profil> (--api-key <secret> | --api-key-file <fichier> | --api-key-env <variable>) --server-id <id> [--ini /.cache/Server/Zomboid.ini]
@@ -854,7 +915,7 @@ internal sealed class CliServices
         Validator = new PackageValidator();
         var snapshots = new PackageSourceSnapshotService(paths);
         Projects = new PackageProjectService(paths, Store, snapshots);
-        var orchestration = new ServerOrchestrationService();
+        var orchestration = new ServerOrchestrationService(paths);
         var remoteStore = new RemoteServerConnectionStore(paths);
         var localStore = new LocalServerProfileStore(paths);
         var ssh = new SshRemoteServerService();
@@ -873,6 +934,8 @@ internal sealed class CliServices
         Lifecycle = new PackageLifecycleService(paths, Store, snapshots, builder, SteamCmd, Servers);
         Automation = new PackageAutomationService(paths, Store, Lifecycle);
         WorkshopImport = new WorkshopImportService(SteamCmd, discovery, Environment, Projects);
+        PackTransfers = new PackTransferService(paths, Store);
+        ServerTransfers = new ServerConnectionTransferService(paths, remoteStore);
     }
 
     public ApplicationPaths Paths { get; }
@@ -889,6 +952,8 @@ internal sealed class CliServices
     public MapPriorityService MapPriority { get; }
     public ServerProfileService Servers { get; }
     public ServerWorldDataStore WorldData { get; }
+    public PackTransferService PackTransfers { get; }
+    public ServerConnectionTransferService ServerTransfers { get; }
 }
 
 internal sealed class CliOperationProgress : IProgress<OperationProgress>

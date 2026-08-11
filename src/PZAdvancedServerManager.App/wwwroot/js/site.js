@@ -1351,6 +1351,43 @@ document.querySelectorAll('[data-workshop-tag-presets]').forEach(container => {
         }
         delete form.dataset.loadingConfirmed;
         const button = event.submitter instanceof HTMLButtonElement ? event.submitter : form.querySelector('button[type="submit"]');
+        if (form.matches('[data-file-download]')) {
+            const token = typeof crypto.randomUUID === 'function'
+                ? crypto.randomUUID()
+                : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            const tokenField = form.querySelector('[data-download-token]');
+            if (tokenField instanceof HTMLInputElement) tokenField.value = token;
+            form.target = 'pzasm-download-frame';
+            showLoading({
+                title: form.dataset.loadingTitle,
+                detail: form.dataset.loadingDetail,
+                button,
+                form
+            });
+            prepareDetailedProgress(inferredSteps(form));
+            beginEstimatedSteps();
+            const startedAt = Date.now();
+            const monitor = window.setInterval(() => {
+                const cookie = document.cookie.split(';').map(value => value.trim()).find(value => value.startsWith('PZASM.Download='));
+                if (!cookie && Date.now() - startedAt < 12 * 60 * 60 * 1000) return;
+                if (!cookie) {
+                    window.clearInterval(monitor);
+                    if (overlayTitle) overlayTitle.textContent = 'Export interrompu';
+                    if (overlayDetail) overlayDetail.textContent = 'Le manager n’a pas confirmé la création du fichier dans le délai maximal.';
+                    overlay.classList.add('has-error');
+                    if (overlayClose) overlayClose.hidden = false;
+                    return;
+                }
+                const value = decodeURIComponent(cookie.slice(cookie.indexOf('=') + 1));
+                if (!value.startsWith(`${token}:`)) return;
+                window.clearInterval(monitor);
+                document.cookie = 'PZASM.Download=; Max-Age=0; Path=/; SameSite=Strict';
+                const failed = value.endsWith(':error');
+                resetLoading();
+                if (failed) window.location.reload();
+            }, 500);
+            return;
+        }
         if (form.matches('[data-workshop-progress]')) {
             event.preventDefault();
             void startWorkshopProgress(form, button);

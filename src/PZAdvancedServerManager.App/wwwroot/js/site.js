@@ -1,3 +1,5 @@
+document.documentElement.dataset.pzasmUiReady = 'true';
+
 document.querySelectorAll('[data-mod-filter]').forEach(filter => {
     const select = document.querySelector('[data-mod-select]');
     if (!select) return;

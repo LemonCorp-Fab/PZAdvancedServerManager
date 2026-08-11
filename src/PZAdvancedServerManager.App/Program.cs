@@ -101,6 +101,7 @@ builder.Services.Configure<FormOptions>(options =>
 builder.Services.AddSingleton(applicationPaths);
 builder.Services.AddSingleton<PackageProjectStore>();
 builder.Services.AddSingleton<PzDiscoveryService>();
+builder.Services.AddSingleton<IPzEnvironmentDiscovery>(services => services.GetRequiredService<PzDiscoveryService>());
 builder.Services.AddSingleton<PzEnvironmentService>();
 builder.Services.AddSingleton<PackageValidator>();
 builder.Services.AddSingleton<PackageBuildService>();
@@ -164,9 +165,9 @@ app.Use(async (context, next) =>
 app.UseAuthentication();
 app.Use(async (context, next) =>
 {
-    await next();
     if (context.User.Identity?.IsAuthenticated == true)
         context.Response.Headers.CacheControl = "no-store, max-age=0";
+    await next();
 });
 app.UseAuthorization();
 

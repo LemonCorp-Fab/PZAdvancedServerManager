@@ -99,14 +99,38 @@ public class IndexModel(
         Projects = projectStore.GetAll().Where(x => x.PublishedWorkshopId != 0 && x.LastBuiltAt is not null).ToArray();
         Selected = Configs.FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) ?? Configs.FirstOrDefault();
         if (Selected is null) return;
-        NetworkInfo = servers.ReadNetworkInfo(Selected.Name);
+        NetworkInfo = ServerNetworkInfo.Create(Selected, null);
         RconHistory = rconConsole.List(Selected.Name);
         Remote = RemoteServerForm.From(Selected.Remote);
+
+        var documentTask = Selected.CanManageConfiguration
+            ? servers.ReadDocumentAsync(Selected.Name, cancellationToken)
+            : null;
+        var sandboxTask = Selected.CanManageConfiguration
+            ? servers.ReadSandboxDocumentAsync(Selected.Name, cancellationToken)
+            : null;
+        var sandboxRawTask = Selected.CanManageConfiguration
+            ? servers.ReadLuaFileAsync(Selected.Name, ServerLuaFileKind.SandboxVars, cancellationToken)
+            : null;
+        var spawnRegionsTask = Selected.CanManageConfiguration
+            ? servers.ReadLuaFileAsync(Selected.Name, ServerLuaFileKind.SpawnRegions, cancellationToken)
+            : null;
+        var spawnPointsTask = Selected.CanManageConfiguration
+            ? servers.ReadLuaFileAsync(Selected.Name, ServerLuaFileKind.SpawnPoints, cancellationToken)
+            : null;
+        var runtimeTask = servers.ReadRuntimeAsync(Selected.Name, cancellationToken);
+        var pineServerTask = Selected.IsPineHosting
+            ? servers.ReadPineServerAsync(Selected.Name, cancellationToken)
+            : null;
+        var pineBackupsTask = Selected.IsPineHosting
+            ? servers.ListPineBackupsAsync(Selected.Name, cancellationToken)
+            : null;
+
         if (Selected.CanManageConfiguration)
         {
             try
             {
-                var document = servers.ReadDocument(Selected.Name);
+                var document = await documentTask!;
                 RawContent = document.Render();
                 AllSettings = StructuredServerSettings.ParseIni(RawContent);
                 Summary = new ServerConfigSummary(document.GetList("WorkshopItems"), document.GetList("Mods"), document.GetList("Map"));
@@ -114,6 +138,7 @@ public class IndexModel(
                 PlayerPasswordConfigured = !string.IsNullOrEmpty(document.Get("Password"));
                 RconPasswordConfigured = !string.IsNullOrEmpty(document.Get("RCONPassword"));
                 Guided = GuidedServerForm.From(document);
+                NetworkInfo = ServerNetworkInfo.Create(Selected, document);
             }
             catch (Exception exception) { ConnectionError = exception.Message; }
         }
@@ -121,16 +146,17 @@ public class IndexModel(
         {
             try
             {
-                SandboxSettings = servers.ReadSandboxDocument(Selected.Name).Settings;
-                SandboxRaw = servers.ReadLuaFile(Selected.Name, ServerLuaFileKind.SandboxVars);
-                SpawnRegionsRaw = servers.ReadLuaFile(Selected.Name, ServerLuaFileKind.SpawnRegions);
-                SpawnPointsRaw = servers.ReadLuaFile(Selected.Name, ServerLuaFileKind.SpawnPoints);
+                await Task.WhenAll(sandboxTask!, sandboxRawTask!, spawnRegionsTask!, spawnPointsTask!);
+                SandboxSettings = (await sandboxTask!).Settings;
+                SandboxRaw = await sandboxRawTask!;
+                SpawnRegionsRaw = await spawnRegionsTask!;
+                SpawnPointsRaw = await spawnPointsTask!;
             }
             catch (Exception exception) { SandboxError = exception.Message; }
         }
         try
         {
-            SelectedRuntime = await servers.ReadRuntimeAsync(Selected.Name, cancellationToken);
+            SelectedRuntime = await runtimeTask;
             SelectedRconAvailable = SelectedRuntime.IsRconAuthenticated;
             SelectedServerOnline = SelectedRuntime.IsRunning;
             if (ModAudit is not null) ModAudit = ModAudit with { RuntimeFindings = AnalyzeRuntimeModFindings(SelectedRuntime) };
@@ -151,8 +177,9 @@ public class IndexModel(
         {
             try
             {
-                PineServer = await servers.ReadPineServerAsync(Selected.Name, cancellationToken);
-                PineBackups = await servers.ListPineBackupsAsync(Selected.Name, cancellationToken);
+                await Task.WhenAll(pineServerTask!, pineBackupsTask!);
+                PineServer = await pineServerTask!;
+                PineBackups = await pineBackupsTask!;
             }
             catch (Exception exception) { WorldDataError = exception.Message; }
         }

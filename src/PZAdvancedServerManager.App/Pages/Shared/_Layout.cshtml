@@ -1,14 +1,106 @@
 ﻿<!DOCTYPE html>
-<html lang="fr" data-theme="light">
+@using System.Diagnostics
+@{
+    var assetInstance = Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks;
+}
+<html lang="fr" data-theme="light" aria-busy="true">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>@ViewData["Title"] — PZ Advanced Server Manager</title>
     <script>document.documentElement.dataset.theme = localStorage.getItem('pzasm-theme') || 'light';</script>
+    <style>
+        html[aria-busy="true"] { cursor: progress; }
+        html[aria-busy="true"]::before { content: ""; position: fixed; z-index: 4998; inset: 0; background: rgba(32, 43, 34, .42); backdrop-filter: blur(9px); }
+        html[aria-busy="true"]::after { content: "PZ   Chargement de l’interface…"; position: fixed; z-index: 4999; top: 50%; left: 50%; width: min(420px, calc(100vw - 32px)); padding: 28px 32px; translate: -50% -50%; border: 1px solid #b8c9a9; border-radius: 18px; box-shadow: 0 24px 60px rgba(24, 35, 26, .28); color: #17251b; background: #fff; font: 700 17px/1.4 system-ui, sans-serif; text-align: center; }
+        html[data-theme="dark"][aria-busy="true"]::before { background: rgba(5, 8, 6, .74); }
+        html[data-theme="dark"][aria-busy="true"]::after { border-color: #496b38; color: #eef7e9; background: #111a13; }
+    </style>
+    <script>
+        (() => {
+            let navigationPending = false;
+            const useInitialPageLoading = true;
+
+            const getOverlay = () => document.querySelector('[data-loading-overlay]');
+            const show = (nextTitle, nextDetail) => {
+                const overlay = getOverlay();
+                if (!overlay) return;
+                const title = overlay.querySelector('[data-loading-title]');
+                const detail = overlay.querySelector('[data-loading-detail]');
+                if (title) title.textContent = nextTitle || 'Chargement de la page…';
+                if (detail) detail.textContent = nextDetail || 'Préparation de la prochaine vue et actualisation des informations.';
+                document.documentElement.setAttribute('aria-busy', 'true');
+                document.body?.classList.add('is-loading');
+                overlay.hidden = false;
+                requestAnimationFrame(() => overlay.classList.add('is-visible'));
+            };
+
+            const reset = () => {
+                navigationPending = false;
+                const overlay = getOverlay();
+                if (overlay) {
+                    overlay.hidden = true;
+                    overlay.classList.remove('is-visible', 'has-error', 'has-detailed-progress');
+                }
+                document.documentElement.removeAttribute('aria-busy');
+                document.body?.classList.remove('is-loading');
+            };
+
+            document.addEventListener('click', event => {
+                if (document.documentElement.dataset.pzasmUiReady === 'true') return;
+                if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                if (!(event.target instanceof Element)) return;
+                const link = event.target.closest('a[href]');
+                if (!link || link.target === '_blank' || link.hasAttribute('download')) return;
+                const destination = new URL(link.href, window.location.href);
+                if (destination.origin !== window.location.origin) return;
+                if (destination.pathname === window.location.pathname && destination.search === window.location.search && destination.hash) return;
+                event.preventDefault();
+                if (navigationPending) return;
+                navigationPending = true;
+                show(link.dataset.loadingTitle, link.dataset.loadingDetail);
+                window.setTimeout(() => window.location.assign(destination.href), 140);
+            }, true);
+
+            document.addEventListener('submit', event => {
+                if (document.documentElement.dataset.pzasmUiReady === 'true') return;
+                const form = event.target;
+                if (!(form instanceof HTMLFormElement) || form.dataset.loadingSkip === 'true') return;
+                if (form.dataset.confirmTitle || form.dataset.dependencyPreflightUrl) return;
+                const submitter = event.submitter instanceof HTMLElement ? event.submitter : null;
+                show(
+                    submitter?.dataset.loadingTitle || form.dataset.loadingTitle || 'Traitement en cours…',
+                    submitter?.dataset.loadingDetail || form.dataset.loadingDetail || 'Veuillez patienter pendant que PZASM termine cette opération.');
+            }, true);
+
+            const hasRenderablePageContent = () => {
+                const main = document.querySelector('main');
+                if (!main) return false;
+                return Array.from(main.children).some(child =>
+                    !child.matches('script, style, [hidden]') &&
+                    (child.children.length > 0 || (child.textContent || '').trim().length > 0));
+            };
+
+            const pageReadyObserver = new MutationObserver(() => {
+                const overlay = getOverlay();
+                if (useInitialPageLoading && overlay?.hidden) {
+                    show('Chargement de la page…', 'Préparation de la vue et actualisation des informations.');
+                }
+                if (!hasRenderablePageContent() && !document.querySelector('[data-page-ready]')) return;
+                pageReadyObserver.disconnect();
+                reset();
+            });
+            pageReadyObserver.observe(document.documentElement, { childList: true, subtree: true });
+            document.addEventListener('DOMContentLoaded', reset, { once: true });
+            window.addEventListener('pageshow', reset);
+            document.documentElement.dataset.pzasmCriticalLoadingReady = 'true';
+            window.pzasmCriticalLoadingReady = true;
+            window.pzasmCriticalLoadingReset = reset;
+        })();
+    </script>
     <script type="importmap"></script>
-    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
-    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
-    <link rel="stylesheet" href="~/PZAdvancedServerManager.App.styles.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css?instance=@assetInstance" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/site.css?instance=@assetInstance" asp-append-version="true" />
 </head>
 <body>
     <div class="confirmation-overlay" data-confirm-dialog hidden>
@@ -100,6 +192,7 @@
             @RenderBody()
         </main>
     </div>
+    <span data-page-ready hidden></span>
 
     <footer class="app-footer">
         <div class="container-fluid app-shell">
@@ -109,11 +202,35 @@
 
     <iframe name="pzasm-download-frame" title="Téléchargements PZASM" hidden></iframe>
 
-    <script src="~/lib/jquery/dist/jquery.min.js"></script>
-    <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="~/js/site-i18n.js" asp-append-version="true"></script>
-    <script src="~/js/site.js" asp-append-version="true"></script>
-
     @await RenderSectionAsync("Scripts", required: false)
+    <script>
+        (() => {
+            const sources = [
+                '@Url.Content($"~/js/site.js?instance={assetInstance}")',
+                '@Url.Content($"~/js/site-i18n.js?instance={assetInstance}")',
+                '@Url.Content($"~/lib/bootstrap/dist/js/bootstrap.bundle.min.js?instance={assetInstance}")'
+            ];
+
+            const load = source => new Promise(resolve => {
+                const script = document.createElement('script');
+                script.src = source;
+                script.async = true;
+                script.addEventListener('load', () => resolve({ source, loaded: true }), { once: true });
+                script.addEventListener('error', () => resolve({ source, loaded: false }), { once: true });
+                document.body.appendChild(script);
+            });
+
+            const start = async () => {
+                document.documentElement.dataset.pzasmRuntimeLoading = 'true';
+                const results = await Promise.all(sources.map(load));
+                document.documentElement.dataset.pzasmRuntimeLoading = 'false';
+                if (results.some(result => !result.loaded))
+                    document.documentElement.dataset.pzasmRuntimeError = 'true';
+            };
+
+            if (document.readyState === 'complete') void start();
+            else window.addEventListener('load', () => void start(), { once: true });
+        })();
+    </script>
 </body>
 </html>

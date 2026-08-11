@@ -5,7 +5,7 @@ using PZAdvancedServerManager.Core.Infrastructure;
 
 namespace PZAdvancedServerManager.Core.Pz;
 
-public sealed partial class PzDiscoveryService(ApplicationPaths paths)
+public sealed partial class PzDiscoveryService(ApplicationPaths paths) : IPzEnvironmentDiscovery
 {
     public PzInstallation DiscoverInstallation()
     {

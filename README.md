@@ -82,7 +82,7 @@ chmod +x Start-PZASM.sh
 ./Start-PZASM.sh
 ```
 
-Use `--data-root <path>` to share an explicit data directory between the UI and CLI. The UI listens only on the local machine by default at `http://localhost:5160`.
+Use `--data-root <path>` to share an explicit data directory between the UI and CLI. The UI listens only on the local machine by default at `http://127.0.0.1:5160`.
 
 PZASM never modifies Steam sources during a build. It builds from private pinned snapshots in its own data directory.
 

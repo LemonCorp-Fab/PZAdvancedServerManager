@@ -69,7 +69,7 @@ chmod +x Start-PZASM.sh
 ./Start-PZASM.sh
 ```
 
-Die UI lauscht lokal auf `http://localhost:5160`. Mit `--data-root <pfad>` verwenden UI und CLI dasselbe Datenverzeichnis.
+Die UI lauscht lokal auf `http://127.0.0.1:5160`. Mit `--data-root <pfad>` verwenden UI und CLI dasselbe Datenverzeichnis.
 SteamCMD wird bei der ersten Verwendung in den Manager-Ordner geladen, kontrolliert entpackt und initialisiert. Dashboard, „Distribution“ und CLI können es auch sofort vorbereiten oder neu installieren. Öffentliche Project-Zomboid-Quellen werden standardmäßig anonym geladen; nur die Veröffentlichung benötigt das Herausgeberkonto.
 
 SteamCMD lädt bekannte Workshop-IDs, bietet aber keine vollständige Suche. Der interne Katalog liest öffentliche Steam-Community-Ergebnisse, ergänzt öffentliche Metadaten und übergibt erst die Auswahl an SteamCMD. Geplante Veröffentlichungen benötigen keinen lokalen Spielserver; die RCON-Koordination ist optional.

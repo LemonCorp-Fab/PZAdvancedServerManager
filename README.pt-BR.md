@@ -69,7 +69,7 @@ chmod +x Start-PZASM.sh
 ./Start-PZASM.sh
 ```
 
-A UI escuta localmente em `http://localhost:5160`. Use `--data-root <caminho>` para compartilhar o diretório de dados entre a UI e o CLI.
+A UI escuta localmente em `http://127.0.0.1:5160`. Use `--data-root <caminho>` para compartilhar o diretório de dados entre a UI e o CLI.
 O SteamCMD é baixado, extraído de forma controlada e inicializado na pasta do gerenciador quando é necessário pela primeira vez. O painel, a aba Distribuição e a CLI também podem prepará-lo ou reinstalá-lo imediatamente. Fontes públicas do Project Zomboid são baixadas anonimamente por padrão; somente a publicação exige a conta editora.
 
 O SteamCMD baixa IDs conhecidos, mas não oferece pesquisa completa. O catálogo interno enumera resultados públicos da Steam Community, obtém metadados públicos e entrega a seleção ao SteamCMD. A publicação agendada não exige um servidor local; a coordenação RCON é opcional.

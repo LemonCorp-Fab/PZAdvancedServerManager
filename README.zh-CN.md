@@ -69,7 +69,7 @@ chmod +x Start-PZASM.sh
 ./Start-PZASM.sh
 ```
 
-UI 默认仅监听本机的 `http://localhost:5160`。使用 `--data-root <路径>` 可让 UI 与 CLI 共用指定数据目录。
+UI 默认仅监听本机的 `http://127.0.0.1:5160`。使用 `--data-root <路径>` 可让 UI 与 CLI 共用指定数据目录。
 首次需要时，SteamCMD 会自动下载到管理器目录，经过安全解压并完成初始化。也可以从仪表板、“分发”标签或 CLI 立即准备或重新安装。公开的 Project Zomboid 来源默认匿名下载；只有发布操作需要发布者账号。
 
 SteamCMD 可以下载已知 Workshop ID，但不提供完整搜索。内置目录会枚举 Steam Community 的公开结果、获取公开元数据，再把所选条目交给 SteamCMD。定时发布不要求游戏服务器位于本机；RCON 协调是可选功能。

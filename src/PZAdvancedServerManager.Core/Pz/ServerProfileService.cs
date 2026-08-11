@@ -387,6 +387,14 @@ public sealed class ServerProfileService(
     public string ResolveIniPath(string name) => Get(name).Path;
     public ServerConfigDocument ReadDocument(string name) => ReadDocument(Get(name));
 
+    public async Task<ServerConfigDocument> ReadDocumentAsync(string name, CancellationToken cancellationToken = default)
+    {
+        var profile = Get(name);
+        if (!profile.IsRemote) return ServerConfigDocument.Load(profile.Path);
+        var content = await remoteBackends.Resolve(profile.Remote!).ReadFileAsync(EnsureConfigurationAccess(profile), profile.Path, cancellationToken);
+        return ServerConfigDocument.Parse(content);
+    }
+
     public async Task<PineServerInfo> ReadPineServerAsync(string name, CancellationToken cancellationToken = default)
         => await pine.GetServerAsync(RequirePine(name), cancellationToken);
 
@@ -480,6 +488,19 @@ public sealed class ServerProfileService(
         return SandboxSettingsDocument.Load(path);
     }
 
+    public async Task<SandboxSettingsDocument> ReadSandboxDocumentAsync(string name, CancellationToken cancellationToken = default)
+    {
+        var profile = Get(name);
+        var path = SandboxPath(profile);
+        if (profile.IsRemote)
+        {
+            var content = await remoteBackends.Resolve(profile.Remote!).ReadFileAsync(profile.Remote!, path, cancellationToken);
+            return SandboxSettingsDocument.Parse(content);
+        }
+        if (!File.Exists(path)) throw new FileNotFoundException("Le fichier SandboxVars de ce profil n'existe pas encore. Démarrez une première fois le serveur ou créez-le avec l'éditeur officiel.", path);
+        return SandboxSettingsDocument.Load(path);
+    }
+
     public string UpdateSandbox(string name, IReadOnlyDictionary<string, string> values)
     {
         var profile = Get(name);
@@ -507,6 +528,15 @@ public sealed class ServerProfileService(
         var profile = Get(name);
         var path = LuaFilePath(profile, kind);
         if (profile.IsRemote) return remoteBackends.Resolve(profile.Remote!).ReadFileAsync(profile.Remote!, path).GetAwaiter().GetResult();
+        if (!File.Exists(path)) return string.Empty;
+        return ServerConfigDocument.ReadText(path).Text;
+    }
+
+    public async Task<string> ReadLuaFileAsync(string name, ServerLuaFileKind kind, CancellationToken cancellationToken = default)
+    {
+        var profile = Get(name);
+        var path = LuaFilePath(profile, kind);
+        if (profile.IsRemote) return await remoteBackends.Resolve(profile.Remote!).ReadFileAsync(profile.Remote!, path, cancellationToken);
         if (!File.Exists(path)) return string.Empty;
         return ServerConfigDocument.ReadText(path).Text;
     }

@@ -70,6 +70,45 @@ document.querySelectorAll('details.mod-card').forEach(card => {
 })();
 
 (() => {
+    const frame = document.querySelector('[data-app-frame]');
+    const sidebar = document.querySelector('[data-app-sidebar]');
+    const toggle = document.querySelector('[data-sidebar-toggle]');
+    const scrim = document.querySelector('[data-sidebar-close]');
+    if (!frame || !sidebar || !toggle) return;
+
+    const setOpen = open => {
+        frame.classList.toggle('is-sidebar-open', open);
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (scrim) scrim.hidden = !open;
+        document.body.classList.toggle('has-open-sidebar', open);
+    };
+
+    toggle.addEventListener('click', () => setOpen(!frame.classList.contains('is-sidebar-open')));
+    scrim?.addEventListener('click', () => setOpen(false));
+    sidebar.querySelectorAll('a').forEach(link => link.addEventListener('click', () => setOpen(false)));
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && frame.classList.contains('is-sidebar-open')) {
+            setOpen(false);
+            toggle.focus();
+        }
+    });
+    window.matchMedia('(min-width: 921px)').addEventListener('change', event => {
+        if (event.matches) setOpen(false);
+    });
+})();
+
+(() => {
+    const accountMenu = document.querySelector('details.account-menu');
+    if (!accountMenu) return;
+    document.addEventListener('click', event => {
+        if (accountMenu.open && event.target instanceof Node && !accountMenu.contains(event.target)) accountMenu.open = false;
+    });
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && accountMenu.open) accountMenu.open = false;
+    });
+})();
+
+(() => {
     const root = document.querySelector('[data-server-runtime]');
     if (!root) return;
     const endpoint = root.dataset.runtimeEndpoint;

@@ -41,6 +41,18 @@
         ['Import du pack complet…', 'Importing complete pack…', 'Importando pack completo…', 'Vollständiges Pack wird importiert…', 'Importando pacote completo…', '正在导入完整模组包…'],
         ['Export sécurisé des connexions…', 'Securely exporting connections…', 'Exportando conexiones de forma segura…', 'Verbindungen werden sicher exportiert…', 'Exportando conexões com segurança…', '正在安全导出连接…'],
         ['Import sécurisé des connexions…', 'Securely importing connections…', 'Importando conexiones de forma segura…', 'Verbindungen werden sicher importiert…', 'Importando conexões com segurança…', '正在安全导入连接…'],
+        ['Espace de travail', 'Workspace', 'Espacio de trabajo', 'Arbeitsbereich', 'Espaço de trabalho', '工作区'],
+        ['Modpacks', 'Modpacks', 'Paquetes de mods', 'Modpacks', 'Pacotes de mods', '模组包'],
+        ['Manager opérationnel', 'Manager operational', 'Gestor operativo', 'Manager betriebsbereit', 'Gerenciador operacional', '管理器运行正常'],
+        ['Compte administrateur', 'Administrator account', 'Cuenta de administrador', 'Administratorkonto', 'Conta de administrador', '管理员账户'],
+        ['Session active', 'Active session', 'Sesión activa', 'Aktive Sitzung', 'Sessão ativa', '活动会话'],
+        ['Infrastructure', 'Infrastructure', 'Infraestructura', 'Infrastruktur', 'Infraestrutura', '基础设施'],
+        ['Mods actifs', 'Active mods', 'Mods activos', 'Aktive Mods', 'Mods ativos', '已启用模组'],
+        ['Versions suivies et figées', 'Tracked and pinned versions', 'Versiones seguidas y fijadas', 'Verfolgte und fixierte Versionen', 'Versões monitoradas e fixadas', '已跟踪并固定的版本'],
+        ['Téléchargements opérationnels', 'Downloads operational', 'Descargas operativas', 'Downloads betriebsbereit', 'Downloads operacionais', '下载功能正常'],
+        ['Installation en un clic', 'One-click installation', 'Instalación en un clic', 'Ein-Klick-Installation', 'Instalação em um clique', '一键安装'],
+        ['Prêt', 'Ready', 'Listo', 'Bereit', 'Pronto', '就绪'],
+        ['Requis', 'Required', 'Necesario', 'Erforderlich', 'Necessário', '必需'],
         ['Utilisateurs', 'Users', 'Usuarios', 'Benutzer', 'Usuários', '用户'],
         ['Déconnexion', 'Sign out', 'Cerrar sesión', 'Abmelden', 'Sair', '退出登录'],
         ['ACCÈS SÉCURISÉ', 'SECURE ACCESS', 'ACCESO SEGURO', 'GESCHÜTZTER ZUGRIFF', 'ACESSO SEGURO', '安全访问'],
@@ -1049,6 +1061,8 @@
         if (dictionary.has(value)) return dictionary.get(value);
         if (activeLanguage === 'fr') return value;
         const patterns = [
+            [/^(\d+) prêt\(s\) à déployer$/, ['$1 ready to deploy', '$1 listo(s) para desplegar', '$1 bereit zur Bereitstellung', '$1 pronto(s) para implantar', '$1 个可部署']],
+            [/^(\d+) Pack\(s\) publié\(s\)$/, ['$1 published pack(s)', '$1 pack(s) publicado(s)', '$1 veröffentlichte(s) Pack(s)', '$1 pacote(s) publicado(s)', '$1 个已发布模组包']],
             [/^(\d+) problème\(s\) critique\(s\) à corriger avant construction$/, ['$1 critical issue(s) to fix before building', '$1 problema(s) crítico(s) que corregir antes de compilar', '$1 kritische(s) Problem(e) vor dem Build zu beheben', '$1 problema(s) crítico(s) para corrigir antes do build', '构建前需修复 $1 个严重问题']],
             [/^Ordre réparé : (\d+) priorité manuelle contradictoire retirée, puis dépendances et contraintes de chargement recalculées\. Aucun mod n'a été désactivé\.$/, ['Order repaired: $1 contradictory manual priority removed, then dependencies and load constraints recalculated. No mods were disabled.', 'Orden reparado: se eliminó $1 prioridad manual contradictoria y se recalcularon dependencias y restricciones. No se desactivó ningún mod.', 'Reihenfolge repariert: $1 widersprüchliche manuelle Priorität entfernt, Abhängigkeiten und Ladebedingungen neu berechnet. Keine Mods wurden deaktiviert.', 'Ordem reparada: $1 prioridade manual contraditória removida, dependências e restrições recalculadas. Nenhum mod foi desativado.', '顺序已修复：移除了 $1 个冲突的手动优先级，并重新计算依赖和加载约束。未禁用任何模组。']],
             [/^Position (\d+) sur (\d+)$/, ['Position $1 of $2', 'Posición $1 de $2', 'Position $1 von $2', 'Posição $1 de $2', '位置 $1 / $2']],

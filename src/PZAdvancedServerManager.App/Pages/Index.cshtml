@@ -2,6 +2,9 @@
 @model IndexModel
 @{
     ViewData["Title"] = "Tableau de bord";
+    var enabledModCount = Model.Projects.Sum(project => project.Mods.Count(mod => mod.Enabled));
+    var publishedProjectCount = Model.Projects.Count(project => project.PublishedWorkshopId != 0);
+    var readyProjectCount = Model.Projects.Count(project => project.LastBuiltAt is not null && !project.PortableSourcesRequired);
 }
 
 @if (TempData["Message"] is string message)
@@ -20,6 +23,25 @@
         <p>Regroupez les mods d'un serveur sous un seul Workshop ID, conservez chaque Mod ID intact et choisissez vous-même le moment des mises à jour.</p>
     </div>
     <div class="hero-mark">PZ<span>ASM</span></div>
+</section>
+
+<section class="dashboard-summary-grid" aria-label="Résumé opérationnel">
+    <article class="dashboard-summary-card">
+        <span class="dashboard-summary-icon" aria-hidden="true">PK</span>
+        <div><span>Modpacks</span><strong>@Model.Projects.Count</strong><small>@readyProjectCount prêt(s) à déployer</small></div>
+    </article>
+    <article class="dashboard-summary-card">
+        <span class="dashboard-summary-icon is-success" aria-hidden="true">MD</span>
+        <div><span>Mods actifs</span><strong>@enabledModCount.ToString("N0")</strong><small>Versions suivies et figées</small></div>
+    </article>
+    <article class="dashboard-summary-card">
+        <span class="dashboard-summary-icon is-info" aria-hidden="true">WS</span>
+        <div><span>Workshop</span><strong>@publishedProjectCount</strong><small>Pack(s) publié(s)</small></div>
+    </article>
+    <article class="dashboard-summary-card">
+        <span class="dashboard-summary-icon @(Model.SteamCmdStatus.Installed ? "is-success" : "is-warning")" aria-hidden="true">SC</span>
+        <div><span>SteamCMD</span><strong>@(Model.SteamCmdStatus.Installed ? "Prêt" : "Requis")</strong><small>@(Model.SteamCmdStatus.Installed ? "Téléchargements opérationnels" : "Installation en un clic")</small></div>
+    </article>
 </section>
 
 <div class="legal-banner">
@@ -69,7 +91,7 @@
     </article>
 </section>
 
-<section class="section-heading">
+<section class="section-heading" id="projects">
     <div><span class="eyebrow">PROJETS ENREGISTRÉS</span><h2>Reprendre ou mettre à jour un pack</h2></div>
     <span class="count-pill">@Model.Projects.Count</span>
 </section>

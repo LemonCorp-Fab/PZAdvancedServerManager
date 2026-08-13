@@ -2,6 +2,16 @@
 @using System.Diagnostics
 @{
     var assetInstance = Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks;
+    var requestPath = Context.Request.Path.Value ?? "/";
+    var isAuthenticated = User.Identity?.IsAuthenticated == true;
+    var isServerArea = requestPath.StartsWith("/Server", StringComparison.OrdinalIgnoreCase);
+    var isAdminArea = requestPath.StartsWith("/Admin", StringComparison.OrdinalIgnoreCase);
+    var isDashboard = requestPath == "/";
+    var isPackArea = requestPath.StartsWith("/Projects", StringComparison.OrdinalIgnoreCase) || requestPath.StartsWith("/Workshop", StringComparison.OrdinalIgnoreCase);
+    var accountName = User.Identity?.Name ?? "Administrateur";
+    var accountInitial = accountName.Trim().Length > 0 ? accountName.Trim()[0].ToString().ToUpperInvariant() : "A";
+    var appVersion = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "dev";
+    var sectionLabel = isServerArea ? "Infrastructure" : isAdminArea ? "Administration" : "Modpacks";
 }
 <html lang="fr" data-theme="light" aria-busy="true">
 <head>
@@ -101,8 +111,9 @@
     <script type="importmap"></script>
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css?instance=@assetInstance" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/site.css?instance=@assetInstance" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/design-system.css?instance=@assetInstance" asp-append-version="true" />
 </head>
-<body>
+<body class="@(isAuthenticated ? "has-app-shell" : "has-auth-shell")">
     <div class="confirmation-overlay" data-confirm-dialog hidden>
         <section class="confirmation-card" role="dialog" aria-modal="true" aria-labelledby="confirmation-title" aria-describedby="confirmation-message">
             <span class="confirmation-mark" aria-hidden="true">?</span>
@@ -151,54 +162,99 @@
             <div class="loading-actions"><button class="button ghost" type="button" data-loading-cancel hidden>Annuler l’opération</button><button class="button secondary loading-close" type="button" data-loading-close hidden>Fermer</button></div>
         </div>
     </div>
-    <header>
-        <nav class="navbar navbar-expand-sm navbar-toggleable-sm app-nav">
-            <div class="container-fluid app-shell">
-                <a class="navbar-brand" asp-area="" asp-page="/Index"><span class="brand-mark">PZ</span><span>Advanced Server Manager</span></a>
-                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse" aria-controls="navbarSupportedContent"
-                        aria-expanded="false" aria-label="Toggle navigation">
-                    <span class="navbar-toggler-icon"></span>
-                </button>
-                <div class="navbar-collapse collapse d-sm-inline-flex justify-content-between">
-                    @if (User.Identity?.IsAuthenticated == true)
+    @if (isAuthenticated)
+    {
+        <div class="app-frame" data-app-frame>
+            <div class="sidebar-scrim" data-sidebar-close hidden></div>
+            <aside class="app-sidebar" data-app-sidebar aria-label="Navigation principale">
+                <a class="app-brand" asp-area="" asp-page="/Index" aria-label="PZ Advanced Server Manager — Tableau de bord">
+                    <span class="brand-mark">PZ</span>
+                    <span class="app-brand-copy"><strong>Advanced Server</strong><small>Manager</small></span>
+                </a>
+
+                <nav class="primary-navigation">
+                    <span class="navigation-label">Espace de travail</span>
+                    <a class="@(isDashboard ? "is-active" : null)" asp-area="" asp-page="/Index" aria-current="@(isDashboard ? "page" : null)">
+                        <svg class="ui-icon" aria-hidden="true"><use href="#icon-grid"></use></svg><span>Tableau de bord</span>
+                    </a>
+                    <a class="@(isPackArea ? "is-active" : null)" asp-area="" asp-page="/Index" asp-fragment="projects" aria-current="@(isPackArea ? "page" : null)">
+                        <svg class="ui-icon" aria-hidden="true"><use href="#icon-package"></use></svg><span>Modpacks</span>
+                    </a>
+                    <a class="@(isServerArea ? "is-active" : null)" asp-area="" asp-page="/Server/Index" aria-current="@(isServerArea ? "page" : null)">
+                        <svg class="ui-icon" aria-hidden="true"><use href="#icon-server"></use></svg><span>Serveurs</span>
+                    </a>
+
+                    @if (User.IsInRole("Administrator"))
                     {
-                        <ul class="navbar-nav flex-grow-1">
-                            <li class="nav-item"><a class="nav-link" asp-area="" asp-page="/Index">Packs</a></li>
-                            <li class="nav-item"><a class="nav-link" asp-area="" asp-page="/Server/Index">Serveurs</a></li>
-                            @if (User.IsInRole("Administrator"))
-                            {
-                                <li class="nav-item"><a class="nav-link" asp-area="" asp-page="/Admin/Users">Utilisateurs</a></li>
-                            }
-                        </ul>
+                        <span class="navigation-label navigation-label-spaced">Administration</span>
+                        <a class="@(isAdminArea ? "is-active" : null)" asp-area="" asp-page="/Admin/Users" aria-current="@(isAdminArea ? "page" : null)">
+                            <svg class="ui-icon" aria-hidden="true"><use href="#icon-users"></use></svg><span>Utilisateurs</span>
+                        </a>
                     }
-                    else
-                    {
-                        <span class="navbar-nav flex-grow-1"></span>
-                    }
-                    <div class="app-preferences" aria-label="Préférences d’affichage">
-                        <label class="language-control"><span class="visually-hidden">Langue</span><select data-language-select aria-label="Langue de l’interface"><option value="fr">Français</option><option value="en">English</option><option value="es">Español</option><option value="de">Deutsch</option><option value="pt-BR">Português</option><option value="zh-CN">简体中文</option></select></label>
-                        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Changer le thème"><span data-theme-icon>☀</span><span data-theme-label>Mode clair</span></button>
-                        @if (User.Identity?.IsAuthenticated == true)
-                        {
-                            <div class="account-menu"><span class="account-menu-name">@User.Identity.Name</span><form method="post" asp-page="/Account/Logout"><button class="button ghost compact" type="submit">Déconnexion</button></form></div>
-                        }
-                    </div>
+                </nav>
+
+                <div class="sidebar-status">
+                    <span class="status-dot is-online" aria-hidden="true"></span>
+                    <span><strong>Manager opérationnel</strong><small>Version @appVersion</small></span>
                 </div>
+            </aside>
+
+            <div class="app-main">
+                <header class="app-topbar">
+                    <div class="topbar-context">
+                        <button class="topbar-menu-button" type="button" data-sidebar-toggle aria-label="Ouvrir la navigation" aria-expanded="false">
+                            <svg class="ui-icon" aria-hidden="true"><use href="#icon-menu"></use></svg>
+                        </button>
+                        <div class="topbar-breadcrumb"><span>@sectionLabel</span><svg class="ui-icon" aria-hidden="true"><use href="#icon-chevron"></use></svg><strong>@ViewData["Title"]</strong></div>
+                    </div>
+                    <div class="app-preferences" aria-label="Préférences et compte">
+                        <label class="language-control"><span class="visually-hidden">Langue</span><select data-language-select aria-label="Langue de l’interface"><option value="fr">FR</option><option value="en">EN</option><option value="es">ES</option><option value="de">DE</option><option value="pt-BR">PT</option><option value="zh-CN">中文</option></select></label>
+                        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Changer le thème"><span data-theme-icon aria-hidden="true">☀</span><span data-theme-label>Mode clair</span></button>
+                        <details class="account-menu">
+                            <summary aria-label="Ouvrir le menu du compte"><span class="account-avatar">@accountInitial</span><span class="account-menu-copy"><strong>@accountName</strong><small>Compte administrateur</small></span><svg class="ui-icon" aria-hidden="true"><use href="#icon-chevron-down"></use></svg></summary>
+                            <div class="account-popover">
+                                <div><strong>@accountName</strong><small>Session active</small></div>
+                                <form method="post" asp-page="/Account/Logout"><button class="button ghost compact" type="submit"><svg class="ui-icon" aria-hidden="true"><use href="#icon-logout"></use></svg>Déconnexion</button></form>
+                            </div>
+                        </details>
+                    </div>
+                </header>
+
+                <main role="main" class="app-content">
+                    @RenderBody()
+                </main>
+
+                <footer class="app-footer">
+                    <span>&copy; 2026 LemonCorp · PZ Advanced Server Manager</span><span>Project Zomboid et Steam appartiennent à leurs détenteurs respectifs.</span>
+                </footer>
             </div>
-        </nav>
-    </header>
-    <div class="container-fluid app-shell">
-        <main role="main" class="pb-3">
+        </div>
+    }
+    else
+    {
+        <header class="auth-topbar">
+            <a class="app-brand" asp-area="" asp-page="/Index"><span class="brand-mark">PZ</span><span class="app-brand-copy"><strong>Advanced Server</strong><small>Manager</small></span></a>
+            <div class="app-preferences" aria-label="Préférences d’affichage">
+                <label class="language-control"><span class="visually-hidden">Langue</span><select data-language-select aria-label="Langue de l’interface"><option value="fr">FR</option><option value="en">EN</option><option value="es">ES</option><option value="de">DE</option><option value="pt-BR">PT</option><option value="zh-CN">中文</option></select></label>
+                <button class="theme-toggle" type="button" data-theme-toggle aria-label="Changer le thème"><span data-theme-icon aria-hidden="true">☀</span><span data-theme-label>Mode clair</span></button>
+            </div>
+        </header>
+        <main role="main" class="auth-content">
             @RenderBody()
         </main>
-    </div>
+    }
     <span data-page-ready hidden></span>
 
-    <footer class="app-footer">
-        <div class="container-fluid app-shell">
-            <span>&copy; 2026 LemonCorp · PZ Advanced Server Manager</span><span>Outil indépendant — Project Zomboid et Steam appartiennent à leurs détenteurs respectifs.</span>
-        </div>
-    </footer>
+    <svg class="svg-sprite" aria-hidden="true">
+        <symbol id="icon-grid" viewBox="0 0 24 24"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" /></symbol>
+        <symbol id="icon-package" viewBox="0 0 24 24"><path d="m12 3 8 4.2v9.6L12 21l-8-4.2V7.2L12 3Zm0 0v9m8-4.8-8 4.8-8-4.8" /></symbol>
+        <symbol id="icon-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><path d="M7 7h.01M7 17h.01M11 7h6M11 17h6" /></symbol>
+        <symbol id="icon-users" viewBox="0 0 24 24"><path d="M16 20v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M9.5 10a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM17 11a3 3 0 0 0 0-6M21 20v-2a4 4 0 0 0-3-3.8" /></symbol>
+        <symbol id="icon-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" /></symbol>
+        <symbol id="icon-chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6" /></symbol>
+        <symbol id="icon-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></symbol>
+        <symbol id="icon-logout" viewBox="0 0 24 24"><path d="M10 17l5-5-5-5M15 12H3M14 3h5a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-5" /></symbol>
+    </svg>
 
     <iframe name="pzasm-download-frame" title="Téléchargements PZASM" hidden></iframe>
 

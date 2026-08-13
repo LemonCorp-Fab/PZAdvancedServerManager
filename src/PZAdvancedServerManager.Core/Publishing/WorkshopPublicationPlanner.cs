@@ -156,7 +156,8 @@ public static class WorkshopPublicationPlanner
         WorkshopPublicationPlan plan,
         WorkshopRemoteState remote,
         DateTimeOffset submittedAt,
-        string publishedContentHandle = "")
+        string publishedContentHandle = "",
+        bool allowTimestampOnlyContentConfirmation = false)
     {
         if (remote.WorkshopId != project.PublishedWorkshopId ||
             remote.ConsumerAppId != long.Parse(PzasmConstants.ProjectZomboidSteamAppId) ||
@@ -213,11 +214,12 @@ public static class WorkshopPublicationPlanner
                              !remote.PreviewHandle.Equals(baselinePreviewHandle, StringComparison.Ordinal);
 
         if (newItem) return remoteTimestampReachedSubmission;
-        if (contentMustChange && !contentChanged) return false;
+        if (contentMustChange && !contentChanged &&
+            !(allowTimestampOnlyContentConfirmation && remoteTimestampAdvanced && remoteTimestampReachedSubmission)) return false;
         if (previewMustChange && !previewChanged) return false;
         if (metadataMustChange && !(remoteTimestampAdvanced && remoteTimestampReachedSubmission)) return false;
 
-        if (!string.IsNullOrWhiteSpace(publishedContentHandle) && plan.IncludeContent &&
+        if (!allowTimestampOnlyContentConfirmation && !string.IsNullOrWhiteSpace(publishedContentHandle) && plan.IncludeContent &&
             !remote.ContentHandle.Equals(publishedContentHandle, StringComparison.Ordinal))
             return false;
 

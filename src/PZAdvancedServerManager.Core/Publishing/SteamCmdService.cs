@@ -287,7 +287,9 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
         var result = await RunAsync(steamCmdPath,
             ["+login", project.Automation.SteamUsername, "+workshop_build_item", publishVdfPath, "+quit"], cancellationToken, progress: progress, timeout: TimeSpan.FromHours(12), workshopBuildLogPath: depotBuildLogPath);
         var id = ApplyPublishedFileId(project, publishVdfPath);
-        result = ValidateWorkshopSubmissionResult(result, id, ReadAppendedLog(workshopLogPath, workshopLogOffset));
+        var workshopActivityLog = ReadAppendedLog(workshopLogPath, workshopLogOffset);
+        var requiresRemoteProof = RequiresRemoteProof(result, id, workshopActivityLog);
+        result = ValidateWorkshopSubmissionResult(result, id, workshopActivityLog);
         WorkshopRemoteState? confirmedRemote = null;
         var publishedContentHandle = ReadPublishedContentHandle(steamCmdPath);
         if (result.ExitCode == 0)
@@ -297,7 +299,13 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
                 var missingId = new SteamCmdResult(-1, result.StandardOutput, string.Join(Environment.NewLine, result.StandardError, "SteamCMD n’a renvoyé aucun Workshop ID. La publication ne peut pas être confirmée."));
                 return new WorkshopPublishResult(missingId, plan, null, publishedContentHandle);
             }
-            confirmedRemote = await WaitForRemoteConfirmationAsync(project, plan, submittedAt, publishedContentHandle, cancellationToken, progress);
+            confirmedRemote = await WaitForRemoteConfirmationAsync(project, plan, submittedAt, publishedContentHandle, requiresRemoteProof, cancellationToken, progress);
+            if (requiresRemoteProof && confirmedRemote is null)
+            {
+                var unconfirmed = "SteamCMD a terminé le commit sans inclure le Workshop ID dans sa sortie Linux, et l'API Steam n'a pas encore confirmé le nouveau manifeste. L'envoi peut avoir réussi, mais aucun redémarrage de serveur ne sera déclenché tant que l'état distant n'est pas vérifié.";
+                var pending = new SteamCmdResult(-4, result.StandardOutput, string.Join(Environment.NewLine, result.StandardError, unconfirmed), result.Interaction);
+                return new WorkshopPublishResult(pending, plan, null, publishedContentHandle);
+            }
             WorkshopPublicationPlanner.ApplyConfirmedState(project, plan.Snapshot, confirmedRemote, publishedContentHandle);
             project.LastPublishedAt = DateTimeOffset.UtcNow;
         }
@@ -428,17 +436,18 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
         WorkshopPublicationPlan plan,
         DateTimeOffset submittedAt,
         string publishedContentHandle,
+        bool allowTimestampOnlyContentConfirmation,
         CancellationToken cancellationToken,
         IProgress<OperationProgress>? progress)
     {
-        var delays = new[] { TimeSpan.Zero, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(4), TimeSpan.FromSeconds(8) };
+        var delays = new[] { TimeSpan.Zero, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(4), TimeSpan.FromSeconds(8), TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(30) };
         for (var attempt = 0; attempt < delays.Length; attempt++)
         {
             if (delays[attempt] > TimeSpan.Zero) await Task.Delay(delays[attempt], cancellationToken);
             try
             {
                 var remote = await catalog.GetRemoteStateAsync(project.PublishedWorkshopId, cancellationToken);
-                if (remote is not null && WorkshopPublicationPlanner.IsRemoteConfirmation(project, plan, remote, submittedAt, publishedContentHandle))
+                if (remote is not null && WorkshopPublicationPlanner.IsRemoteConfirmation(project, plan, remote, submittedAt, publishedContentHandle, allowTimestampOnlyContentConfirmation))
                 {
                     progress?.Report(new OperationProgress("remote-confirmed", $"Manifeste Workshop {remote.ContentHandle} confirmé par l'API Steam."));
                     return remote;
@@ -463,10 +472,9 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
         var explicitFailure = Regex.IsMatch(combined, $"Upload workshop item\\s+{escapedId}\\s+failed", RegexOptions.IgnoreCase) ||
                               completionFailure ||
                               Regex.IsMatch(combined, "(?:ERROR!.*Failed to update workshop item|Update canceled:.*workshop|Build for workshop item has no content)", RegexOptions.IgnoreCase);
-        var explicitSuccess = workshopId != 0 &&
-                              (Regex.IsMatch(combined, $"Upload finished for workshop item\\s+{escapedId}\\s*:\\s*OK", RegexOptions.IgnoreCase) ||
-                               Regex.IsMatch(combined, $"Success\\.\\s*(?:Published new Workshop item|Updated item)\\D*{escapedId}", RegexOptions.IgnoreCase));
-        if (result.Success && explicitSuccess && !explicitFailure) return result;
+        var explicitSuccess = HasExplicitWorkshopSuccess(combined, workshopId);
+        var commitCandidate = HasSuccessfulCommitSequence(combined);
+        if (result.Success && (explicitSuccess || commitCandidate) && !explicitFailure) return result;
         if (!result.Success && !explicitFailure) return result;
 
         var invalidParameter = Regex.IsMatch(combined, "Invalid Parameter", RegexOptions.IgnoreCase);
@@ -476,6 +484,38 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
                 : "SteamCMD a signalé explicitement l'échec de l'envoi Workshop."
             : "SteamCMD s'est fermé sans confirmation explicite de fin d'upload Workshop; l'opération reste non confirmée.";
         return new SteamCmdResult(-4, result.StandardOutput, string.Join(Environment.NewLine, result.StandardError, reason), result.Interaction);
+    }
+
+    public static bool RequiresRemoteProof(SteamCmdResult result, ulong workshopId, string workshopActivityLog)
+    {
+        if (!result.Success || workshopId == 0) return false;
+        var combined = string.Join('\n', result.StandardOutput, result.StandardError, workshopActivityLog);
+        return !HasExplicitWorkshopSuccess(combined, workshopId) &&
+               HasSuccessfulCommitSequence(combined) &&
+               !HasExplicitWorkshopFailure(combined, workshopId);
+    }
+
+    private static bool HasExplicitWorkshopSuccess(string combined, ulong workshopId)
+    {
+        if (workshopId == 0) return false;
+        var escapedId = Regex.Escape(workshopId.ToString());
+        return Regex.IsMatch(combined, $"Upload finished for workshop item\\s+{escapedId}\\s*:\\s*OK", RegexOptions.IgnoreCase) ||
+               Regex.IsMatch(combined, $"Success\\.\\s*(?:Published new Workshop item|Updated item)\\D*{escapedId}", RegexOptions.IgnoreCase);
+    }
+
+    private static bool HasSuccessfulCommitSequence(string combined) =>
+        Regex.IsMatch(
+            combined,
+            "Committing update[\\s\\S]{0,4096}?Success\\.[\\s\\S]{0,1024}?Unloading Steam API[\\s\\S]{0,256}?OK",
+            RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
+    private static bool HasExplicitWorkshopFailure(string combined, ulong workshopId)
+    {
+        var escapedId = workshopId == 0 ? "\\d+" : Regex.Escape(workshopId.ToString());
+        var completion = Regex.Match(combined, $"Upload finished for workshop item\\s+{escapedId}\\s*:\\s*([^\\r\\n]+)", RegexOptions.IgnoreCase);
+        return Regex.IsMatch(combined, $"Upload workshop item\\s+{escapedId}\\s+failed", RegexOptions.IgnoreCase) ||
+               completion.Success && !completion.Groups[1].Value.Trim().Equals("OK", StringComparison.OrdinalIgnoreCase) ||
+               Regex.IsMatch(combined, "(?:ERROR!.*Failed to update workshop item|Update canceled:.*workshop|Build for workshop item has no content)", RegexOptions.IgnoreCase);
     }
 
     private static string GetWorkshopLogPath(string steamCmdPath) =>
@@ -644,7 +684,7 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
         async Task ObserveAsync(string rawChunk, StringBuilder? destination, bool reportClassifiedProgress = true)
         {
             if (string.IsNullOrEmpty(rawChunk)) return;
-            var chunk = RedactSecrets(rawChunk, credentials);
+            var chunk = StripTerminalControlSequences(RedactSecrets(rawChunk, credentials));
             if (destination is not null && exposeRawOutput)
                 lock (destination) destination.Append(chunk);
 
@@ -852,9 +892,16 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
         }
         if (!string.IsNullOrWhiteSpace(authenticationUsername) && !authenticationCompleted && interaction == SteamCmdInteraction.None && string.IsNullOrWhiteSpace(interventionError))
             interventionError = "SteamCMD s’est fermé avant de confirmer la session portable. Vérifiez la connexion réseau et réessayez.";
-        var error = standardError.ToString();
+        var output = StripTerminalControlSequences(standardOutput.ToString());
+        var error = StripTerminalControlSequences(standardError.ToString());
         if (!string.IsNullOrWhiteSpace(interventionError)) error = string.Join(Environment.NewLine, error, interventionError);
-        return new SteamCmdResult(interventionError is null ? process.ExitCode : -1, standardOutput.ToString(), error, interaction);
+        return new SteamCmdResult(interventionError is null ? process.ExitCode : -1, output, error, interaction);
+    }
+
+    public static string StripTerminalControlSequences(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return value;
+        return Regex.Replace(value, "\\x1B(?:\\[[0-?]*[ -/]*[@-~]|\\][^\\x07]*(?:\\x07|\\x1B\\\\))", string.Empty);
     }
 
     private static OperationProgress? ClassifySteamCmdProgress(string message)

@@ -239,6 +239,26 @@ public sealed class WorkshopPublicationPlannerTests : IDisposable
     }
 
     [Fact]
+    public void LinuxCommitCanBeConfirmedByAdvancedRemoteTimestampWhenSteamOmitsManifestHandle()
+    {
+        var (project, snapshot, remoteBefore) = ConfirmedState();
+        snapshot = snapshot with { ContentFingerprint = "content-v2" };
+        var plan = WorkshopPublicationPlanner.CreatePlan(project, snapshot, remoteBefore, false);
+        var submittedAt = RemoteUpdatedAt.AddMinutes(1);
+        var remoteAfter = remoteBefore with { UpdatedAt = submittedAt.AddSeconds(1), FileSize = 4096 };
+
+        var confirmed = WorkshopPublicationPlanner.IsRemoteConfirmation(
+            project,
+            plan,
+            remoteAfter,
+            submittedAt,
+            publishedContentHandle: "stale-local-handle",
+            allowTimestampOnlyContentConfirmation: true);
+
+        Assert.True(confirmed);
+    }
+
+    [Fact]
     public void ForceRequiresObservableRemoteChange()
     {
         var (project, snapshot, remoteBefore) = ConfirmedState();
@@ -304,6 +324,49 @@ public sealed class WorkshopPublicationPlannerTests : IDisposable
             "Upload finished for workshop item 123456789 : OK");
 
         Assert.True(result.Success);
+    }
+
+    [Fact]
+    public void LinuxCommitSuccessRequiresRemoteProofInsteadOfImmediateRejection()
+    {
+        const string output = "Uploading content... Uploading preview image... Committing update... Success. Unloading Steam API...OK";
+        var processResult = new SteamCmdResult(0, output, string.Empty);
+
+        var result = SteamCmdService.ValidateWorkshopSubmissionResult(processResult, 123456789, string.Empty);
+
+        Assert.True(result.Success);
+        Assert.True(SteamCmdService.RequiresRemoteProof(processResult, 123456789, string.Empty));
+    }
+
+    [Fact]
+    public void ExplicitWorkshopCompletionDoesNotRequireAdditionalProof()
+    {
+        var processResult = new SteamCmdResult(0, "Steam Console Client exited", string.Empty);
+        const string activity = "Upload finished for workshop item 123456789 : OK";
+
+        Assert.False(SteamCmdService.RequiresRemoteProof(processResult, 123456789, activity));
+    }
+
+    [Fact]
+    public void LinuxCommitSequenceCannotOverrideExplicitFailure()
+    {
+        const string output = "Committing update... Success. Unloading Steam API...OK ERROR! Failed to update workshop item (Failure)";
+        var processResult = new SteamCmdResult(0, output, string.Empty);
+
+        var result = SteamCmdService.ValidateWorkshopSubmissionResult(processResult, 123456789, string.Empty);
+
+        Assert.False(result.Success);
+        Assert.False(SteamCmdService.RequiresRemoteProof(processResult, 123456789, string.Empty));
+    }
+
+    [Fact]
+    public void TerminalControlSequencesAreRemovedFromSteamCmdOutput()
+    {
+        const string output = "\u001b[0mUploading content...\u001b[32mSuccess.\u001b[0m";
+
+        var cleaned = SteamCmdService.StripTerminalControlSequences(output);
+
+        Assert.Equal("Uploading content...Success.", cleaned);
     }
 
     private PackageBuildResult CreateBuild()

@@ -3,12 +3,13 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using PZAdvancedServerManager.Core.Domain;
+using PZAdvancedServerManager.Core.Infrastructure;
 using PZAdvancedServerManager.Core.Packaging;
 using PZAdvancedServerManager.Core.Pz;
 
 namespace PZAdvancedServerManager.Core.Publishing;
 
-public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogService catalog, SteamCmdInstaller installer)
+public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogService catalog, SteamCmdInstaller installer, ApplicationPaths paths)
 {
     public async Task<SteamCmdResult> UpdateDedicatedServerAsync(
         string steamCmdPath,
@@ -48,8 +49,7 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
         var login = ResolveDownloadLogin(project);
         var result = await RunAsync(steamCmdPath,
             ["+login", login, "+workshop_download_item", PzasmConstants.ProjectZomboidSteamAppId, workshopId.ToString(), "validate", "+quit"], cancellationToken, progress: progress);
-        var steamCmdRoot = Path.GetDirectoryName(steamCmdPath)!;
-        var contentRoot = Path.Combine(steamCmdRoot, "steamapps", "workshop", "content", PzasmConstants.ProjectZomboidSteamAppId, workshopId.ToString());
+        var contentRoot = paths.ResolveSteamWorkshopItemRoot(steamCmdPath, workshopId);
         return new WorkshopDownloadResult(result, contentRoot);
     }
 
@@ -86,8 +86,7 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
                 [], 0, 0, 0, 0);
         var steamCmdPath = await ResolveExecutableAsync(project, cancellationToken, progress);
 
-        var steamCmdRoot = Path.GetDirectoryName(steamCmdPath)!;
-        var workshopRoot = Path.Combine(steamCmdRoot, "steamapps", "workshop");
+        var workshopRoot = paths.ResolveSteamWorkshopRoot(steamCmdPath, workshopIds);
         var contentRoot = Path.Combine(workshopRoot, "content", PzasmConstants.ProjectZomboidSteamAppId);
         var manifestPath = Path.Combine(workshopRoot, $"appworkshop_{PzasmConstants.ProjectZomboidSteamAppId}.acf");
         var installedBefore = SteamWorkshopManifestReader.Read(manifestPath);
@@ -135,6 +134,9 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
                 return new SteamWorkshopRefreshResult(commandResult, [], workshopIds.Length, pendingIds.Length, reusedCount, 0);
         }
 
+        workshopRoot = paths.ResolveSteamWorkshopRoot(steamCmdPath, workshopIds);
+        contentRoot = Path.Combine(workshopRoot, "content", PzasmConstants.ProjectZomboidSteamAppId);
+        manifestPath = Path.Combine(workshopRoot, $"appworkshop_{PzasmConstants.ProjectZomboidSteamAppId}.acf");
         var installedAfter = SteamWorkshopManifestReader.Read(manifestPath);
         var unavailableIds = workshopIds
             .Where(id => !installedAfter.TryGetValue(id, out var state) || string.IsNullOrWhiteSpace(state.ManifestId) || !HasWorkshopContent(contentRoot, id))

@@ -37,7 +37,8 @@ public sealed partial class PzDiscoveryService(ApplicationPaths paths) : IPzEnvi
     {
         var roots = new List<(string ModsRoot, ulong WorkshopId)>();
         AddWorkshopMods(roots, installation.WorkshopRoot);
-        AddWorkshopMods(roots, Path.Combine(paths.SteamCmdRoot, "steamapps", "workshop", "content", PzasmConstants.ProjectZomboidSteamAppId));
+        foreach (var workshopRoot in paths.GetSteamWorkshopRoots(installation.SteamCmdPath ?? paths.SteamCmdExecutable))
+            AddWorkshopMods(roots, Path.Combine(workshopRoot, "content", PzasmConstants.ProjectZomboidSteamAppId));
         if (installation.DedicatedServerRoot is not null)
             AddWorkshopMods(roots, Path.Combine(installation.DedicatedServerRoot, "steamapps", "workshop", "content", PzasmConstants.ProjectZomboidSteamAppId));
 

@@ -1,3 +1,5 @@
+using PZAdvancedServerManager.Core.Domain;
+
 namespace PZAdvancedServerManager.Core.Infrastructure;
 
 public sealed class StorageMaintenanceService(ApplicationPaths paths, PackageProjectStore projects)
@@ -21,6 +23,7 @@ public sealed class StorageMaintenanceService(ApplicationPaths paths, PackagePro
         CleanupUnreferencedWorkshopCache(utcNow - TimeSpan.FromDays(7), result);
         TrimLogs(paths.LogsRoot, result);
         TrimLogs(Path.Combine(paths.SteamCmdRoot, "logs"), result);
+        TrimLogs(Path.Combine(paths.RuntimeHomeRoot, "Steam", "logs"), result);
         return new StorageMaintenanceResult(result.Directories, result.Files, result.Bytes);
     }
 
@@ -89,14 +92,17 @@ public sealed class StorageMaintenanceService(ApplicationPaths paths, PackagePro
 
     private void CleanupUnreferencedWorkshopCache(DateTime threshold, MutableResult result)
     {
-        var contentRoot = Path.Combine(paths.SteamCmdRoot, "steamapps", "workshop", "content", "108600");
-        if (!Directory.Exists(contentRoot)) return;
         var referenced = projects.GetAll().SelectMany(project => project.Mods).Where(mod => mod.WorkshopId != 0).Select(mod => mod.WorkshopId).ToHashSet();
-        foreach (var directory in Directory.EnumerateDirectories(contentRoot, "*", SearchOption.TopDirectoryOnly))
+        foreach (var workshopRoot in paths.GetSteamWorkshopRoots(paths.SteamCmdExecutable))
         {
-            if (!ulong.TryParse(Path.GetFileName(directory), out var workshopId) || referenced.Contains(workshopId)) continue;
-            if (Directory.GetLastWriteTimeUtc(directory) > threshold) continue;
-            DeleteDirectory(directory, result);
+            var contentRoot = Path.Combine(workshopRoot, "content", PzasmConstants.ProjectZomboidSteamAppId);
+            if (!Directory.Exists(contentRoot)) continue;
+            foreach (var directory in Directory.EnumerateDirectories(contentRoot, "*", SearchOption.TopDirectoryOnly))
+            {
+                if (!ulong.TryParse(Path.GetFileName(directory), out var workshopId) || referenced.Contains(workshopId)) continue;
+                if (Directory.GetLastWriteTimeUtc(directory) > threshold) continue;
+                DeleteDirectory(directory, result);
+            }
         }
     }
 

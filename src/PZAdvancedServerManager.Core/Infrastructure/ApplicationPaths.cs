@@ -48,6 +48,48 @@ public sealed class ApplicationPaths
     public string SteamCmdRoot => Path.Combine(ToolsRoot, "steamcmd");
     public string SteamCmdExecutable => Path.Combine(SteamCmdRoot, OperatingSystem.IsWindows() ? "steamcmd.exe" : "steamcmd.sh");
 
+    public IReadOnlyList<string> GetSteamWorkshopRoots(string? steamCmdExecutable = null)
+    {
+        var executableRoot = string.IsNullOrWhiteSpace(steamCmdExecutable)
+            ? SteamCmdRoot
+            : Path.GetDirectoryName(Path.GetFullPath(steamCmdExecutable)) ?? SteamCmdRoot;
+        var executableWorkshopRoot = Path.Combine(executableRoot, "steamapps", "workshop");
+        var runtimeWorkshopRoot = Path.Combine(RuntimeHomeRoot, "Steam", "steamapps", "workshop");
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var profileWorkshopRoot = Path.Combine(userProfile, "Steam", "steamapps", "workshop");
+        var candidates = OperatingSystem.IsWindows()
+            ? new[] { executableWorkshopRoot, runtimeWorkshopRoot, profileWorkshopRoot }
+            : new[] { runtimeWorkshopRoot, profileWorkshopRoot, executableWorkshopRoot };
+        return candidates
+            .Select(Path.GetFullPath)
+            .Distinct(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    public string ResolveSteamWorkshopRoot(string? steamCmdExecutable = null, IEnumerable<ulong>? workshopIds = null)
+    {
+        var ids = workshopIds?.Where(id => id != 0).Distinct().ToArray() ?? [];
+        var roots = GetSteamWorkshopRoots(steamCmdExecutable);
+        return roots
+            .Select((root, index) => new
+            {
+                Root = root,
+                Index = index,
+                Score = ids.Count(id => Directory.Exists(Path.Combine(root, "content", PzasmConstants.ProjectZomboidSteamAppId, id.ToString()))) * 100
+                        + (File.Exists(Path.Combine(root, $"appworkshop_{PzasmConstants.ProjectZomboidSteamAppId}.acf")) ? 10 : 0)
+                        + (Directory.Exists(root) ? 1 : 0)
+            })
+            .OrderByDescending(candidate => candidate.Score)
+            .ThenBy(candidate => candidate.Index)
+            .First().Root;
+    }
+
+    public string ResolveSteamWorkshopItemRoot(string? steamCmdExecutable, ulong workshopId)
+    {
+        var workshopRoot = ResolveSteamWorkshopRoot(steamCmdExecutable, [workshopId]);
+        return Path.Combine(workshopRoot, "content", PzasmConstants.ProjectZomboidSteamAppId, workshopId.ToString());
+    }
+
     public string ProjectFile(Guid id) => Path.Combine(ProjectsRoot, $"{id:N}{PzasmConstants.ProjectFileExtension}");
     public string BuildRoot(Guid id) => Path.Combine(BuildsRoot, id.ToString("N"));
     public string ProjectSourcesRoot(Guid id) => Path.Combine(SourcesRoot, id.ToString("N"));

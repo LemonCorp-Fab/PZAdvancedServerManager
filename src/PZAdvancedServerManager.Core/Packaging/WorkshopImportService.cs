@@ -36,7 +36,7 @@ public sealed class WorkshopImportService(
         if (!download.SteamCmd.Success)
             throw new InvalidOperationException("Téléchargement SteamCMD échoué : " + Tail(download.SteamCmd.CombinedOutput));
         if (!Directory.Exists(download.ContentRoot))
-            throw new DirectoryNotFoundException($"SteamCMD n'a pas créé le dossier attendu : {download.ContentRoot}");
+            throw new DirectoryNotFoundException($"SteamCMD n'a pas créé le dossier attendu : {download.ContentRoot}. Sortie SteamCMD : {Tail(download.SteamCmd.CombinedOutput)}");
 
         var imported = discovery.DiscoverWorkshopItem(download.ContentRoot, workshopId, project.TargetPzVersion);
         if (imported.Count == 0)

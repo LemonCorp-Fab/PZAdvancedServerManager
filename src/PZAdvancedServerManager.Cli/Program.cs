@@ -929,7 +929,7 @@ internal sealed class CliServices
         var builder = new PackageBuildService(paths, Validator);
         WorkshopCatalog = new WorkshopCatalogService();
         SteamCmdInstaller = new SteamCmdInstaller(paths);
-        SteamCmd = new SteamCmdService(Validator, WorkshopCatalog, SteamCmdInstaller);
+        SteamCmd = new SteamCmdService(Validator, WorkshopCatalog, SteamCmdInstaller, Paths);
         MapPriority = new MapPriorityService();
         Lifecycle = new PackageLifecycleService(paths, Store, snapshots, builder, SteamCmd, Servers);
         Automation = new PackageAutomationService(paths, Store, Lifecycle);

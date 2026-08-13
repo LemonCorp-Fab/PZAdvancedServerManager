@@ -157,7 +157,8 @@ public static class WorkshopPublicationPlanner
         WorkshopRemoteState remote,
         DateTimeOffset submittedAt,
         string publishedContentHandle = "",
-        bool allowTimestampOnlyContentConfirmation = false)
+        bool allowTimestampOnlyContentConfirmation = false,
+        bool submittedManifestVerified = false)
     {
         if (remote.WorkshopId != project.PublishedWorkshopId ||
             remote.ConsumerAppId != long.Parse(PzasmConstants.ProjectZomboidSteamAppId) ||
@@ -176,6 +177,8 @@ public static class WorkshopPublicationPlanner
         var remoteTimestampReachedSubmission = remote.UpdatedAt is not null &&
                                                remote.UpdatedAt.Value.ToUnixTimeSeconds() >= submittedAt.ToUnixTimeSeconds();
         var remoteTimestampAdvanced = baselineUpdatedAt is not null && remote.UpdatedAt > baselineUpdatedAt;
+        var submittedManifestMatches = submittedManifestVerified && !string.IsNullOrWhiteSpace(publishedContentHandle) &&
+                                       remote.ContentHandle.Equals(publishedContentHandle, StringComparison.Ordinal);
         var newItem = plan.WorkshopIdBefore == 0;
 
         if (!plan.IncludeContent &&
@@ -214,17 +217,17 @@ public static class WorkshopPublicationPlanner
                              !remote.PreviewHandle.Equals(baselinePreviewHandle, StringComparison.Ordinal);
 
         if (newItem) return remoteTimestampReachedSubmission;
-        if (contentMustChange && !contentChanged &&
+        if (contentMustChange && !contentChanged && !submittedManifestMatches &&
             !(allowTimestampOnlyContentConfirmation && remoteTimestampAdvanced && remoteTimestampReachedSubmission)) return false;
         if (previewMustChange && !previewChanged) return false;
         if (metadataMustChange && !(remoteTimestampAdvanced && remoteTimestampReachedSubmission)) return false;
 
-        if (!allowTimestampOnlyContentConfirmation && !string.IsNullOrWhiteSpace(publishedContentHandle) && plan.IncludeContent &&
+        if (!string.IsNullOrWhiteSpace(publishedContentHandle) && plan.IncludeContent &&
             !remote.ContentHandle.Equals(publishedContentHandle, StringComparison.Ordinal))
             return false;
 
         var observableChange = contentChanged || previewChanged || remoteTimestampAdvanced;
-        return observableChange && (contentChanged || previewChanged || remoteTimestampReachedSubmission);
+        return submittedManifestMatches || observableChange && (contentChanged || previewChanged || remoteTimestampReachedSubmission);
     }
 
     public static void ApplyConfirmedState(

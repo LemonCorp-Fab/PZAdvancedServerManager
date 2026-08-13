@@ -252,10 +252,49 @@ public sealed class WorkshopPublicationPlannerTests : IDisposable
             plan,
             remoteAfter,
             submittedAt,
-            publishedContentHandle: "stale-local-handle",
             allowTimestampOnlyContentConfirmation: true);
 
         Assert.True(confirmed);
+    }
+
+    [Fact]
+    public void ReusedManifestFromCurrentSteamCmdRunConfirmsIdempotentContentSubmission()
+    {
+        var (project, snapshot, remoteBefore) = ConfirmedState();
+        snapshot = snapshot with { ContentFingerprint = "content-v2" };
+        var plan = WorkshopPublicationPlanner.CreatePlan(project, snapshot, remoteBefore, false);
+        var submittedAt = RemoteUpdatedAt.AddMinutes(1);
+
+        var confirmed = WorkshopPublicationPlanner.IsRemoteConfirmation(
+            project,
+            plan,
+            remoteBefore,
+            submittedAt,
+            publishedContentHandle: remoteBefore.ContentHandle,
+            allowTimestampOnlyContentConfirmation: true,
+            submittedManifestVerified: true);
+
+        Assert.True(confirmed);
+    }
+
+    [Fact]
+    public void StaleManifestFileCannotProveCurrentSubmission()
+    {
+        var steamRoot = Path.Combine(_root, "steamcmd");
+        var executable = Path.Combine(steamRoot, "linux32", "steamcmd");
+        var statePath = Path.Combine(steamRoot, "workshopbuilds", $"depot_build_{PzasmConstants.ProjectZomboidSteamAppId}.vdf");
+        Directory.CreateDirectory(Path.GetDirectoryName(executable)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(statePath)!);
+        File.WriteAllText(executable, string.Empty);
+        File.WriteAllText(statePath, "\"depotbuild\" { \"manifest\" \"123456789\" }");
+        var submittedAt = DateTimeOffset.UtcNow;
+        File.SetLastWriteTimeUtc(statePath, submittedAt.AddMinutes(-1).UtcDateTime);
+
+        Assert.Contains(steamRoot, SteamCmdService.GetSteamCmdDataRoots(executable));
+        Assert.Empty(SteamCmdService.ReadPublishedContentHandle(executable, submittedAt));
+
+        File.SetLastWriteTimeUtc(statePath, submittedAt.UtcDateTime);
+        Assert.Equal("123456789", SteamCmdService.ReadPublishedContentHandle(executable, submittedAt));
     }
 
     [Fact]

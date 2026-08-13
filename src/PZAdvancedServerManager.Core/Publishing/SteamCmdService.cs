@@ -280,18 +280,21 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
             ? new OperationProgress("manifest-scan", "Prévalidation réussie. Steam peut maintenant inventorier le contenu et calculer le delta.")
             : new OperationProgress("workshop-commit", "Prévalidation réussie. Aucun scan du contenu n'est requis pour cette mise à jour."));
 
-        var workshopLogPath = GetWorkshopLogPath(steamCmdPath);
-        var workshopLogOffset = GetFileLength(workshopLogPath);
-        var depotBuildLogPath = GetDepotBuildLogPath(steamCmdPath);
+        var steamCmdDataRoots = GetSteamCmdDataRoots(steamCmdPath);
+        var workshopLogPaths = steamCmdDataRoots.Select(root => Path.Combine(root, "logs", "workshop_log.txt")).ToArray();
+        var workshopLogOffsets = workshopLogPaths.ToDictionary(path => path, GetFileLength, OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        var depotBuildLogPath = steamCmdDataRoots
+            .Select(root => Path.Combine(root, "workshopbuilds", $"depot_build_{PzasmConstants.ProjectZomboidSteamAppId}.log"))
+            .FirstOrDefault(File.Exists) ?? Path.Combine(steamCmdDataRoots[0], "workshopbuilds", $"depot_build_{PzasmConstants.ProjectZomboidSteamAppId}.log");
         var submittedAt = DateTimeOffset.UtcNow;
         var result = await RunAsync(steamCmdPath,
             ["+login", project.Automation.SteamUsername, "+workshop_build_item", publishVdfPath, "+quit"], cancellationToken, progress: progress, timeout: TimeSpan.FromHours(12), workshopBuildLogPath: depotBuildLogPath);
         var id = ApplyPublishedFileId(project, publishVdfPath);
-        var workshopActivityLog = ReadAppendedLog(workshopLogPath, workshopLogOffset);
+        var workshopActivityLog = string.Join(Environment.NewLine, workshopLogPaths.Select(path => ReadAppendedLog(path, workshopLogOffsets[path])));
         var requiresRemoteProof = RequiresRemoteProof(result, id, workshopActivityLog);
         result = ValidateWorkshopSubmissionResult(result, id, workshopActivityLog);
         WorkshopRemoteState? confirmedRemote = null;
-        var publishedContentHandle = ReadPublishedContentHandle(steamCmdPath);
+        var publishedContentHandle = ReadPublishedContentHandle(steamCmdPath, submittedAt);
         if (result.ExitCode == 0)
         {
             if (id == 0)
@@ -447,7 +450,7 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
             try
             {
                 var remote = await catalog.GetRemoteStateAsync(project.PublishedWorkshopId, cancellationToken);
-                if (remote is not null && WorkshopPublicationPlanner.IsRemoteConfirmation(project, plan, remote, submittedAt, publishedContentHandle, allowTimestampOnlyContentConfirmation))
+                if (remote is not null && WorkshopPublicationPlanner.IsRemoteConfirmation(project, plan, remote, submittedAt, publishedContentHandle, allowTimestampOnlyContentConfirmation, !string.IsNullOrWhiteSpace(publishedContentHandle)))
                 {
                     progress?.Report(new OperationProgress("remote-confirmed", $"Manifeste Workshop {remote.ContentHandle} confirmé par l'API Steam."));
                     return remote;
@@ -459,7 +462,7 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
                 progress?.Report(new OperationProgress("remote-confirmation", $"Propagation distante encore non vérifiable ({exception.Message}).", attempt + 1, delays.Length));
             }
         }
-        progress?.Report(new OperationProgress("remote-confirmation", "SteamCMD a confirmé l'envoi. L'API publique ne permet pas encore de relire cet item; aucun futur no-change ne sera accepté sans vérification distante."));
+        progress?.Report(new OperationProgress("remote-confirmation", "SteamCMD a terminé l'envoi, mais l'API publique n'a pas encore exposé un état correspondant à cette soumission. Aucun futur no-change ni redémarrage serveur ne sera accepté sans preuve distante."));
         return null;
     }
 
@@ -518,11 +521,18 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
                Regex.IsMatch(combined, "(?:ERROR!.*Failed to update workshop item|Update canceled:.*workshop|Build for workshop item has no content)", RegexOptions.IgnoreCase);
     }
 
-    private static string GetWorkshopLogPath(string steamCmdPath) =>
-        Path.Combine(Path.GetDirectoryName(steamCmdPath) ?? string.Empty, "logs", "workshop_log.txt");
-
-    private static string GetDepotBuildLogPath(string steamCmdPath) =>
-        Path.Combine(Path.GetDirectoryName(steamCmdPath) ?? string.Empty, "workshopbuilds", $"depot_build_{PzasmConstants.ProjectZomboidSteamAppId}.log");
+    public static IReadOnlyList<string> GetSteamCmdDataRoots(string steamCmdPath)
+    {
+        var executableRoot = Path.GetDirectoryName(Path.GetFullPath(steamCmdPath)) ?? string.Empty;
+        var roots = new List<string> { executableRoot };
+        if (Path.GetFileName(executableRoot).Equals("linux32", StringComparison.OrdinalIgnoreCase) ||
+            Path.GetFileName(executableRoot).Equals("linux64", StringComparison.OrdinalIgnoreCase))
+            roots.Add(Path.GetDirectoryName(executableRoot) ?? executableRoot);
+        return roots
+            .Where(root => !string.IsNullOrWhiteSpace(root))
+            .Distinct(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal)
+            .ToArray();
+    }
 
     private static long GetFileLength(string path)
     {
@@ -546,14 +556,18 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
         }
     }
 
-    private static string ReadPublishedContentHandle(string steamCmdPath)
+    public static string ReadPublishedContentHandle(string steamCmdPath, DateTimeOffset submittedAt)
     {
-        var root = Path.GetDirectoryName(steamCmdPath);
-        if (string.IsNullOrWhiteSpace(root)) return string.Empty;
-        var statePath = Path.Combine(root, "workshopbuilds", $"depot_build_{PzasmConstants.ProjectZomboidSteamAppId}.vdf");
-        if (!File.Exists(statePath)) return string.Empty;
-        var match = Regex.Match(File.ReadAllText(statePath), "\\\"manifest\\\"\\s+\\\"(\\d+)\\\"", RegexOptions.IgnoreCase);
-        return match.Success ? match.Groups[1].Value : string.Empty;
+        foreach (var root in GetSteamCmdDataRoots(steamCmdPath))
+        {
+            var statePath = Path.Combine(root, "workshopbuilds", $"depot_build_{PzasmConstants.ProjectZomboidSteamAppId}.vdf");
+            if (!File.Exists(statePath)) continue;
+            var writtenAt = new DateTimeOffset(File.GetLastWriteTimeUtc(statePath), TimeSpan.Zero);
+            if (writtenAt < submittedAt.AddSeconds(-5)) continue;
+            var match = Regex.Match(File.ReadAllText(statePath), "\\\"manifest\\\"\\s+\\\"(\\d+)\\\"", RegexOptions.IgnoreCase);
+            if (match.Success) return match.Groups[1].Value;
+        }
+        return string.Empty;
     }
 
     private static string? ReadVdfString(string vdf, string key)

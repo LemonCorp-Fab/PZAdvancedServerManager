@@ -6,12 +6,13 @@
     var isAuthenticated = User.Identity?.IsAuthenticated == true;
     var isServerArea = requestPath.StartsWith("/Server", StringComparison.OrdinalIgnoreCase);
     var isAdminArea = requestPath.StartsWith("/Admin", StringComparison.OrdinalIgnoreCase);
-    var isDashboard = requestPath == "/";
-    var isPackArea = requestPath.StartsWith("/Projects", StringComparison.OrdinalIgnoreCase) || requestPath.StartsWith("/Workshop", StringComparison.OrdinalIgnoreCase);
+    var isDashboard = requestPath is "/" or "/Index";
+    var isModpacksHome = requestPath.StartsWith("/Modpacks", StringComparison.OrdinalIgnoreCase);
+    var isPackArea = isModpacksHome || requestPath.StartsWith("/Projects", StringComparison.OrdinalIgnoreCase) || requestPath.StartsWith("/Workshop", StringComparison.OrdinalIgnoreCase);
     var accountName = User.Identity?.Name ?? "Administrateur";
     var accountInitial = accountName.Trim().Length > 0 ? accountName.Trim()[0].ToString().ToUpperInvariant() : "A";
     var appVersion = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "dev";
-    var sectionLabel = isServerArea ? "Infrastructure" : isAdminArea ? "Administration" : "Modpacks";
+    var currentTitle = ViewData["Title"]?.ToString() ?? "PZ Advanced Server Manager";
 }
 <html lang="fr" data-theme="light" aria-busy="true">
 <head>
@@ -177,7 +178,7 @@
                     <a class="@(isDashboard ? "is-active" : null)" asp-area="" asp-page="/Index" aria-current="@(isDashboard ? "page" : null)">
                         <svg class="ui-icon" aria-hidden="true"><use href="#icon-grid"></use></svg><span>Tableau de bord</span>
                     </a>
-                    <a class="@(isPackArea ? "is-active" : null)" asp-area="" asp-page="/Index" asp-fragment="projects" aria-current="@(isPackArea ? "page" : null)">
+                    <a class="@(isPackArea ? "is-active" : null)" asp-area="" asp-page="/Modpacks/Index" aria-current="@(isPackArea ? "page" : null)">
                         <svg class="ui-icon" aria-hidden="true"><use href="#icon-package"></use></svg><span>Modpacks</span>
                     </a>
                     <a class="@(isServerArea ? "is-active" : null)" asp-area="" asp-page="/Server/Index" aria-current="@(isServerArea ? "page" : null)">
@@ -205,7 +206,28 @@
                         <button class="topbar-menu-button" type="button" data-sidebar-toggle aria-label="Ouvrir la navigation" aria-expanded="false">
                             <svg class="ui-icon" aria-hidden="true"><use href="#icon-menu"></use></svg>
                         </button>
-                        <div class="topbar-breadcrumb"><span>@sectionLabel</span><svg class="ui-icon" aria-hidden="true"><use href="#icon-chevron"></use></svg><strong>@ViewData["Title"]</strong></div>
+                        <nav class="topbar-breadcrumb" aria-label="Fil d’Ariane">
+                            @if (isDashboard)
+                            {
+                                <svg class="ui-icon breadcrumb-home-icon" aria-hidden="true"><use href="#icon-home"></use></svg><strong>Tableau de bord</strong>
+                            }
+                            else
+                            {
+                                <a asp-page="/Index" aria-label="Tableau de bord"><svg class="ui-icon breadcrumb-home-icon" aria-hidden="true"><use href="#icon-home"></use></svg><span>Tableau de bord</span></a>
+                                <svg class="ui-icon breadcrumb-separator" aria-hidden="true"><use href="#icon-chevron"></use></svg>
+                                @if (isPackArea && !isModpacksHome)
+                                {
+                                    <a asp-page="/Modpacks/Index">Modpacks</a>
+                                    <svg class="ui-icon breadcrumb-separator" aria-hidden="true"><use href="#icon-chevron"></use></svg>
+                                }
+                                else if (isAdminArea)
+                                {
+                                    <span>Administration</span>
+                                    <svg class="ui-icon breadcrumb-separator" aria-hidden="true"><use href="#icon-chevron"></use></svg>
+                                }
+                                <strong>@currentTitle</strong>
+                            }
+                        </nav>
                     </div>
                     <div class="app-preferences" aria-label="Préférences et compte">
                         <label class="language-control"><span class="visually-hidden">Langue</span><select data-language-select aria-label="Langue de l’interface"><option value="fr">FR</option><option value="en">EN</option><option value="es">ES</option><option value="de">DE</option><option value="pt-BR">PT</option><option value="zh-CN">中文</option></select></label>
@@ -247,6 +269,7 @@
 
     <svg class="svg-sprite" aria-hidden="true">
         <symbol id="icon-grid" viewBox="0 0 24 24"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" /></symbol>
+        <symbol id="icon-home" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8M5 10v10h14V10M9 20v-6h6v6" /></symbol>
         <symbol id="icon-package" viewBox="0 0 24 24"><path d="m12 3 8 4.2v9.6L12 21l-8-4.2V7.2L12 3Zm0 0v9m8-4.8-8 4.8-8-4.8" /></symbol>
         <symbol id="icon-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><path d="M7 7h.01M7 17h.01M11 7h6M11 17h6" /></symbol>
         <symbol id="icon-users" viewBox="0 0 24 24"><path d="M16 20v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M9.5 10a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM17 11a3 3 0 0 0 0-6M21 20v-2a4 4 0 0 0-3-3.8" /></symbol>

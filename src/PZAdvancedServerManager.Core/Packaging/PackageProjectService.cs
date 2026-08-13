@@ -21,6 +21,7 @@ public sealed class PackageProjectService(
         try
         {
             foreach (var mod in added) snapshots.Pin(project, mod, replace: false);
+            foreach (var mod in added) mod.SourceModRoot = mod.PinnedSourceRoot;
             NormalizeOrder(project);
             store.Save(project);
             return added.Count;
@@ -34,6 +35,17 @@ public sealed class PackageProjectService(
             }
             throw;
         }
+    }
+
+    public void SetWorkshopSourceToken(PackageProject project, ulong workshopId, string sourceUpdateToken)
+    {
+        if (workshopId == 0 || string.IsNullOrWhiteSpace(sourceUpdateToken)) return;
+        foreach (var mod in project.Mods.Where(mod => mod.WorkshopId == workshopId && Directory.Exists(mod.PinnedSourceRoot)))
+        {
+            mod.SourceUpdateToken = sourceUpdateToken;
+            mod.SourceModRoot = mod.PinnedSourceRoot;
+        }
+        store.Save(project);
     }
 
     public void Remove(PackageProject project, Guid modReferenceId)

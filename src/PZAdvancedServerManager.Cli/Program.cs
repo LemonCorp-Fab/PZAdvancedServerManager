@@ -927,13 +927,14 @@ internal sealed class CliServices
         Servers = new ServerProfileService(paths, Environment, orchestration, remoteStore, localStore, remoteBackends, pine);
         WorldData = new ServerWorldDataStore(paths);
         var builder = new PackageBuildService(paths, Validator);
+        var workshopCache = new SteamWorkshopCachePruner(paths);
         WorkshopCatalog = new WorkshopCatalogService();
         SteamCmdInstaller = new SteamCmdInstaller(paths);
         SteamCmd = new SteamCmdService(Validator, WorkshopCatalog, SteamCmdInstaller, Paths);
         MapPriority = new MapPriorityService();
-        Lifecycle = new PackageLifecycleService(paths, Store, snapshots, builder, SteamCmd, Servers);
+        Lifecycle = new PackageLifecycleService(paths, Store, snapshots, builder, SteamCmd, Servers, workshopCache);
         Automation = new PackageAutomationService(paths, Store, Lifecycle);
-        WorkshopImport = new WorkshopImportService(SteamCmd, discovery, Environment, Projects);
+        WorkshopImport = new WorkshopImportService(SteamCmd, discovery, Environment, Projects, workshopCache);
         PackTransfers = new PackTransferService(paths, Store);
         ServerTransfers = new ServerConnectionTransferService(paths, remoteStore);
     }

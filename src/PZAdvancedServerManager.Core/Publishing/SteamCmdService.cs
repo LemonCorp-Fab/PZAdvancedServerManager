@@ -50,7 +50,10 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
         var result = await RunAsync(steamCmdPath,
             ["+login", login, "+workshop_download_item", PzasmConstants.ProjectZomboidSteamAppId, workshopId.ToString(), "validate", "+quit"], cancellationToken, progress: progress);
         var contentRoot = paths.ResolveSteamWorkshopItemRoot(steamCmdPath, workshopId);
-        return new WorkshopDownloadResult(result, contentRoot);
+        var workshopRoot = paths.ResolveSteamWorkshopRoot(steamCmdPath, [workshopId]);
+        var manifest = SteamWorkshopManifestReader.Read(Path.Combine(workshopRoot, $"appworkshop_{PzasmConstants.ProjectZomboidSteamAppId}.acf"));
+        var sourceUpdateToken = manifest.TryGetValue(workshopId, out var state) ? SteamWorkshopSourceToken.Create(state) : string.Empty;
+        return new WorkshopDownloadResult(result, contentRoot, sourceUpdateToken);
     }
 
     public async Task<WorkshopDownloadResult> VerifyWorkshopItemAvailableAsync(PackageProject project, ulong workshopId, int maximumAttempts = 1, CancellationToken cancellationToken = default, IProgress<OperationProgress>? progress = null)
@@ -106,8 +109,13 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
             progress?.Report(new OperationProgress("workshop-check", $"Le contrôle groupé est indisponible ({exception.Message}). SteamCMD vérifiera tous les items dans une seule session."));
         }
 
+        var referencesByWorkshopId = targets
+            .Where(reference => reference.WorkshopId != 0)
+            .GroupBy(reference => reference.WorkshopId)
+            .ToDictionary(group => group.Key, group => group.ToArray());
         var pendingIds = workshopIds
-            .Where(id => !IsWorkshopItemCurrent(contentRoot, id, installedBefore, remoteUpdateTimes))
+            .Where(id => !IsWorkshopItemCurrent(contentRoot, id, installedBefore, remoteUpdateTimes) &&
+                         !IsImportedSnapshotCurrent(id, referencesByWorkshopId, remoteUpdateTimes))
             .ToArray();
         var reusedCount = workshopIds.Length - pendingIds.Length;
         progress?.Report(new OperationProgress("workshop-check", $"{reusedCount} item(s) déjà à jour; {pendingIds.Length} téléchargement(s) ou contrôle(s) SteamCMD requis."));
@@ -138,7 +146,11 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
         contentRoot = Path.Combine(workshopRoot, "content", PzasmConstants.ProjectZomboidSteamAppId);
         manifestPath = Path.Combine(workshopRoot, $"appworkshop_{PzasmConstants.ProjectZomboidSteamAppId}.acf");
         var installedAfter = SteamWorkshopManifestReader.Read(manifestPath);
+        var importedSnapshotIds = workshopIds
+            .Where(id => IsImportedSnapshotCurrent(id, referencesByWorkshopId, remoteUpdateTimes))
+            .ToHashSet();
         var unavailableIds = workshopIds
+            .Where(id => !importedSnapshotIds.Contains(id))
             .Where(id => !installedAfter.TryGetValue(id, out var state) || string.IsNullOrWhiteSpace(state.ManifestId) || !HasWorkshopContent(contentRoot, id))
             .ToArray();
         if (unavailableIds.Length > 0)
@@ -153,10 +165,11 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
         var missingMods = new List<string>();
         foreach (var group in targets.Where(x => x.WorkshopId != 0).GroupBy(x => x.WorkshopId))
         {
+            if (importedSnapshotIds.Contains(group.Key)) continue;
             if (!installedAfter.TryGetValue(group.Key, out var state) || string.IsNullOrWhiteSpace(state.ManifestId)) continue;
             var itemRoot = Path.Combine(contentRoot, group.Key.ToString());
             if (!Directory.Exists(itemRoot)) continue;
-            var token = CreateSourceUpdateToken(state);
+            var token = SteamWorkshopSourceToken.Create(state);
             var referenceStates = group.ToDictionary(
                 reference => reference.Id,
                 reference => ClassifyReference(reference, token, state, itemRoot));
@@ -955,8 +968,16 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
         return Directory.Exists(itemRoot) && Directory.EnumerateFileSystemEntries(itemRoot).Any();
     }
 
-    private static string CreateSourceUpdateToken(SteamWorkshopItemState state) =>
-        $"steam-workshop:{state.WorkshopId}:{state.ManifestId}:{state.TimeUpdated}";
+    private static bool IsImportedSnapshotCurrent(
+        ulong workshopId,
+        IReadOnlyDictionary<ulong, PackageModReference[]> referencesByWorkshopId,
+        IReadOnlyDictionary<ulong, long> remoteUpdateTimes)
+    {
+        return remoteUpdateTimes.TryGetValue(workshopId, out var remoteUpdateTime) &&
+               referencesByWorkshopId.TryGetValue(workshopId, out var references) &&
+               references.Length > 0 &&
+               references.All(reference => SteamWorkshopSourceToken.MatchesRemote(reference, workshopId, remoteUpdateTime));
+    }
 
     private static ReferenceRefreshStatus ClassifyReference(
         PackageModReference reference,
@@ -1141,5 +1162,5 @@ public sealed class SteamCmdInteractionRequiredException(SteamCmdInteraction int
     }
 }
 
-public sealed record WorkshopDownloadResult(SteamCmdResult SteamCmd, string ContentRoot);
+public sealed record WorkshopDownloadResult(SteamCmdResult SteamCmd, string ContentRoot, string SourceUpdateToken);
 public sealed record SteamCredentials(string Password, string GuardCode);

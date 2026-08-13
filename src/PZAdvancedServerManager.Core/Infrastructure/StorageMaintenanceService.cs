@@ -20,6 +20,7 @@ public sealed class StorageMaintenanceService(ApplicationPaths paths, PackagePro
         CleanupFiles(paths.AssetsRoot, "preview.upload.tmp", utcNow - TimeSpan.FromHours(6), result, suffixMatch: true, recursive: true);
         CleanupDirectoriesRecursive(paths.ServerDataRoot, ".restore-", utcNow - TimeSpan.FromHours(6), result);
         CleanupFiles(Path.Combine(paths.RuntimeHomeRoot, "launchers"), "pzasm-", utcNow - TimeSpan.FromHours(6), result);
+        CleanupRedundantWorkshopCache(result);
         CleanupUnreferencedWorkshopCache(utcNow - TimeSpan.FromDays(7), result);
         TrimLogs(paths.LogsRoot, result);
         TrimLogs(Path.Combine(paths.SteamCmdRoot, "logs"), result);
@@ -93,7 +94,7 @@ public sealed class StorageMaintenanceService(ApplicationPaths paths, PackagePro
     private void CleanupUnreferencedWorkshopCache(DateTime threshold, MutableResult result)
     {
         var referenced = projects.GetAll().SelectMany(project => project.Mods).Where(mod => mod.WorkshopId != 0).Select(mod => mod.WorkshopId).ToHashSet();
-        foreach (var workshopRoot in paths.GetSteamWorkshopRoots(paths.SteamCmdExecutable))
+        foreach (var workshopRoot in paths.GetManagedSteamWorkshopRoots())
         {
             var contentRoot = Path.Combine(workshopRoot, "content", PzasmConstants.ProjectZomboidSteamAppId);
             if (!Directory.Exists(contentRoot)) continue;
@@ -103,6 +104,41 @@ public sealed class StorageMaintenanceService(ApplicationPaths paths, PackagePro
                 if (Directory.GetLastWriteTimeUtc(directory) > threshold) continue;
                 DeleteDirectory(directory, result);
             }
+        }
+    }
+
+    private void CleanupRedundantWorkshopCache(MutableResult result)
+    {
+        var allProjects = projects.GetAll();
+        var references = allProjects
+            .SelectMany(project => project.Mods
+                .Where(mod => mod.WorkshopId != 0)
+                .Select(mod => new { Project = project, Mod = mod }))
+            .GroupBy(item => item.Mod.WorkshopId);
+        var pruner = new SteamWorkshopCachePruner(paths);
+        foreach (var group in references)
+        {
+            var projectsForItem = group.Select(item => item.Project).DistinctBy(project => project.Id).ToArray();
+            if (projectsForItem.Any(project => IsProjectActive(project.Id))) continue;
+            if (group.Any(item => !Directory.Exists(item.Mod.PinnedSourceRoot) ||
+                                  string.IsNullOrWhiteSpace(item.Mod.PinnedContentHash) ||
+                                  string.IsNullOrWhiteSpace(item.Mod.SourceUpdateToken))) continue;
+
+            foreach (var project in projectsForItem)
+            {
+                var changed = false;
+                foreach (var mod in project.Mods.Where(mod => mod.WorkshopId == group.Key && Directory.Exists(mod.PinnedSourceRoot)))
+                {
+                    if (mod.SourceModRoot.Equals(mod.PinnedSourceRoot, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) continue;
+                    mod.SourceModRoot = mod.PinnedSourceRoot;
+                    changed = true;
+                }
+                if (changed) projects.SaveImported(project);
+            }
+
+            var cleanup = pruner.RemoveItems([group.Key]);
+            result.Directories += cleanup.Directories;
+            result.Bytes += cleanup.Bytes;
         }
     }
 

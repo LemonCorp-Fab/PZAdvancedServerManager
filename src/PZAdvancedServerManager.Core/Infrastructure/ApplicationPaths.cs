@@ -48,6 +48,19 @@ public sealed class ApplicationPaths
     public string SteamCmdRoot => Path.Combine(ToolsRoot, "steamcmd");
     public string SteamCmdExecutable => Path.Combine(SteamCmdRoot, OperatingSystem.IsWindows() ? "steamcmd.exe" : "steamcmd.sh");
 
+    public IReadOnlyList<string> GetManagedSteamWorkshopRoots()
+    {
+        var roots = new[]
+        {
+            Path.Combine(SteamCmdRoot, "steamapps", "workshop"),
+            Path.Combine(RuntimeHomeRoot, "Steam", "steamapps", "workshop")
+        };
+        return roots
+            .Select(Path.GetFullPath)
+            .Distinct(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal)
+            .ToArray();
+    }
+
     public IReadOnlyList<string> GetSteamWorkshopRoots(string? steamCmdExecutable = null)
     {
         var executableRoot = string.IsNullOrWhiteSpace(steamCmdExecutable)

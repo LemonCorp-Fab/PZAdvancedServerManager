@@ -12,7 +12,8 @@ public sealed class PackageLifecycleService(
     PackageSourceSnapshotService snapshots,
     PackageBuildService builder,
     SteamCmdService steamCmd,
-    ServerProfileService servers)
+    ServerProfileService servers,
+    SteamWorkshopCachePruner workshopCache)
 {
     public PackageBuildResult Build(PackageProject project)
     {
@@ -228,10 +229,28 @@ public sealed class PackageLifecycleService(
                     : $"Mise à jour atomique de {changedTargets.Length} snapshot(s); les sources inchangées sont conservées."));
             foreach (var target in localTargets) RefreshMetadata(project, target);
             snapshots.Update(project, changedTargets);
+            foreach (var target in targets.Where(target => Directory.Exists(target.PinnedSourceRoot)))
+                target.SourceModRoot = target.PinnedSourceRoot;
             project.PortableSourcesRequired = project.Mods.Any(mod => mod.Enabled && !Directory.Exists(mod.PinnedSourceRoot));
             store.Save(project);
+            var cleanup = workshopCache.RemoveItems(targets.Where(target => target.WorkshopId != 0).Select(target => target.WorkshopId));
+            if (cleanup.Directories > 0)
+                progress?.Report(new OperationProgress("workshop-cache", $"Cache SteamCMD transitoire libéré : {cleanup.Directories} item(s), {FormatBytes(cleanup.Bytes)} récupérés."));
         }
         return refresh.SteamCmd;
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        var value = (double)Math.Max(0, bytes);
+        var units = new[] { "o", "Kio", "Mio", "Gio", "Tio" };
+        var unit = 0;
+        while (value >= 1024 && unit < units.Length - 1)
+        {
+            value /= 1024;
+            unit++;
+        }
+        return $"{value:0.##} {units[unit]}";
     }
 
     private static void RefreshMetadata(PackageProject project, PackageModReference reference)

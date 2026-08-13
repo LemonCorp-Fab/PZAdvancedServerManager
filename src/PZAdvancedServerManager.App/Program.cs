@@ -125,6 +125,7 @@ builder.Services.AddSingleton<ServerProfileService>();
 builder.Services.AddSingleton<ServerWorldDataStore>();
 builder.Services.AddSingleton<RconConsoleStore>();
 builder.Services.AddSingleton<PackageSourceSnapshotService>();
+builder.Services.AddSingleton<SteamWorkshopCachePruner>();
 builder.Services.AddSingleton<PackageProjectService>();
 builder.Services.AddSingleton<PackageLifecycleService>();
 builder.Services.AddSingleton<PackageAutomationService>();

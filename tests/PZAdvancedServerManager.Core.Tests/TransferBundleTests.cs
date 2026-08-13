@@ -40,6 +40,7 @@ public sealed class TransferBundleTests : IDisposable
         mod.PinnedSourceRoot = sourceFolder;
         mod.PinnedContentHash = SafeFileTree.ComputeDirectoryHash(sourceFolder);
         mod.PinnedMetadataStamp = SafeFileTree.ComputeDirectoryMetadataStamp(sourceFolder);
+        mod.SourceUpdateToken = "steam-workshop:123456789:7654321:1746428645";
         project.Mods.Add(mod);
         project.PublishedWorkshopId = 9988776655;
         project.MapOrder = ["PortableMap", "Muldraugh, KY"];
@@ -96,6 +97,7 @@ public sealed class TransferBundleTests : IDisposable
         Assert.Null(reopened.Automation.SteamSessionVerifiedAt);
         Assert.StartsWith(destinationPaths.ProjectSourcesRoot(project.Id), reopened.Mods[0].PinnedSourceRoot, PathComparison);
         Assert.Equal(reopened.Mods[0].PinnedSourceRoot, reopened.Mods[0].SourceModRoot);
+        Assert.Equal("steam-workshop:123456789:7654321:1746428645", reopened.Mods[0].SourceUpdateToken);
         Assert.StartsWith(destinationPaths.ProjectAssetsRoot(project.Id), reopened.PreviewImagePath!, PathComparison);
         Assert.StartsWith(destinationPaths.ProjectAssetsRoot(project.Id), reopened.Mods[0].Permission.PrivateAttachmentPath, PathComparison);
         Assert.Equal("return 'portable-content'", File.ReadAllText(Path.Combine(reopened.Mods[0].PinnedSourceRoot, "media", "lua", "client", "main.lua")));
@@ -308,6 +310,39 @@ public sealed class TransferBundleTests : IDisposable
         Assert.False(Directory.Exists(staleBuild));
         Assert.True(File.Exists(Path.Combine(stableBuild, "current.bin")));
         Assert.Equal(2, result.Directories);
+    }
+
+    [Fact]
+    public void StorageMaintenanceRemovesRedundantManagedCacheWhenPinnedSnapshotsAreComplete()
+    {
+        var paths = new ApplicationPaths(Path.Combine(_root, "redundant-workshop-cache"));
+        var store = new PackageProjectStore(paths);
+        var project = store.Create("Imported complete pack");
+        var snapshot = Path.Combine(paths.ModSourceRoot(project.Id, Guid.NewGuid()), "PortableMod");
+        Directory.CreateDirectory(snapshot);
+        File.WriteAllText(Path.Combine(snapshot, "mod.info"), "id=portable.mod");
+        project.Mods.Add(new PackageModReference
+        {
+            WorkshopId = 42,
+            ModId = "portable.mod",
+            Name = "Portable Mod",
+            SourceModRoot = Path.Combine(paths.RuntimeHomeRoot, "Steam", "steamapps", "workshop", "content", "108600", "42", "mods", "PortableMod"),
+            PinnedSourceRoot = snapshot,
+            PinnedContentHash = "verified-hash",
+            SourceUpdateToken = "steam-workshop:42:123456:1700000000"
+        });
+        store.SaveImported(project);
+        var cache = Path.Combine(paths.RuntimeHomeRoot, "Steam", "steamapps", "workshop", "content", "108600", "42");
+        Directory.CreateDirectory(cache);
+        File.WriteAllBytes(Path.Combine(cache, "content.bin"), new byte[512]);
+
+        var result = new StorageMaintenanceService(paths, store).Run(DateTime.UtcNow);
+        var reopened = store.Get(project.Id)!;
+
+        Assert.False(Directory.Exists(cache));
+        Assert.Equal(snapshot, reopened.Mods[0].SourceModRoot);
+        Assert.Equal(1, result.Directories);
+        Assert.True(result.Bytes >= 512);
     }
 
     [Fact]

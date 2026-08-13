@@ -336,6 +336,8 @@ public sealed class PackTransferService(ApplicationPaths paths, PackageProjectSt
         RebaseProject(project, manifest.ContentMode);
         RewriteBuild(payloadRoot, project);
         CommitProject(payloadRoot, project, replaceExisting);
+        if (manifest.ContentMode == PackTransferContentMode.Complete)
+            new SteamWorkshopCachePruner(paths).RemoveItems(project.Mods.Select(mod => mod.WorkshopId));
         return new PackTransferImportResult(project, manifest.Files.Count, manifest.Files.Sum(item => item.Length), manifest.Files.Select(item => item.Blob).Distinct(StringComparer.OrdinalIgnoreCase).Count(), existed, manifest.ContentMode);
     }
 

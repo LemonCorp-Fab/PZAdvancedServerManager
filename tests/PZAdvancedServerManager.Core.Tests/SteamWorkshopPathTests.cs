@@ -1,4 +1,6 @@
 using PZAdvancedServerManager.Core.Infrastructure;
+using PZAdvancedServerManager.Core.Domain;
+using PZAdvancedServerManager.Core.Publishing;
 
 namespace PZAdvancedServerManager.Core.Tests;
 
@@ -43,6 +45,46 @@ public sealed class SteamWorkshopPathTests : IDisposable
         var resolved = paths.ResolveSteamWorkshopRoot(paths.SteamCmdExecutable, [10, 20]);
 
         Assert.True(string.Equals(Path.GetFullPath(runtimeRoot), resolved, PathComparison));
+    }
+
+    [Fact]
+    public void ImportedSnapshotTokenMatchesTheSameRemoteRevisionWithoutACache()
+    {
+        var paths = new ApplicationPaths(_root);
+        var snapshot = Path.Combine(paths.SourcesRoot, "snapshot");
+        Directory.CreateDirectory(snapshot);
+        File.WriteAllText(Path.Combine(snapshot, "mod.info"), "id=portable.mod");
+        var reference = new PackageModReference
+        {
+            WorkshopId = 42,
+            PinnedSourceRoot = snapshot,
+            PinnedContentHash = "verified-hash",
+            SourceUpdateToken = "steam-workshop:42:123456:1700000000"
+        };
+
+        Assert.True(SteamWorkshopSourceToken.MatchesRemote(reference, 42, 1700000000));
+        Assert.False(SteamWorkshopSourceToken.MatchesRemote(reference, 42, 1700000001));
+        Assert.False(SteamWorkshopSourceToken.MatchesRemote(reference, 43, 1700000000));
+    }
+
+    [Fact]
+    public void CachePrunerOnlyRemovesManagerOwnedWorkshopItems()
+    {
+        var paths = new ApplicationPaths(_root);
+        var managed = Path.Combine(paths.RuntimeHomeRoot, "Steam", "steamapps", "workshop", "content", "108600", "42");
+        var externalSteamCmd = Path.Combine(_root, "external", "steamcmd.sh");
+        var external = Path.Combine(Path.GetDirectoryName(externalSteamCmd)!, "steamapps", "workshop", "content", "108600", "42");
+        Directory.CreateDirectory(managed);
+        Directory.CreateDirectory(external);
+        File.WriteAllBytes(Path.Combine(managed, "managed.bin"), new byte[128]);
+        File.WriteAllBytes(Path.Combine(external, "external.bin"), new byte[256]);
+
+        var result = new SteamWorkshopCachePruner(paths).RemoveItems([42]);
+
+        Assert.Equal(1, result.Directories);
+        Assert.Equal(128, result.Bytes);
+        Assert.False(Directory.Exists(managed));
+        Assert.True(File.Exists(Path.Combine(external, "external.bin")));
     }
 
     public void Dispose()

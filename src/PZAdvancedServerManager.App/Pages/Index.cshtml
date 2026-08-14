@@ -22,24 +22,24 @@
         <h1>Vos serveurs. Vos versions. Votre cadence.</h1>
         <p>Regroupez les mods d'un serveur sous un seul Workshop ID, conservez chaque Mod ID intact et choisissez vous-même le moment des mises à jour.</p>
     </div>
-    <div class="hero-mark">PZ<span>ASM</span></div>
+    <div class="hero-mark" aria-hidden="true"><svg class="ui-icon"><use href="#icon-forest-landscape"></use></svg><span>PZASM</span></div>
 </section>
 
 <section class="dashboard-summary-grid" aria-label="Résumé opérationnel">
     <article class="dashboard-summary-card">
-        <span class="dashboard-summary-icon" aria-hidden="true">PK</span>
+        <span class="dashboard-summary-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-package"></use></svg></span>
         <div><span>Modpacks</span><strong>@Model.Projects.Count</strong><small>@readyProjectCount prêt(s) à déployer</small></div>
     </article>
     <article class="dashboard-summary-card">
-        <span class="dashboard-summary-icon is-success" aria-hidden="true">MD</span>
+        <span class="dashboard-summary-icon is-success" aria-hidden="true"><svg class="ui-icon"><use href="#icon-layers"></use></svg></span>
         <div><span>Mods actifs</span><strong>@enabledModCount.ToString("N0")</strong><small>Versions suivies et figées</small></div>
     </article>
     <article class="dashboard-summary-card">
-        <span class="dashboard-summary-icon is-info" aria-hidden="true">WS</span>
+        <span class="dashboard-summary-icon is-info" aria-hidden="true"><svg class="ui-icon"><use href="#icon-workshop"></use></svg></span>
         <div><span>Workshop</span><strong>@publishedProjectCount</strong><small>Pack(s) publié(s)</small></div>
     </article>
     <article class="dashboard-summary-card">
-        <span class="dashboard-summary-icon @(Model.SteamCmdStatus.Installed ? "is-success" : "is-warning")" aria-hidden="true">SC</span>
+        <span class="dashboard-summary-icon @(Model.SteamCmdStatus.Installed ? "is-success" : "is-warning")" aria-hidden="true"><svg class="ui-icon"><use href="#icon-terminal"></use></svg></span>
         <div><span>SteamCMD</span><strong>@(Model.SteamCmdStatus.Installed ? "Prêt" : "Requis")</strong><small>@(Model.SteamCmdStatus.Installed ? "Téléchargements opérationnels" : "Installation en un clic")</small></div>
     </article>
 </section>

@@ -27,19 +27,19 @@
 
 <section class="dashboard-summary-grid modpacks-summary-grid" aria-label="Résumé des modpacks">
     <article class="dashboard-summary-card">
-        <span class="dashboard-summary-icon" aria-hidden="true">PK</span>
+        <span class="dashboard-summary-icon" aria-hidden="true"><svg class="ui-icon"><use href="#icon-package"></use></svg></span>
         <div><span>Modpacks</span><strong>@Model.Projects.Count</strong><small>@readyProjectCount prêt(s) localement</small></div>
     </article>
     <article class="dashboard-summary-card">
-        <span class="dashboard-summary-icon is-success" aria-hidden="true">MD</span>
+        <span class="dashboard-summary-icon is-success" aria-hidden="true"><svg class="ui-icon"><use href="#icon-layers"></use></svg></span>
         <div><span>Mods actifs</span><strong>@enabledModCount.ToString("N0")</strong><small>Tous projets confondus</small></div>
     </article>
     <article class="dashboard-summary-card">
-        <span class="dashboard-summary-icon is-info" aria-hidden="true">WS</span>
+        <span class="dashboard-summary-icon is-info" aria-hidden="true"><svg class="ui-icon"><use href="#icon-workshop"></use></svg></span>
         <div><span>Workshop</span><strong>@publishedProjectCount</strong><small>Pack(s) publié(s)</small></div>
     </article>
     <article class="dashboard-summary-card">
-        <span class="dashboard-summary-icon is-warning" aria-hidden="true">TR</span>
+        <span class="dashboard-summary-icon is-warning" aria-hidden="true"><svg class="ui-icon"><use href="#icon-transfer"></use></svg></span>
         <div><span>Transfert</span><strong>2</strong><small>Formats léger et complet</small></div>
     </article>
 </section>

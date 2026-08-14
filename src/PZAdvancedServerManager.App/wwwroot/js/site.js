@@ -899,6 +899,7 @@ document.querySelectorAll('[data-workshop-tag-presets]').forEach(container => {
         }
         setButtonBusy(button, button?.dataset.loadingButton || 'Patientez…');
         document.documentElement.setAttribute('aria-busy', 'true');
+        document.documentElement.classList.add('has-loading-overlay');
         document.body.classList.add('is-loading');
         overlay.hidden = false;
         if (overlayCancel) {
@@ -1278,6 +1279,7 @@ document.querySelectorAll('[data-workshop-tag-presets]').forEach(container => {
         overlay.classList.remove('is-visible');
         overlay.hidden = true;
         document.documentElement.removeAttribute('aria-busy');
+        document.documentElement.classList.remove('has-loading-overlay');
         document.body.classList.remove('is-loading');
         document.querySelectorAll('form[data-loading-busy="true"]').forEach(form => {
             delete form.dataset.loadingBusy;

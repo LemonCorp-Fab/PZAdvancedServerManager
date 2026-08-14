@@ -1730,10 +1730,28 @@ tbody tr:hover {
 
 /* Dialogs and loading feedback */
 
-.confirmation-overlay,
-.loading-overlay {
+.confirmation-overlay {
   background: rgba(9, 12, 16, .7);
   backdrop-filter: blur(8px) saturate(.9);
+}
+
+.loading-overlay,
+[data-theme="light"] .loading-overlay {
+  background: rgba(55, 61, 57, .28);
+  backdrop-filter: grayscale(.68) saturate(.5) brightness(.9) blur(3px);
+}
+
+[data-theme="dark"] .loading-overlay {
+  background: rgba(5, 7, 8, .42);
+  backdrop-filter: grayscale(.58) saturate(.54) brightness(.74) blur(3px);
+}
+
+html[aria-busy="true"].has-loading-overlay::before,
+html[aria-busy="true"].has-loading-overlay::after,
+html[aria-busy="true"]:has(.loading-overlay:not([hidden]))::before,
+html[aria-busy="true"]:has(.loading-overlay:not([hidden]))::after {
+  content: none !important;
+  display: none !important;
 }
 
 .confirmation-card,
@@ -1805,8 +1823,13 @@ tbody tr:hover {
 }
 
 html[aria-busy="true"]::before {
-  background: rgba(9, 12, 16, .68) !important;
-  backdrop-filter: blur(8px) !important;
+  background: rgba(55, 61, 57, .28) !important;
+  backdrop-filter: grayscale(.68) saturate(.5) brightness(.9) blur(3px) !important;
+}
+
+html[data-theme="dark"][aria-busy="true"]::before {
+  background: rgba(5, 7, 8, .42) !important;
+  backdrop-filter: grayscale(.58) saturate(.54) brightness(.74) blur(3px) !important;
 }
 
 html[aria-busy="true"]::after {

@@ -22,9 +22,9 @@
     <script>document.documentElement.dataset.theme = localStorage.getItem('pzasm-theme') || 'light';</script>
     <style>
         html[aria-busy="true"] { cursor: progress; }
-        html[aria-busy="true"]::before { content: ""; position: fixed; z-index: 4998; inset: 0; background: rgba(32, 43, 34, .42); backdrop-filter: blur(9px); }
+        html[aria-busy="true"]::before { content: ""; position: fixed; z-index: 4998; inset: 0; background: rgba(55, 61, 57, .28); backdrop-filter: grayscale(.68) saturate(.5) brightness(.9) blur(3px); }
         html[aria-busy="true"]::after { content: "PZ   Chargement de l’interface…"; position: fixed; z-index: 4999; top: 50%; left: 50%; width: min(420px, calc(100vw - 32px)); padding: 28px 32px; translate: -50% -50%; border: 1px solid #b8c9a9; border-radius: 18px; box-shadow: 0 24px 60px rgba(24, 35, 26, .28); color: #17251b; background: #fff; font: 700 17px/1.4 system-ui, sans-serif; text-align: center; }
-        html[data-theme="dark"][aria-busy="true"]::before { background: rgba(5, 8, 6, .74); }
+        html[data-theme="dark"][aria-busy="true"]::before { background: rgba(5, 7, 8, .42); backdrop-filter: grayscale(.58) saturate(.54) brightness(.74) blur(3px); }
         html[data-theme="dark"][aria-busy="true"]::after { border-color: #496b38; color: #eef7e9; background: #111a13; }
     </style>
     <script>
@@ -41,6 +41,7 @@
                 if (title) title.textContent = nextTitle || 'Chargement de la page…';
                 if (detail) detail.textContent = nextDetail || 'Préparation de la prochaine vue et actualisation des informations.';
                 document.documentElement.setAttribute('aria-busy', 'true');
+                document.documentElement.classList.add('has-loading-overlay');
                 document.body?.classList.add('is-loading');
                 overlay.hidden = false;
                 requestAnimationFrame(() => overlay.classList.add('is-visible'));
@@ -54,6 +55,7 @@
                     overlay.classList.remove('is-visible', 'has-error', 'has-detailed-progress');
                 }
                 document.documentElement.removeAttribute('aria-busy');
+                document.documentElement.classList.remove('has-loading-overlay');
                 document.body?.classList.remove('is-loading');
             };
 

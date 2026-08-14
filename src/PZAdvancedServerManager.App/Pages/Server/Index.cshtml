@@ -10,9 +10,12 @@
 @if (TempData["Message"] is string message) { <div class="toast-message">@message</div> }
 @if (TempData["Error"] is string error) { <div class="error-message">@error</div> }
 
-<section class="project-hero workspace-hero">
+<section class="project-hero workspace-hero server-page-hero">
     <div class="workspace-title"><span class="eyebrow">SERVEURS PROJECT ZOMBOID</span><h1>Serveurs locaux et distants</h1><p>Supervisez séparément les serveurs dédiés, les sessions hébergées par le jeu et les machines distantes.</p></div>
-    <div class="project-kpis"><span><strong>@Model.Configs.Count</strong> profils</span><span><strong>@Model.Projects.Count</strong> packs</span><span><strong>INI</strong> sauvegardé avant écriture</span></div>
+    <div class="server-hero-aside">
+        <div class="server-hero-mark" aria-hidden="true"><svg class="ui-icon"><use href="#icon-forest-landscape"></use></svg><span><svg class="ui-icon"><use href="#icon-server"></use></svg></span></div>
+        <div class="project-kpis"><span><strong>@Model.Configs.Count</strong> profils</span><span><strong>@Model.Projects.Count</strong> packs</span><span><strong>INI</strong> sauvegardé avant écriture</span></div>
+    </div>
 </section>
 
 <div class="server-layout">
@@ -244,8 +247,8 @@
                 <div class="panel-heading">
                     <div><span class="eyebrow">RÉSEAU DU SERVEUR</span><h2>Adresses et ports</h2><p>Valeurs configurées dans le profil et adresses accessibles depuis cette machine.</p></div>
                     <div class="network-state-pills">
-                        @if (Model.NetworkInfo.IsPublic is bool isPublic) { <span class="network-state-pill">PUBLIC : @(isPublic ? "OUI" : "NON")</span> }
-                        @if (Model.NetworkInfo.IsOpen is bool isOpen) { <span class="network-state-pill">OUVERT : @(isOpen ? "OUI" : "NON")</span> }
+                        @if (Model.NetworkInfo.IsPublic is bool isPublic) { <span class="network-state-pill @(isPublic ? "is-on" : "is-off")">PUBLIC : @(isPublic ? "OUI" : "NON")</span> }
+                        @if (Model.NetworkInfo.IsOpen is bool isOpen) { <span class="network-state-pill @(isOpen ? "is-on" : "is-off")">OUVERT : @(isOpen ? "OUI" : "NON")</span> }
                     </div>
                 </div>
                 <div class="network-overview">

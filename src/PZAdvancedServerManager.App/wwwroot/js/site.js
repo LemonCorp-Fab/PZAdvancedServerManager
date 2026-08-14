@@ -72,9 +72,9 @@ document.querySelectorAll('details.mod-card').forEach(card => {
 (() => {
     const root = document.documentElement;
     const fontScaleSelect = document.querySelector('[data-font-scale-select]');
-    const supportedFontScales = new Set(['100', '115', '125', '135']);
+    const supportedFontScales = new Set(['100', '105', '110', '115', '120', '125', '130', '135']);
     const applyFontScale = value => {
-        const selected = supportedFontScales.has(value) ? value : '115';
+        const selected = supportedFontScales.has(value) ? value : '110';
         root.dataset.fontScale = selected;
         root.style.setProperty('--font-scale', String(Number(selected) / 100));
         if (fontScaleSelect) fontScaleSelect.value = selected;

@@ -13,7 +13,7 @@
     var appVersion = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "dev";
     var currentTitle = ViewData["Title"]?.ToString() ?? "PZ Advanced Server Manager";
 }
-<html lang="fr" data-theme="light" data-font-scale="115" aria-busy="true">
+<html lang="fr" data-theme="light" data-font-scale="110" aria-busy="true">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -21,9 +21,9 @@
     <script>
         (() => {
             const root = document.documentElement;
-            const fontScales = new Set(['100', '115', '125', '135']);
+            const fontScales = new Set(['100', '105', '110', '115', '120', '125', '130', '135']);
             root.dataset.theme = localStorage.getItem('pzasm-theme') || 'light';
-            const fontScale = fontScales.has(localStorage.getItem('pzasm-font-scale')) ? localStorage.getItem('pzasm-font-scale') : '115';
+            const fontScale = fontScales.has(localStorage.getItem('pzasm-font-scale')) ? localStorage.getItem('pzasm-font-scale') : '110';
             root.dataset.fontScale = fontScale;
             root.style.setProperty('--font-scale', String(Number(fontScale) / 100));
         })();
@@ -34,7 +34,7 @@
         html[aria-busy="true"]::after { content: none; }
         html[data-theme="dark"][aria-busy="true"]::before { background: rgba(5, 7, 8, .42); backdrop-filter: grayscale(.58) saturate(.54) brightness(.74) blur(3px); }
         .critical-loader { display: none; }
-        html[aria-busy="true"]:not(.has-loading-overlay) .critical-loader { position: fixed; z-index: 4999; top: 50%; left: 50%; display: grid; width: min(360px, calc(100vw - 32px)); padding: 26px; translate: -50% -50%; place-items: center; gap: 16px; color: #2d2a24; border: 1px solid #d6c29d; border-radius: 14px; background: #fffdf8; box-shadow: 0 24px 60px rgba(39, 31, 20, .24); font-family: system-ui, sans-serif; font-size: calc(15px * var(--font-scale, 1.15)); font-weight: 700; line-height: 1.4; text-align: center; }
+        html[aria-busy="true"]:not(.has-loading-overlay) .critical-loader { position: fixed; z-index: 4999; top: 50%; left: 50%; display: grid; width: min(360px, calc(100vw - 32px)); padding: 26px; translate: -50% -50%; place-items: center; gap: 16px; color: #2d2a24; border: 1px solid #d6c29d; border-radius: 14px; background: #fffdf8; box-shadow: 0 24px 60px rgba(39, 31, 20, .24); font-family: system-ui, sans-serif; font-size: calc(15px * var(--font-scale, 1.1)); font-weight: 700; line-height: 1.4; text-align: center; }
         html[data-theme="dark"][aria-busy="true"]:not(.has-loading-overlay) .critical-loader { color: #eee9df; border-color: #55472f; background: #151515; }
         .critical-loading-mark { position: relative; display: grid; width: 72px; height: 72px; place-items: center; color: #d6a044; border: 1px solid currentColor; border-radius: 50%; background: radial-gradient(circle, #2a2620 0 55%, #13110e 56% 100%); box-shadow: 0 0 0 5px rgba(214, 160, 68, .10), 0 12px 28px rgba(34, 25, 11, .28); }
         .critical-loading-mark::before { content: ""; position: absolute; inset: -7px; border: 2px solid rgba(214, 160, 68, .18); border-top-color: #d6a044; border-right-color: #d6a044; border-radius: 50%; animation: critical-loading-spin 1s linear infinite; }
@@ -256,7 +256,7 @@
                     </div>
                     <div class="app-preferences" aria-label="Préférences et compte">
                         <label class="language-control"><span class="visually-hidden">Langue</span><select data-language-select aria-label="Langue de l’interface"><option value="fr">FR</option><option value="en">EN</option><option value="es">ES</option><option value="de">DE</option><option value="pt-BR">PT</option><option value="zh-CN">中文</option></select></label>
-                        <label class="font-scale-control"><span class="visually-hidden">Taille du texte</span><select data-font-scale-select aria-label="Taille du texte"><option value="100">Aa 100 %</option><option value="115">Aa 115 %</option><option value="125">Aa 125 %</option><option value="135">Aa 135 %</option></select></label>
+                        <label class="font-scale-control"><span class="visually-hidden">Taille du texte</span><select data-font-scale-select aria-label="Taille du texte"><option value="100">Aa 100 %</option><option value="105">Aa 105 %</option><option value="110">Aa 110 %</option><option value="115">Aa 115 %</option><option value="120">Aa 120 %</option><option value="125">Aa 125 %</option><option value="130">Aa 130 %</option><option value="135">Aa 135 %</option></select></label>
                         <button class="theme-toggle" type="button" data-theme-toggle aria-label="Changer le thème"><span data-theme-icon aria-hidden="true">☀</span><span data-theme-label>Mode clair</span></button>
                         <details class="account-menu">
                             <summary aria-label="Ouvrir le menu du compte"><span class="account-avatar" aria-hidden="true"><svg class="account-avatar-icon"><use href="#icon-survivor-profile"></use></svg></span><span class="account-menu-copy"><strong>@accountName</strong><small>Compte administrateur</small></span><svg class="ui-icon" aria-hidden="true"><use href="#icon-chevron-down"></use></svg></summary>
@@ -284,7 +284,7 @@
             <a class="app-brand" asp-area="" asp-page="/Index"><span class="brand-mark"><svg class="ui-icon" aria-hidden="true"><use href="#icon-forest"></use></svg><b>PZ</b></span><span class="app-brand-copy"><strong>Advanced Server</strong><small>Manager</small></span></a>
             <div class="app-preferences" aria-label="Préférences d’affichage">
                 <label class="language-control"><span class="visually-hidden">Langue</span><select data-language-select aria-label="Langue de l’interface"><option value="fr">FR</option><option value="en">EN</option><option value="es">ES</option><option value="de">DE</option><option value="pt-BR">PT</option><option value="zh-CN">中文</option></select></label>
-                <label class="font-scale-control"><span class="visually-hidden">Taille du texte</span><select data-font-scale-select aria-label="Taille du texte"><option value="100">Aa 100 %</option><option value="115">Aa 115 %</option><option value="125">Aa 125 %</option><option value="135">Aa 135 %</option></select></label>
+                <label class="font-scale-control"><span class="visually-hidden">Taille du texte</span><select data-font-scale-select aria-label="Taille du texte"><option value="100">Aa 100 %</option><option value="105">Aa 105 %</option><option value="110">Aa 110 %</option><option value="115">Aa 115 %</option><option value="120">Aa 120 %</option><option value="125">Aa 125 %</option><option value="130">Aa 130 %</option><option value="135">Aa 135 %</option></select></label>
                 <button class="theme-toggle" type="button" data-theme-toggle aria-label="Changer le thème"><span data-theme-icon aria-hidden="true">☀</span><span data-theme-label>Mode clair</span></button>
             </div>
         </header>

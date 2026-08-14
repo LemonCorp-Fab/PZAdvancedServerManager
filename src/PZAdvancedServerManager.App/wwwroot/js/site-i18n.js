@@ -153,6 +153,7 @@
         ['Mode sombre', 'Dark mode', 'Modo oscuro', 'Dunkler Modus', 'Modo escuro', '深色模式'],
         ['Changer le thème', 'Change theme', 'Cambiar tema', 'Design ändern', 'Alterar tema', '切换主题'],
         ['Langue de l’interface', 'Interface language', 'Idioma de la interfaz', 'Oberflächensprache', 'Idioma da interface', '界面语言'],
+        ['Taille du texte', 'Text size', 'Tamaño del texto', 'Textgröße', 'Tamanho do texto', '文字大小'],
         ['Préférences d’affichage', 'Display preferences', 'Preferencias de visualización', 'Anzeigeeinstellungen', 'Preferências de exibição', '显示偏好'],
         ['Langue', 'Language', 'Idioma', 'Sprache', 'Idioma', '语言'],
         ['OPÉRATION EN COURS', 'OPERATION IN PROGRESS', 'OPERACIÓN EN CURSO', 'VORGANG LÄUFT', 'OPERAÇÃO EM ANDAMENTO', '操作进行中'],

@@ -3,6 +3,7 @@
 
 :root {
   color-scheme: light;
+  --font-scale: 1.15;
   --bg: #f3f0e8;
   --bg-subtle: #ebe6da;
   --surface: #fbfaf6;
@@ -113,7 +114,7 @@
 html {
   min-width: 320px;
   background: var(--bg);
-  font-size: 16px;
+  font-size: calc(16px * var(--font-scale));
   scroll-behavior: smooth;
 }
 
@@ -495,11 +496,13 @@ a:hover,
   gap: 8px;
 }
 
-.language-control {
+.language-control,
+.font-scale-control {
   margin: 0;
 }
 
-.language-control select {
+.language-control select,
+.font-scale-control select {
   width: auto;
   min-width: 62px;
   min-height: 36px;
@@ -2247,7 +2250,7 @@ html[aria-busy="true"]::after {
   border-radius: var(--radius-lg) !important;
   background: var(--surface-raised) !important;
   box-shadow: var(--shadow-lg) !important;
-  font-size: 14px !important;
+  font-size: calc(14px * var(--font-scale)) !important;
 }
 
 @keyframes pzasm-live-pulse {
@@ -2417,6 +2420,7 @@ html[aria-busy="true"]::after {
   }
 
   .language-control select,
+  .font-scale-control select,
   .theme-toggle {
     width: auto;
   }
@@ -2445,7 +2449,8 @@ html[aria-busy="true"]::after {
     justify-content: center;
   }
 
-  .language-control select {
+  .language-control select,
+  .font-scale-control select {
     min-width: 54px;
   }
 

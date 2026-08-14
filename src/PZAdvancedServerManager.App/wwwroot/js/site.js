@@ -70,6 +70,21 @@ document.querySelectorAll('details.mod-card').forEach(card => {
 })();
 
 (() => {
+    const root = document.documentElement;
+    const fontScaleSelect = document.querySelector('[data-font-scale-select]');
+    const supportedFontScales = new Set(['100', '115', '125', '135']);
+    const applyFontScale = value => {
+        const selected = supportedFontScales.has(value) ? value : '115';
+        root.dataset.fontScale = selected;
+        root.style.setProperty('--font-scale', String(Number(selected) / 100));
+        if (fontScaleSelect) fontScaleSelect.value = selected;
+        try { window.localStorage.setItem('pzasm-font-scale', selected); } catch { }
+    };
+    fontScaleSelect?.addEventListener('change', event => applyFontScale(event.target.value));
+    applyFontScale(root.dataset.fontScale);
+})();
+
+(() => {
     const frame = document.querySelector('[data-app-frame]');
     const sidebar = document.querySelector('[data-app-sidebar]');
     const toggle = document.querySelector('[data-sidebar-toggle]');

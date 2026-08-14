@@ -530,7 +530,7 @@ label small { display: block; margin-top: 6px; color: var(--muted); font-weight:
 .server-status.conflict { color: #ffaaa1; border-color: #8a413b; background: #2a1211; }
 .server-status.offline { color: #d3b87b; border-color: #594a2c; background: #1b170f; }
 .server-controls { padding-top: 18px; margin-top: 18px; border-top: 1px solid var(--line); }
-.config-editor { min-height: 650px; resize: vertical; color: #d8e3d1; font: 13px/1.55 Consolas, "Cascadia Code", monospace; tab-size: 4; }
+.config-editor { min-height: 650px; resize: vertical; color: #d8e3d1; font-family: Consolas, "Cascadia Code", monospace; font-size: calc(13px * var(--font-scale, 1.15)); line-height: 1.55; tab-size: 4; }
 .sidebar-heading { display: flex; min-height: 30px; justify-content: space-between; align-items: center; margin-bottom: 17px; }
 .sidebar-heading .eyebrow { margin-bottom: 0; }
 .create-server-form { gap: 14px; padding-top: 18px; border-top: 1px solid var(--line); }
@@ -669,7 +669,7 @@ label small { display: block; margin-top: 6px; color: var(--muted); font-weight:
 .pack-apply-form { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 9px; }
 .warning-text { grid-column: 2; color: #d7bc75; }
 .server-workspace { margin-bottom: 0; }
-.compact-code-editor { resize: vertical; color: #d8e3d1; font: 12px/1.5 Consolas, "Cascadia Code", monospace; }
+.compact-code-editor { resize: vertical; color: #d8e3d1; font-family: Consolas, "Cascadia Code", monospace; font-size: calc(12px * var(--font-scale, 1.15)); line-height: 1.5; }
 .raw-editor-footer { display: flex; padding-top: 14px; align-items: center; justify-content: space-between; gap: 16px; }
 
 .catalog-launch-card { display: grid; grid-template-columns: 54px minmax(0,1fr) auto; gap: 18px; align-items: center; padding: 20px; margin-bottom: 18px; border: 1px solid #60513c; border-radius: 14px; background: linear-gradient(120deg, #231f19, #161310); }

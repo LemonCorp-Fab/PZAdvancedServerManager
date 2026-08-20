@@ -73,6 +73,52 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
         return latest!;
     }
 
+    public async Task<PublishedPackageVerificationResult> VerifyPublishedPackageAsync(
+        PackageProject project,
+        PackageBuildResult build,
+        int maximumAttempts = 4,
+        CancellationToken cancellationToken = default,
+        IProgress<OperationProgress>? progress = null)
+    {
+        if (project.PublishedWorkshopId == 0) throw new InvalidOperationException("Le Workshop ID est requis pour vérifier le contenu publié.");
+        if (maximumAttempts < 1) throw new ArgumentOutOfRangeException(nameof(maximumAttempts));
+        var delays = new[] { TimeSpan.Zero, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(30) };
+        Exception? lastError = null;
+        WorkshopDownloadResult? latest = null;
+        for (var attempt = 1; attempt <= maximumAttempts; attempt++)
+        {
+            var delay = delays[Math.Min(attempt - 1, delays.Length - 1)];
+            if (delay > TimeSpan.Zero) await Task.Delay(delay, cancellationToken);
+            progress?.Report(new OperationProgress(
+                "published-content-download",
+                $"Téléchargement incrémental de contrôle du Workshop {project.PublishedWorkshopId} ({attempt}/{maximumAttempts}).",
+                attempt,
+                maximumAttempts));
+            latest = await DownloadWorkshopItemAsync(project, project.PublishedWorkshopId, cancellationToken, progress);
+            if (!latest.SteamCmd.Success)
+            {
+                lastError = new IOException(latest.SteamCmd.CombinedOutput);
+                continue;
+            }
+            try
+            {
+                progress?.Report(new OperationProgress("published-content-integrity", "Vérification exacte des chemins, de la casse, des tailles et des hashes SHA-256 du contenu téléchargé."));
+                var manifest = PackageIntegrityService.ReadManifest(latest.ContentRoot);
+                if (!manifest.PayloadFingerprint.Equals(build.ContentFingerprint, StringComparison.OrdinalIgnoreCase))
+                    throw new PackageIntegrityException($"Steam expose encore l'empreinte {manifest.PayloadFingerprint}; la soumission attendue est {build.ContentFingerprint}.");
+                var verification = PackageIntegrityService.VerifyManifest(latest.ContentRoot, build.ContentFingerprint);
+                return new PublishedPackageVerificationResult(latest.SteamCmd, verification, latest.ContentRoot, attempt);
+            }
+            catch (IOException exception)
+            {
+                lastError = exception;
+                progress?.Report(new OperationProgress("published-content-propagation", $"Le contenu Steam n'est pas encore identique au build : {exception.Message}", attempt, maximumAttempts));
+            }
+        }
+        throw new PackageIntegrityException(
+            $"Impossible de confirmer l'intégrité du Workshop {project.PublishedWorkshopId} après {maximumAttempts} tentative(s) : {lastError?.Message ?? latest?.SteamCmd.CombinedOutput ?? "réponse Steam absente"}");
+    }
+
     public async Task<SteamCmdResult> RefreshSourcesAsync(PackageProject project, CancellationToken cancellationToken = default, IProgress<OperationProgress>? progress = null)
         => (await RefreshSourcesIncrementalAsync(project, project.Mods.Where(x => x.Enabled).ToArray(), cancellationToken, progress)).SteamCmd;
 
@@ -294,6 +340,7 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
         var requiresRemoteProof = RequiresRemoteProof(result, id, workshopActivityLog);
         result = ValidateWorkshopSubmissionResult(result, id, workshopActivityLog);
         WorkshopRemoteState? confirmedRemote = null;
+        PublishedPackageVerificationResult? integrityVerification = null;
         var publishedContentHandle = ReadPublishedContentHandle(steamCmdPath, submittedAt);
         if (result.ExitCode == 0)
         {
@@ -305,14 +352,31 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
             confirmedRemote = await WaitForRemoteConfirmationAsync(project, plan, submittedAt, publishedContentHandle, requiresRemoteProof, cancellationToken, progress);
             if (requiresRemoteProof && confirmedRemote is null)
             {
-                var unconfirmed = "SteamCMD a terminé le commit sans inclure le Workshop ID dans sa sortie Linux, et l'API Steam n'a pas encore confirmé le nouveau manifeste. L'envoi peut avoir réussi, mais aucun redémarrage de serveur ne sera déclenché tant que l'état distant n'est pas vérifié.";
-                var pending = new SteamCmdResult(-4, result.StandardOutput, string.Join(Environment.NewLine, result.StandardError, unconfirmed), result.Interaction);
-                return new WorkshopPublishResult(pending, plan, null, publishedContentHandle);
+                if (plan.IncludeContent && project.Automation.VerifyPublishedContentAfterUpload)
+                {
+                    try
+                    {
+                        integrityVerification = await VerifyPublishedPackageAsync(project, build, cancellationToken: cancellationToken, progress: progress);
+                    }
+                    catch (PackageIntegrityException exception)
+                    {
+                        var unconfirmed = $"SteamCMD a terminé le commit, mais ni l'API publique ni le téléchargement de contrôle n'ont confirmé le nouveau contenu : {exception.Message}";
+                        var pending = new SteamCmdResult(-4, result.StandardOutput, string.Join(Environment.NewLine, result.StandardError, unconfirmed), result.Interaction);
+                        return new WorkshopPublishResult(pending, plan, null, publishedContentHandle);
+                    }
+                }
+                else
+                {
+                    var unconfirmed = "SteamCMD a terminé le commit sans inclure le Workshop ID dans sa sortie Linux, et l'API Steam n'a pas encore confirmé le nouveau manifeste. L'envoi peut avoir réussi, mais aucun redémarrage de serveur ne sera déclenché tant que l'état distant n'est pas vérifié.";
+                    var pending = new SteamCmdResult(-4, result.StandardOutput, string.Join(Environment.NewLine, result.StandardError, unconfirmed), result.Interaction);
+                    return new WorkshopPublishResult(pending, plan, null, publishedContentHandle);
+                }
             }
             WorkshopPublicationPlanner.ApplyConfirmedState(project, plan.Snapshot, confirmedRemote, publishedContentHandle);
+            if (integrityVerification is not null) ApplyContentVerification(project, integrityVerification);
             project.LastPublishedAt = DateTimeOffset.UtcNow;
         }
-        return new WorkshopPublishResult(result, plan, confirmedRemote, publishedContentHandle);
+        return new WorkshopPublishResult(result, plan, confirmedRemote, publishedContentHandle, integrityVerification);
     }
 
     public async Task<SteamCmdResult> AuthenticateAsync(PackageProject project, SteamCredentials credentials, CancellationToken cancellationToken = default, IProgress<OperationProgress>? progress = null)
@@ -400,6 +464,13 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
                 throw new InvalidOperationException($"Le contentfolder du manifeste SteamCMD ne correspond pas au build actuel ou n’existe plus : {mappedContent ?? "non renseigné"}. Reconstruisez le pack avant de publier.");
             if (!Directory.EnumerateFiles(mappedContent, "*", SearchOption.AllDirectories).Any())
                 throw new InvalidOperationException("Le contenu Workshop du build est vide. La publication n’a pas été lancée.");
+            if (!string.IsNullOrWhiteSpace(build.IntegrityManifestPath))
+            {
+                PackageIntegrityService.ValidatePortableTree(mappedContent);
+                var integrity = PackageIntegrityService.ReadManifest(mappedContent);
+                if (!integrity.PayloadFingerprint.Equals(build.ContentFingerprint, StringComparison.OrdinalIgnoreCase))
+                    throw new PackageIntegrityException("Le manifeste d'intégrité local ne correspond pas au build atomique courant.");
+            }
         }
         else if (!string.IsNullOrWhiteSpace(mappedContent))
             throw new InvalidOperationException("Le manifeste différentiel contient un contentfolder alors que le contenu n'a pas changé.");
@@ -1136,9 +1207,18 @@ public sealed class SteamCmdService(PackageValidator validator, WorkshopCatalogS
     }
 
     private static string ResolveDownloadLogin(PackageProject project) =>
-        project.Automation.AnonymousWorkshopDownloads || string.IsNullOrWhiteSpace(project.Automation.SteamUsername)
+        project.Visibility != WorkshopVisibility.Private &&
+        (project.Automation.AnonymousWorkshopDownloads || string.IsNullOrWhiteSpace(project.Automation.SteamUsername))
             ? "anonymous"
             : project.Automation.SteamUsername;
+
+    public static void ApplyContentVerification(PackageProject project, PublishedPackageVerificationResult result)
+    {
+        project.Publication.ContentVerifiedAt = DateTimeOffset.UtcNow;
+        project.Publication.VerifiedPayloadFingerprint = result.Verification.PayloadFingerprint;
+        project.Publication.VerifiedFileCount = result.Verification.FilesVerified;
+        project.Publication.VerifiedBytes = result.Verification.BytesVerified;
+    }
 }
 
 public enum SteamCmdInteraction
@@ -1224,4 +1304,10 @@ public sealed class SteamCmdInteractionRequiredException(SteamCmdInteraction int
 }
 
 public sealed record WorkshopDownloadResult(SteamCmdResult SteamCmd, string ContentRoot, string SourceUpdateToken);
+
+public sealed record PublishedPackageVerificationResult(
+    SteamCmdResult SteamCmd,
+    PackageIntegrityVerification Verification,
+    string ContentRoot,
+    int Attempts);
 public sealed record SteamCredentials(string Password, string GuardCode);

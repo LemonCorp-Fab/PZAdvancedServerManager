@@ -92,6 +92,7 @@ public sealed class PackageLifecycleService(
         progress?.Report(new OperationProgress("publish", "Connexion au compte éditeur et envoi incrémental vers Steam Workshop. Le serveur reste en ligne."));
         var workshopIdBeforePublish = project.PublishedWorkshopId;
         var publish = await steamCmd.PublishAsync(project, build, plan, cancellationToken, progress);
+        var integrityVerification = publish.IntegrityVerification;
         var newWorkshopIdAssigned = project.PublishedWorkshopId != workshopIdBeforePublish;
         if (newWorkshopIdAssigned)
         {
@@ -111,10 +112,18 @@ public sealed class PackageLifecycleService(
             if (!finalPlan.IsNoOp)
             {
                 var finalPublish = await steamCmd.PublishAsync(project, build, finalPlan, cancellationToken, progress);
+                integrityVerification = finalPublish.IntegrityVerification;
                 output.Add(finalPublish.SteamCmd.CombinedOutput);
                 ThrowIfPublishFailed(finalPublish.SteamCmd, project, false, finalSynchronization: true);
                 store.Save(project);
             }
+        }
+
+        if ((plan.IncludeContent || finalPlan.IncludeContent) && project.Automation.VerifyPublishedContentAfterUpload)
+        {
+            integrityVerification ??= await steamCmd.VerifyPublishedPackageAsync(project, build, cancellationToken: cancellationToken, progress: progress);
+            SteamCmdService.ApplyContentVerification(project, integrityVerification);
+            store.Save(project);
         }
 
         if (serverWasRunning && (plan.RequiresServerRestart || finalPlan.RequiresServerRestart))
@@ -131,7 +140,11 @@ public sealed class PackageLifecycleService(
             }
         }
 
-        progress?.Report(new OperationProgress("finalize", "État de publication enregistré; aucun téléchargement de contrôle du package n'a été effectué."));
+        progress?.Report(new OperationProgress(
+            "finalize",
+            integrityVerification is null
+                ? "État de publication enregistré; le contenu du package n'a pas changé."
+                : $"Publication vérifiée de bout en bout : {integrityVerification.Verification.FilesVerified:N0} fichiers, {FormatBytes(integrityVerification.Verification.BytesVerified)}."));
         build = BuildCore(project);
         return new PackageOperationResult(
             build,

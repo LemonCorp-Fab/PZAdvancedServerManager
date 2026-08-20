@@ -44,6 +44,7 @@ See the complete [architecture and feasibility study](docs/ARCHITECTURE.md).
 - advisory permission records and warnings that never block build, publication, or automation; administrators retain full control and responsibility;
 - an optional localized connection notice enabled by default, containing the pack description, legal notice, and exhaustive mod list with declared mod versions, PZ profiles, and pinned revisions;
 - generation of `workshop.txt`, `steamcmd-item.vdf`, `server-config.txt`, preview PNG, public manifest, and SHA-256 `pack.lock.json`;
+- cross-platform payload auditing that rejects case/Unicode filename collisions, corrects only unambiguous path-case references in packaged text files, records an exact SHA-256 tree manifest, and verifies the Steam-downloaded item before any coordinated server restart;
 - creation and update of the same Workshop item, with the SteamCMD-written `publishedfileid` saved back into the project;
 - optional daily refresh, build, and publication schedules that do not require the game server to be on the same machine;
 - modern responsive project workspace with clearer grouping, folded mod-rights cards, persistent French/English/Spanish/German/Portuguese/Chinese selection, and light/dark themes (light by default);

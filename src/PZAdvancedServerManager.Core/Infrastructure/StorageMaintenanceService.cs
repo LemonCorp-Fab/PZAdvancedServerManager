@@ -93,7 +93,11 @@ public sealed class StorageMaintenanceService(ApplicationPaths paths, PackagePro
 
     private void CleanupUnreferencedWorkshopCache(DateTime threshold, MutableResult result)
     {
-        var referenced = projects.GetAll().SelectMany(project => project.Mods).Where(mod => mod.WorkshopId != 0).Select(mod => mod.WorkshopId).ToHashSet();
+        var allProjects = projects.GetAll();
+        var referenced = allProjects.SelectMany(project => project.Mods).Where(mod => mod.WorkshopId != 0).Select(mod => mod.WorkshopId).ToHashSet();
+        referenced.UnionWith(allProjects
+            .Where(project => project.Automation.VerifyPublishedContentAfterUpload && project.PublishedWorkshopId != 0)
+            .Select(project => project.PublishedWorkshopId));
         foreach (var workshopRoot in paths.GetManagedSteamWorkshopRoots())
         {
             var contentRoot = Path.Combine(workshopRoot, "content", PzasmConstants.ProjectZomboidSteamAppId);

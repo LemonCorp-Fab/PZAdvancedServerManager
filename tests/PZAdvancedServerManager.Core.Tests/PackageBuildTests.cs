@@ -53,6 +53,10 @@ public sealed class PackageBuildTests : IDisposable
         var publicManifest = File.ReadAllText(Path.Combine(result.WorkshopContentRoot, "pzasm-pack-manifest.json"));
         Assert.Contains("first-id", publicManifest);
         Assert.DoesNotContain("privateAttachmentPath", publicManifest, StringComparison.OrdinalIgnoreCase);
+        Assert.True(File.Exists(result.IntegrityManifestPath));
+        var integrity = PackageIntegrityService.VerifyManifest(result.WorkshopContentRoot, result.ContentFingerprint);
+        Assert.True(integrity.Success);
+        Assert.Equal(integrity.FilesVerified, result.IntegrityFiles);
         var config = File.ReadAllText(result.ServerConfigSnippetPath);
         Assert.Contains("WorkshopItems=999", config);
         Assert.Contains($"Mods=first-id;{project.NoticeModId};{project.ControlModId}", config);
@@ -172,7 +176,7 @@ public sealed class PackageBuildTests : IDisposable
         Assert.True(File.GetAttributes(firstBuildLua).HasFlag(FileAttributes.ReadOnly));
         snapshots.EnsurePinned(project);
         var lockFile = File.ReadAllText(firstBuild.LockFilePath);
-        Assert.Contains("\"schemaVersion\": 5", lockFile);
+        Assert.Contains("\"schemaVersion\": 6", lockFile);
         Assert.Contains("\"kind\": \"bundle-mod\"", lockFile);
         Assert.DoesNotContain("\"path\":", lockFile);
 
@@ -449,7 +453,7 @@ public sealed class PackageBuildTests : IDisposable
         Assert.Equal(0, migrated.RebuiltComponents);
         Assert.Equal(1, migrated.ReusedComponents);
         Assert.Equal(outputWriteTime, File.GetLastWriteTimeUtc(output));
-        Assert.Contains("\"schemaVersion\": 5", File.ReadAllText(migrated.LockFilePath));
+        Assert.Contains("\"schemaVersion\": 6", File.ReadAllText(migrated.LockFilePath));
     }
 
     [Fact]

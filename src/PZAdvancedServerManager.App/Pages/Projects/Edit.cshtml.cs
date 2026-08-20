@@ -552,13 +552,14 @@ public class EditModel(
         {
             var result = lifecycle.Build(project);
             var physicallyCopiedBytes = Math.Max(0, result.CopiedBytes - result.HardLinkedBytes);
+            var integritySummary = $" Intégrité : {result.IntegrityFiles:N0} fichiers / {FormatBytes(result.IntegrityBytes)}, {result.CaseCorrections:N0} correction(s) de casse, {result.IntegrityWarnings.Count:N0} avertissement(s).";
             TempData["Message"] = result.IsNoOp
-                ? $"Pack déjà à jour : {result.ReusedComponents:N0} composants et {result.ReusedFiles:N0} fichiers réutilisés, aucune reconstruction du contenu. Dossier : {result.BuildRoot}"
+                ? $"Pack déjà à jour : {result.ReusedComponents:N0} composants et {result.ReusedFiles:N0} fichiers réutilisés, aucune reconstruction du contenu.{integritySummary} Dossier : {result.BuildRoot}"
                 : result.IsIncremental
-                    ? $"Pack mis à jour incrémentalement : {result.RebuiltComponents:N0} composant(s) reconstruit(s), {result.ReusedComponents:N0} réutilisé(s), {result.RemovedComponents:N0} retiré(s); {result.HardLinkedFiles:N0} fichiers liés ({FormatBytes(result.HardLinkedBytes)} sans duplication), {FormatBytes(physicallyCopiedBytes)} copiés. Dossier : {result.BuildRoot}"
+                    ? $"Pack mis à jour incrémentalement : {result.RebuiltComponents:N0} composant(s) reconstruit(s), {result.ReusedComponents:N0} réutilisé(s), {result.RemovedComponents:N0} retiré(s); {result.HardLinkedFiles:N0} fichiers liés ({FormatBytes(result.HardLinkedBytes)} sans duplication), {FormatBytes(physicallyCopiedBytes)} copiés.{integritySummary} Dossier : {result.BuildRoot}"
                     : result.HardLinkedFiles > 0
-                        ? $"Pack construit : {result.CopiedFiles:N0} fichiers; {result.HardLinkedFiles:N0} liés ({FormatBytes(result.HardLinkedBytes)} sans duplication), {FormatBytes(physicallyCopiedBytes)} copiés. Dossier : {result.BuildRoot}"
-                        : $"Pack construit : {result.CopiedFiles:N0} fichiers, {FormatBytes(result.CopiedBytes)} copiés. Dossier : {result.BuildRoot}";
+                        ? $"Pack construit : {result.CopiedFiles:N0} fichiers; {result.HardLinkedFiles:N0} liés ({FormatBytes(result.HardLinkedBytes)} sans duplication), {FormatBytes(physicallyCopiedBytes)} copiés.{integritySummary} Dossier : {result.BuildRoot}"
+                        : $"Pack construit : {result.CopiedFiles:N0} fichiers, {FormatBytes(result.CopiedBytes)} copiés.{integritySummary} Dossier : {result.BuildRoot}";
         }
         catch (PackageBuildException exception)
         {
@@ -1305,6 +1306,7 @@ public class EditModel(
         project.Automation.Enabled = Form.AutomationEnabled;
         project.Automation.RefreshWorkshopSourcesBeforeBuild = Form.RefreshSources;
         project.Automation.PublishAfterBuild = Form.PublishAfterBuild;
+        project.Automation.VerifyPublishedContentAfterUpload = Form.VerifyPublishedContentAfterUpload;
         project.Automation.CoordinatedServerName = Form.CoordinatedServerName?.Trim() ?? string.Empty;
         project.Automation.PostPublishRestartDelayMinutes = Math.Clamp(Form.PostPublishRestartDelayMinutes, 5, 60);
         project.Automation.DailyTimes = (Form.DailyTimes ?? string.Empty).Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -1448,6 +1450,7 @@ public class EditModel(
         public bool AutomationEnabled { get; set; }
         public bool RefreshSources { get; set; }
         public bool PublishAfterBuild { get; set; }
+        public bool VerifyPublishedContentAfterUpload { get; set; } = true;
         public string? CoordinatedServerName { get; set; }
         [Range(5, 60)] public int PostPublishRestartDelayMinutes { get; set; } = 5;
         public string? DailyTimes { get; set; }
@@ -1473,6 +1476,7 @@ public class EditModel(
             AutomationEnabled = project.Automation.Enabled,
             RefreshSources = project.Automation.RefreshWorkshopSourcesBeforeBuild,
             PublishAfterBuild = project.Automation.PublishAfterBuild,
+            VerifyPublishedContentAfterUpload = project.Automation.VerifyPublishedContentAfterUpload,
             DailyTimes = string.Join(", ", project.Automation.DailyTimes),
             CoordinatedServerName = project.Automation.CoordinatedServerName,
             PostPublishRestartDelayMinutes = project.Automation.PostPublishRestartDelayMinutes

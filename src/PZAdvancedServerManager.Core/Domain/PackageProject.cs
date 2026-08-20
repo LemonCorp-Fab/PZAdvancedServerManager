@@ -80,6 +80,7 @@ public sealed class PackageAutomationSettings
     public bool AnonymousWorkshopDownloads { get; set; } = true;
     public bool RefreshWorkshopSourcesBeforeBuild { get; set; } = true;
     public bool PublishAfterBuild { get; set; } = true;
+    public bool VerifyPublishedContentAfterUpload { get; set; } = true;
     public string CoordinatedServerName { get; set; } = string.Empty;
     public int PostPublishRestartDelayMinutes { get; set; } = 5;
     public DateTimeOffset? LastAttemptAt { get; set; }
@@ -98,6 +99,10 @@ public sealed class WorkshopPublicationState
     public long RemoteFileSize { get; set; }
     public DateTimeOffset? RemoteUpdatedAt { get; set; }
     public DateTimeOffset? RemoteVerifiedAt { get; set; }
+    public DateTimeOffset? ContentVerifiedAt { get; set; }
+    public string VerifiedPayloadFingerprint { get; set; } = string.Empty;
+    public int VerifiedFileCount { get; set; }
+    public long VerifiedBytes { get; set; }
 }
 
 public sealed class PackageModReference
@@ -189,6 +194,11 @@ public sealed class PackageBuildResult
     public required string ServerConfigSnippetPath { get; init; }
     public required PackageValidationResult Validation { get; init; }
     public required string ContentFingerprint { get; init; }
+    public string IntegrityManifestPath { get; init; } = string.Empty;
+    public int IntegrityFiles { get; init; }
+    public long IntegrityBytes { get; init; }
+    public int CaseCorrections { get; init; }
+    public IReadOnlyList<string> IntegrityWarnings { get; init; } = [];
     public int CopiedFiles { get; init; }
     public long CopiedBytes { get; init; }
     public int HardLinkedFiles { get; init; }

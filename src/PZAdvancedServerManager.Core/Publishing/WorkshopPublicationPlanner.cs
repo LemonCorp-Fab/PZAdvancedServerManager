@@ -236,6 +236,7 @@ public static class WorkshopPublicationPlanner
         WorkshopRemoteState? remote,
         string fallbackContentHandle = "")
     {
+        var previous = project.Publication;
         project.Publication = new WorkshopPublicationState
         {
             WorkshopId = project.PublishedWorkshopId,
@@ -246,7 +247,11 @@ public static class WorkshopPublicationPlanner
             RemotePreviewHandle = remote?.PreviewHandle ?? string.Empty,
             RemoteFileSize = remote?.FileSize ?? 0,
             RemoteUpdatedAt = remote?.UpdatedAt,
-            RemoteVerifiedAt = remote is null ? null : DateTimeOffset.UtcNow
+            RemoteVerifiedAt = remote is null ? null : DateTimeOffset.UtcNow,
+            ContentVerifiedAt = previous.ContentVerifiedAt,
+            VerifiedPayloadFingerprint = previous.VerifiedPayloadFingerprint,
+            VerifiedFileCount = previous.VerifiedFileCount,
+            VerifiedBytes = previous.VerifiedBytes
         };
     }
 
@@ -302,7 +307,8 @@ public sealed record WorkshopPublishResult(
     SteamCmdResult SteamCmd,
     WorkshopPublicationPlan Plan,
     WorkshopRemoteState? ConfirmedRemote,
-    string PublishedContentHandle)
+    string PublishedContentHandle,
+    PublishedPackageVerificationResult? IntegrityVerification = null)
 {
     public bool Success => SteamCmd.Success;
     public bool Submitted => Plan.IsSubmitted;

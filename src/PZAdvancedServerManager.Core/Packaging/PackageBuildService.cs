@@ -22,15 +22,15 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
         if (!validation.CanBuild)
             throw new PackageBuildException("Le projet contient des erreurs qui empêchent sa construction.", validation);
 
-        var contentFingerprint = ComputeContentFingerprint(project, desiredComponents);
-        var buildFingerprint = ComputeBuildFingerprint(project, desiredComponents, contentFingerprint, preview.Token);
+        var desiredContentFingerprint = ComputeContentFingerprint(project, desiredComponents);
+        var buildFingerprint = ComputeBuildFingerprint(project, desiredComponents, desiredContentFingerprint, preview.Token);
         if (CanReuseCompletedBuild(finalRoot, previousState, desiredComponents, buildFingerprint, preview.Extension))
             return CreateResult(
                 project,
                 validation,
                 finalRoot,
                 preview.Extension,
-                contentFingerprint,
+                previousState!.PayloadFingerprint,
                 new CopyStatistics(),
                 previousState!.Components,
                 rebuiltComponents: 0,
@@ -54,10 +54,13 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
             {
                 var componentStats = MaterializeComponent(project, desired, modsRoot, validation);
                 copied.Add(componentStats);
+                var repair = PackageIntegrityService.RepairCaseReferences(Path.Combine(modsRoot, desired.DestinationFolder));
+                RestoreSourceProtection(desired, repair);
                 rebuiltComponents.Add(ToBuildComponent(
                     desired,
                     componentStats,
-                    SafeFileTree.ComputeDirectoryMetadataStamp(Path.Combine(modsRoot, desired.DestinationFolder))));
+                    SafeFileTree.ComputeDirectoryMetadataStamp(Path.Combine(modsRoot, desired.DestinationFolder)),
+                    repair));
             }
 
             if (!validation.CanBuild)
@@ -71,6 +74,23 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
             var description = WorkshopDescriptionGenerator.Generate(project);
             WritePublicManifest(project, contentsRoot);
             var publicManifestHash = ComputeHash(Path.Combine(contentsRoot, "pzasm-pack-manifest.json"));
+            var previousIntegrity = TryReadIntegrityManifest(Path.Combine(finalRoot, "Contents"));
+            var integritySources = new List<PackageIntegritySource>
+            {
+                new(contentsRoot, string.Empty, false, TopLevelOnly: true)
+            };
+            integritySources.AddRange(allComponents.Select(component =>
+            {
+                var rebuilt = rebuiltComponents.Any(candidate => candidate.Key.Equals(component.Key, StringComparison.OrdinalIgnoreCase));
+                var sourceRoot = Path.Combine(rebuilt ? modsRoot : Path.Combine(finalRoot, "Contents", "mods"), component.DestinationFolder);
+                return new PackageIntegritySource(sourceRoot, $"mods/{component.DestinationFolder}", !rebuilt);
+            }));
+            var integrity = PackageIntegrityService.CreateManifest(
+                contentsRoot,
+                integritySources,
+                previousIntegrity,
+                allComponents.Sum(component => component.CaseCorrections),
+                allComponents.SelectMany(component => component.IntegrityWarnings));
             var previewPath = PreparePreview(project, nextRoot, preview.Extension);
             var finalPreviewPath = Path.Combine(finalRoot, Path.GetFileName(previewPath));
             var workshopPath = Path.Combine(nextRoot, "workshop.txt");
@@ -86,7 +106,7 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
             File.WriteAllText(Path.Combine(nextRoot, "README-BUILD.txt"), GenerateBuildReadme(project, validation), new UTF8Encoding(false));
 
             var lockPath = Path.Combine(nextRoot, "pack.lock.json");
-            var lockData = CreateBuildState(project, buildFingerprint, publicManifestHash, allComponents);
+            var lockData = CreateBuildState(project, buildFingerprint, publicManifestHash, integrity.PayloadFingerprint, allComponents);
             File.WriteAllText(lockPath, JsonSerializer.Serialize(lockData, JsonOptions), new UTF8Encoding(false));
 
             var localSnapshot = new
@@ -107,7 +127,7 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
                 validation,
                 finalRoot,
                 preview.Extension,
-                contentFingerprint,
+                integrity.PayloadFingerprint,
                 copied,
                 reusableComponents.Values,
                 rebuiltComponents.Count,
@@ -156,6 +176,16 @@ public sealed class PackageBuildService(ApplicationPaths paths, PackageValidator
             if (!Directory.Exists(modRoot)) continue;
             foreach (var file in Directory.EnumerateFiles(modRoot, "*", SearchOption.AllDirectories))
                 File.SetAttributes(file, File.GetAttributes(file) | FileAttributes.ReadOnly);
+        }
+    }
+
+    private static void RestoreSourceProtection(DesiredBuildComponent desired, PackageCaseRepairReport repair)
+    {
+        if (!desired.PreferHardLinks || string.IsNullOrWhiteSpace(desired.SourceRoot)) return;
+        foreach (var relative in repair.Corrections.Select(correction => correction.File).Distinct(PathComparer))
+        {
+            var source = Path.Combine(desired.SourceRoot, relative.Replace('/', Path.DirectorySeparatorChar));
+            if (File.Exists(source)) File.SetAttributes(source, File.GetAttributes(source) | FileAttributes.ReadOnly);
         }
     }
 
@@ -321,7 +351,7 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
                     mod.Id,
                     mod.ModId,
                     mod.EffectiveFolderName,
-                    Fingerprint(new { engine = "bundle-mod-v2", sourceHash }),
+                    Fingerprint(new { engine = "bundle-mod-v3", sourceHash }),
                     sourceHash,
                     mod.BuildSourceRoot,
                     canLink));
@@ -333,7 +363,7 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
                     null,
                     project.NoticeModId,
                     project.NoticeModId,
-                    Fingerprint(new { engine = "notice-v4", metadata = GeneratedMetadata(project) }),
+                    Fingerprint(new { engine = "notice-v5", metadata = GeneratedMetadata(project) }),
                     string.Empty,
                     string.Empty,
                     false));
@@ -344,7 +374,7 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
                     null,
                     project.ControlModId,
                     project.ControlModId,
-                    Fingerprint(new { engine = "control-v3", metadata = GeneratedMetadata(project) }),
+                    Fingerprint(new { engine = "control-v4", metadata = GeneratedMetadata(project) }),
                     string.Empty,
                     string.Empty,
                     false));
@@ -364,7 +394,7 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
                 null,
                 project.FusionModId,
                 project.FusionModId,
-                Fingerprint(new { engine = "fusion-v4", sourceHash, metadata = GeneratedMetadata(project) }),
+                Fingerprint(new { engine = "fusion-v5", sourceHash, metadata = GeneratedMetadata(project) }),
                 sourceHash,
                 string.Empty,
                 false));
@@ -447,7 +477,7 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
         string contentFingerprint,
         string previewToken) => Fingerprint(new
         {
-            engine = "incremental-build-v5",
+            engine = "incremental-build-v6",
             contentFingerprint,
             previewToken,
             project.PublishedWorkshopId,
@@ -479,6 +509,7 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
         PackageProject project,
         string buildFingerprint,
         string publicManifestHash,
+        string payloadFingerprint,
         List<IncrementalBuildComponent> components) => new()
         {
             ProjectId = project.Id,
@@ -489,6 +520,7 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
             BuiltAt = DateTimeOffset.UtcNow,
             BuildFingerprint = buildFingerprint,
             PublicManifestHash = publicManifestHash,
+            PayloadFingerprint = payloadFingerprint,
             Components = components,
             Sources = project.Mods.Where(mod => mod.Enabled).OrderBy(mod => mod.Order).Select(mod => new IncrementalBuildSource
             {
@@ -514,22 +546,28 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
             }
         };
 
-    private static IncrementalBuildComponent ToBuildComponent(DesiredBuildComponent desired, CopyStatistics stats, string metadataStamp) => new()
-    {
-        Key = desired.Key,
-        Kind = desired.Kind,
-        ModReferenceId = desired.ModReferenceId,
-        ModId = desired.ModId,
-        DestinationFolder = desired.DestinationFolder,
-        Fingerprint = desired.Fingerprint,
-        SourceContentHash = desired.SourceContentHash,
-        MetadataStamp = metadataStamp,
-        Files = stats.Files,
-        Bytes = stats.Bytes,
-        HardLinkedFiles = stats.HardLinkedFiles,
-        HardLinkedBytes = stats.HardLinkedBytes,
-        StatisticsComplete = true
-    };
+    private static IncrementalBuildComponent ToBuildComponent(
+        DesiredBuildComponent desired,
+        CopyStatistics stats,
+        string metadataStamp,
+        PackageCaseRepairReport repair) => new()
+        {
+            Key = desired.Key,
+            Kind = desired.Kind,
+            ModReferenceId = desired.ModReferenceId,
+            ModId = desired.ModId,
+            DestinationFolder = desired.DestinationFolder,
+            Fingerprint = desired.Fingerprint,
+            SourceContentHash = desired.SourceContentHash,
+            MetadataStamp = metadataStamp,
+            Files = stats.Files,
+            Bytes = stats.Bytes,
+            HardLinkedFiles = stats.HardLinkedFiles,
+            HardLinkedBytes = stats.HardLinkedBytes,
+            StatisticsComplete = true,
+            CaseCorrections = repair.ReferencesCorrected,
+            IntegrityWarnings = repair.Warnings.ToList()
+        };
 
     private static IncrementalBuildState? LoadPreviousState(string finalRoot, PackageProject project, IReadOnlyCollection<DesiredBuildComponent> desiredComponents)
     {
@@ -659,7 +697,7 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
 
         return new IncrementalBuildState
         {
-            SchemaVersion = 5,
+            SchemaVersion = 6,
             ProjectId = project.Id,
             ProjectName = project.Name,
             Mode = project.Mode.ToString(),
@@ -726,7 +764,8 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
         string buildFingerprint,
         string previewExtension)
     {
-        if (previousState is null || previousState.SchemaVersion < 3 ||
+        if (previousState is null || previousState.SchemaVersion < 6 ||
+            string.IsNullOrWhiteSpace(previousState.PayloadFingerprint) ||
             !previousState.BuildFingerprint.Equals(buildFingerprint, StringComparison.OrdinalIgnoreCase))
             return false;
         var publicManifestPath = Path.Combine(finalRoot, "Contents", "pzasm-pack-manifest.json");
@@ -734,6 +773,17 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
             !File.Exists(publicManifestPath) ||
             !ComputeHash(publicManifestPath).Equals(previousState.PublicManifestHash, StringComparison.OrdinalIgnoreCase))
             return false;
+        var integrityPath = Path.Combine(finalRoot, "Contents", PackageIntegrityService.ManifestFileName);
+        if (!File.Exists(integrityPath)) return false;
+        try
+        {
+            var integrity = PackageIntegrityService.ReadManifest(Path.Combine(finalRoot, "Contents"));
+            if (!integrity.PayloadFingerprint.Equals(previousState.PayloadFingerprint, StringComparison.OrdinalIgnoreCase)) return false;
+        }
+        catch (Exception exception) when (exception is IOException or JsonException or PackageIntegrityException)
+        {
+            return false;
+        }
         var reusable = FindReusableComponents(finalRoot, previousState, desiredComponents);
         if (reusable.Count != desiredComponents.Count) return false;
         var modsRoot = Path.Combine(finalRoot, "Contents", "mods");
@@ -758,6 +808,7 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
         bool isNoOp)
     {
         var reused = reusedComponents.ToArray();
+        var integrity = PackageIntegrityService.ReadManifest(Path.Combine(finalRoot, "Contents"));
         return new PackageBuildResult
         {
             BuildRoot = finalRoot,
@@ -769,6 +820,11 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
             ServerConfigSnippetPath = Path.Combine(finalRoot, "server-config.txt"),
             Validation = validation,
             ContentFingerprint = contentFingerprint,
+            IntegrityManifestPath = Path.Combine(finalRoot, "Contents", PackageIntegrityService.ManifestFileName),
+            IntegrityFiles = integrity.FileCount,
+            IntegrityBytes = integrity.TotalBytes,
+            CaseCorrections = integrity.CaseCorrections,
+            IntegrityWarnings = integrity.Warnings,
             CopiedFiles = copied.Files,
             CopiedBytes = copied.Bytes,
             HardLinkedFiles = copied.HardLinkedFiles,
@@ -892,6 +948,7 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
     private static string[] RequiredBuildFiles(string previewExtension) =>
     [
         Path.Combine("Contents", "pzasm-pack-manifest.json"),
+        Path.Combine("Contents", PackageIntegrityService.ManifestFileName),
         "workshop.txt",
         "steamcmd-item.vdf",
         "server-config.txt",
@@ -945,6 +1002,20 @@ Workshop ID : {(project.PublishedWorkshopId == 0 ? "nouvel item" : project.Publi
             })
         };
         File.WriteAllText(Path.Combine(contentsRoot, "pzasm-pack-manifest.json"), JsonSerializer.Serialize(manifest, JsonOptions), new UTF8Encoding(false));
+    }
+
+    private static PackageIntegrityManifest? TryReadIntegrityManifest(string contentsRoot)
+    {
+        try
+        {
+            return Directory.Exists(contentsRoot) && File.Exists(Path.Combine(contentsRoot, PackageIntegrityService.ManifestFileName))
+                ? PackageIntegrityService.ReadManifest(contentsRoot)
+                : null;
+        }
+        catch (Exception exception) when (exception is IOException or JsonException or PackageIntegrityException)
+        {
+            return null;
+        }
     }
 
     private static bool CopyTree(string source, string destination, CopyStatistics stats, bool preferHardLinks = false)

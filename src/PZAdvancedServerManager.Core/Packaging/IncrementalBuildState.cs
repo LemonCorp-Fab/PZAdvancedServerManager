@@ -2,7 +2,7 @@ namespace PZAdvancedServerManager.Core.Packaging;
 
 internal sealed class IncrementalBuildState
 {
-    public int SchemaVersion { get; set; } = 5;
+    public int SchemaVersion { get; set; } = 6;
     public Guid ProjectId { get; set; }
     public string ProjectName { get; set; } = string.Empty;
     public string Mode { get; set; } = string.Empty;
@@ -11,6 +11,7 @@ internal sealed class IncrementalBuildState
     public DateTimeOffset BuiltAt { get; set; }
     public string BuildFingerprint { get; set; } = string.Empty;
     public string PublicManifestHash { get; set; } = string.Empty;
+    public string PayloadFingerprint { get; set; } = string.Empty;
     public List<IncrementalBuildComponent> Components { get; set; } = [];
     public List<IncrementalBuildSource> Sources { get; set; } = [];
     public IncrementalBuildTotals Totals { get; set; } = new();
@@ -31,6 +32,8 @@ internal sealed class IncrementalBuildComponent
     public int HardLinkedFiles { get; set; }
     public long HardLinkedBytes { get; set; }
     public bool StatisticsComplete { get; set; }
+    public int CaseCorrections { get; set; }
+    public List<string> IntegrityWarnings { get; set; } = [];
 }
 
 internal sealed class IncrementalBuildSource

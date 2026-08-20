@@ -134,6 +134,25 @@ public sealed class PineHostingTests : IDisposable
         Assert.Contains("panel.pinehosting.com", exception.Message);
     }
 
+    [Fact]
+    public void ConsoleWebSocketEventParserReadsConsoleOutput()
+    {
+        var parsed = PineHostingClient.TryParseConsoleEvent(
+            "{\"event\":\"console output\",\"args\":[\"LOG  : General > *** SERVER STARTED ****\"]}",
+            out var eventName,
+            out var arguments);
+
+        Assert.True(parsed);
+        Assert.Equal("console output", eventName);
+        Assert.Equal(["LOG  : General > *** SERVER STARTED ****"], arguments);
+    }
+
+    [Fact]
+    public void ConsoleWebSocketEventParserRejectsInvalidPayload()
+    {
+        Assert.False(PineHostingClient.TryParseConsoleEvent("not-json", out _, out _));
+    }
+
     private static PineHostingClient Client(Func<HttpRequestMessage, Task<HttpResponseMessage>> handler)
         => new(new HttpClient(new DelegateHandler(handler)));
 

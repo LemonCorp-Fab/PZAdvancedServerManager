@@ -142,14 +142,28 @@ document.querySelectorAll('details.mod-card').forEach(card => {
     const helperCount = root.querySelector('[data-runtime-helper-count]');
     const instances = root.querySelector('[data-runtime-instances]');
     const logSummary = root.querySelector('[data-runtime-log-summary]');
+    const logSource = root.querySelector('[data-runtime-log-source]');
+    const logStatus = root.querySelector('[data-runtime-log-status]');
     const logSearch = root.querySelector('[data-runtime-log-search]');
     const logFilters = Array.from(root.querySelectorAll('[data-log-filter]'));
     const rconPort = document.querySelector('[data-runtime-rcon-port]');
-    let knownRunning = root.dataset.runtimeRunning === 'true';
-    let knownRcon = root.dataset.runtimeRcon === 'true';
+    const rconConsole = document.querySelector('[data-rcon-console]');
+    const overviewFields = {
+        players: root.querySelector('[data-overview-players]'),
+        playerSource: root.querySelector('[data-overview-player-source]'),
+        latency: root.querySelector('[data-overview-latency]'),
+        uptime: root.querySelector('[data-overview-uptime]'),
+        cpu: root.querySelector('[data-overview-cpu]'),
+        memory: root.querySelector('[data-overview-memory]'),
+        disk: root.querySelector('[data-overview-disk]'),
+        networkRx: root.querySelector('[data-overview-network-rx]'),
+        networkTx: root.querySelector('[data-overview-network-tx]'),
+        captured: root.querySelector('[data-overview-captured]'),
+        playerStatus: root.querySelector('[data-player-list-status]'),
+        playerList: root.querySelector('[data-overview-player-list]')
+    };
     let outputSignature = '';
     let requestActive = false;
-    let reloadScheduled = false;
     let activeLogFilter = 'all';
     let logQuery = '';
 
@@ -174,6 +188,76 @@ document.querySelectorAll('details.mod-card').forEach(card => {
     };
 
     const levelLabel = level => ({ error: 'ERR', warning: 'WARN', success: 'OK', system: 'SYS', stack: 'TRACE', info: 'INFO' })[level] || 'INFO';
+
+    const formatBytes = value => {
+        if (value === null || value === undefined) return '—';
+        const bytes = Number(value);
+        if (!Number.isFinite(bytes)) return '—';
+        if (bytes >= 1073741824) return `${(bytes / 1073741824).toLocaleString(undefined, { maximumFractionDigits: 2 })} Gio`;
+        if (bytes >= 1048576) return `${(bytes / 1048576).toLocaleString(undefined, { maximumFractionDigits: 1 })} Mio`;
+        if (bytes >= 1024) return `${(bytes / 1024).toLocaleString(undefined, { maximumFractionDigits: 1 })} Kio`;
+        return `${bytes.toLocaleString()} o`;
+    };
+
+    const formatUsage = (used, limit) => used === null || used === undefined
+        ? '—'
+        : limit > 0 ? `${formatBytes(used)} / ${formatBytes(limit)}` : formatBytes(used);
+
+    const formatDuration = milliseconds => {
+        if (milliseconds === null || milliseconds === undefined || milliseconds < 0) return '—';
+        const seconds = Math.floor(milliseconds / 1000);
+        const days = Math.floor(seconds / 86400);
+        const hours = Math.floor(seconds % 86400 / 3600);
+        const minutes = Math.floor(seconds % 3600 / 60);
+        if (days > 0) return `${days} j ${hours} h`;
+        if (hours > 0) return `${hours} h ${minutes} min`;
+        return `${minutes} min ${seconds % 60} s`;
+    };
+
+    const renderOverview = overview => {
+        if (!overview) return;
+        if (overviewFields.players) overviewFields.players.textContent = `${overview.playerCount ?? '—'} / ${overview.maxPlayers ?? '—'}`;
+        if (overviewFields.playerSource) overviewFields.playerSource.textContent = overview.playerSource === 'rcon'
+            ? 'Liste fournie par RCON'
+            : overview.playerSource === 'pine-console' ? 'Dernier résultat de la console Pine' : 'RCON requis pour la liste';
+        if (overviewFields.latency) overviewFields.latency.textContent = overview.rconLatencyMilliseconds === null || overview.rconLatencyMilliseconds === undefined ? '—' : `${Math.round(overview.rconLatencyMilliseconds)} ms`;
+        if (overviewFields.uptime) overviewFields.uptime.textContent = formatDuration(overview.uptimeMilliseconds);
+        if (overviewFields.cpu) overviewFields.cpu.textContent = overview.cpuPercent === null || overview.cpuPercent === undefined ? '—' : `${Number(overview.cpuPercent).toLocaleString(undefined, { maximumFractionDigits: 1 })} %`;
+        if (overviewFields.memory) overviewFields.memory.textContent = formatUsage(overview.memoryBytes, overview.memoryLimitBytes);
+        if (overviewFields.disk) overviewFields.disk.textContent = formatUsage(overview.diskBytes, overview.diskLimitBytes);
+        if (overviewFields.networkRx) overviewFields.networkRx.textContent = formatBytes(overview.networkRxBytes);
+        if (overviewFields.networkTx) overviewFields.networkTx.textContent = formatBytes(overview.networkTxBytes);
+        if (overviewFields.captured) overviewFields.captured.textContent = `Mesure ${formatDate(overview.capturedAt, false)}`;
+        if (overviewFields.playerStatus) overviewFields.playerStatus.textContent = overview.playerSource === 'rcon' || overview.playerSource === 'pine-console'
+            ? `${overview.playerCount ?? 0} joueur(s) signalé(s)`
+            : 'Configurez RCON pour interroger la liste sans lire les logs.';
+        if (!overviewFields.playerList) return;
+        overviewFields.playerList.replaceChildren();
+        const players = Array.isArray(overview.players) ? overview.players : [];
+        if (players.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'server-player-empty';
+            empty.textContent = overview.playerCount === 0 ? 'Aucun joueur connecté.' : 'Liste détaillée indisponible.';
+            overviewFields.playerList.append(empty);
+            return;
+        }
+        players.forEach(player => {
+            const card = document.createElement('article');
+            const avatar = document.createElement('span');
+            const identity = document.createElement('span');
+            const name = document.createElement('strong');
+            const steam = document.createElement('small');
+            const ping = document.createElement('em');
+            avatar.className = 'player-avatar';
+            avatar.textContent = (player.name || '?').slice(0, 1).toLocaleUpperCase();
+            name.textContent = player.name || 'Joueur inconnu';
+            steam.textContent = player.steamId || 'Steam ID non fourni';
+            ping.textContent = player.pingMilliseconds === null || player.pingMilliseconds === undefined ? 'ping non fourni' : `${player.pingMilliseconds} ms`;
+            identity.append(name, steam);
+            card.append(avatar, identity, ping);
+            overviewFields.playerList.append(card);
+        });
+    };
 
     const applyLogFilter = () => {
         if (!output) return;
@@ -275,6 +359,8 @@ document.querySelectorAll('details.mod-card').forEach(card => {
         if (source) source.textContent = data.source || '—';
         if (started) started.textContent = formatDate(data.startedAt, true);
         if (lastOutput) lastOutput.textContent = formatDate(data.lastOutputAt, false);
+        if (logSource) logSource.textContent = data.logSource || logSource.textContent;
+        if (logStatus) logStatus.textContent = data.logStatus || '';
         if (warning) {
             warning.hidden = !data.rconBindFailed;
             warning.classList.toggle('is-hidden', !data.rconBindFailed);
@@ -293,16 +379,15 @@ document.querySelectorAll('details.mod-card').forEach(card => {
         renderInstances(data.instances);
         rconPort?.classList.toggle('port-conflict', Boolean(data.rconBindFailed));
         renderOutput(data.output);
-
-        const runningChanged = Boolean(data.isRunning) !== knownRunning;
-        const rconChanged = Boolean(data.isRconAuthenticated) !== knownRcon;
-        knownRunning = Boolean(data.isRunning);
-        knownRcon = Boolean(data.isRconAuthenticated);
-        root.dataset.runtimeRunning = String(knownRunning);
-        root.dataset.runtimeRcon = String(knownRcon);
-        if ((runningChanged || rconChanged) && !reloadScheduled) {
-            reloadScheduled = true;
-            window.setTimeout(() => window.location.reload(), 700);
+        renderOverview(data.overview);
+        root.dataset.runtimeRunning = String(Boolean(data.isRunning));
+        root.dataset.runtimeRcon = String(Boolean(data.isRconAuthenticated));
+        if (rconConsole) {
+            const available = Boolean(data.consoleAvailable);
+            rconConsole.dataset.rconAvailable = String(available);
+            rconConsole.querySelectorAll('[data-rcon-command], .rcon-command-form button[type="submit"]').forEach(control => control.disabled = !available);
+            const state = rconConsole.querySelector('[data-rcon-state]');
+            if (state && !available) state.textContent = 'Console configurée mais actuellement indisponible ; le manager la réactivera dès que le serveur répondra.';
         }
     };
 
@@ -317,7 +402,7 @@ document.querySelectorAll('details.mod-card').forEach(card => {
     });
 
     const poll = async () => {
-        if (requestActive || document.hidden || reloadScheduled) return;
+        if (requestActive || document.hidden) return;
         requestActive = true;
         try {
             const response = await fetch(endpoint, { credentials: 'same-origin', cache: 'no-store' });
@@ -1505,8 +1590,36 @@ document.querySelectorAll('[data-workshop-tag-presets]').forEach(container => {
         control.addEventListener('click', event => event.stopPropagation());
     });
 
-    document.querySelectorAll('[data-rcon-command]').forEach(input => {
-        const commands = Array.from(document.querySelectorAll('.rcon-entry > code'))
+    const renderRconEntry = (transcript, entry) => {
+        transcript.querySelector('.rcon-terminal-empty')?.remove();
+        const clearForm = document.querySelector('[data-rcon-clear]');
+        if (clearForm) clearForm.hidden = false;
+        const article = document.createElement('article');
+        const header = document.createElement('header');
+        const time = document.createElement('time');
+        const state = document.createElement('span');
+        const command = document.createElement('code');
+        const response = document.createElement('pre');
+        article.className = `rcon-entry ${entry.succeeded ? 'success' : 'failure'}`;
+        time.dateTime = entry.timestamp;
+        time.textContent = new Intl.DateTimeFormat(document.documentElement.lang || 'fr', { timeStyle: 'medium' }).format(new Date(entry.timestamp));
+        state.textContent = entry.succeeded ? 'RÉPONSE' : 'ERREUR';
+        command.textContent = `> ${entry.command || ''}`;
+        response.textContent = entry.response || '';
+        header.append(time, state);
+        article.append(header, command, response);
+        transcript.append(article);
+        transcript.scrollTop = transcript.scrollHeight;
+    };
+
+    document.querySelectorAll('[data-rcon-command-form]').forEach(form => {
+        const input = form.querySelector('[data-rcon-command]');
+        const button = form.querySelector('button[type="submit"]');
+        const state = form.querySelector('[data-rcon-state]');
+        const transcript = document.querySelector('[data-rcon-transcript]');
+        const endpoint = form.dataset.rconJsonEndpoint;
+        if (!(input instanceof HTMLInputElement) || !(button instanceof HTMLButtonElement) || !transcript || !endpoint) return;
+        const commands = Array.from(transcript.querySelectorAll('.rcon-entry > code'))
             .map(node => node.textContent.replace(/^>\s*/, '').trim())
             .filter(command => command && !command.includes('<arguments redacted>'));
         let index = commands.length;
@@ -1515,6 +1628,77 @@ document.querySelectorAll('[data-workshop-tag-presets]').forEach(container => {
             event.preventDefault();
             index = event.key === 'ArrowUp' ? Math.max(0, index - 1) : Math.min(commands.length, index + 1);
             input.value = index < commands.length ? commands[index] : '';
+        });
+        form.addEventListener('submit', async event => {
+            event.preventDefault();
+            if (form.classList.contains('is-busy')) return;
+            const submitted = input.value.trim();
+            if (!submitted) return;
+            const token = form.querySelector('input[name="__RequestVerificationToken"]')?.value || '';
+            form.classList.add('is-busy');
+            button.disabled = true;
+            input.disabled = true;
+            if (state) {
+                state.classList.remove('is-error', 'is-success');
+                state.textContent = `Envoi de « ${submitted} »…`;
+            }
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    cache: 'no-store',
+                    headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': token },
+                    body: JSON.stringify({ command: submitted })
+                });
+                const payload = await response.json();
+                if (payload.entry) renderRconEntry(transcript, payload.entry);
+                if (!response.ok || !payload.ok) throw new Error(payload.error || `Erreur HTTP ${response.status}`);
+                commands.push(submitted);
+                index = commands.length;
+                input.value = '';
+                if (state) {
+                    state.classList.add('is-success');
+                    state.textContent = 'Commande terminée. La réponse a été ajoutée sans recharger la page.';
+                }
+            } catch (error) {
+                if (state) {
+                    state.classList.add('is-error');
+                    state.textContent = error instanceof Error ? error.message : 'La commande a échoué.';
+                }
+            } finally {
+                form.classList.remove('is-busy');
+                button.disabled = form.closest('[data-rcon-console]')?.dataset.rconAvailable !== 'true';
+                input.disabled = button.disabled;
+                if (!input.disabled) input.focus();
+            }
+        });
+    });
+
+    document.querySelectorAll('[data-rcon-clear]').forEach(form => {
+        const transcript = document.querySelector('[data-rcon-transcript]');
+        const endpoint = form.dataset.rconJsonEndpoint;
+        if (!transcript || !endpoint) return;
+        form.addEventListener('submit', async event => {
+            event.preventDefault();
+            const button = form.querySelector('button[type="submit"]');
+            const token = form.querySelector('input[name="__RequestVerificationToken"]')?.value || '';
+            if (button) button.disabled = true;
+            try {
+                const response = await fetch(endpoint, { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'RequestVerificationToken': token } });
+                if (!response.ok) throw new Error(`Erreur HTTP ${response.status}`);
+                transcript.replaceChildren();
+                const empty = document.createElement('div');
+                const heading = document.createElement('strong');
+                const copy = document.createElement('span');
+                empty.className = 'rcon-terminal-empty';
+                heading.textContent = 'Console prête';
+                copy.textContent = 'Envoyez une commande pour afficher sa réponse ici.';
+                empty.append(heading, copy);
+                transcript.append(empty);
+                form.hidden = true;
+            } catch {
+                if (button) button.disabled = false;
+            }
         });
     });
 

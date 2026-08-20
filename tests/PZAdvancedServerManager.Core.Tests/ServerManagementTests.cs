@@ -348,6 +348,8 @@ public sealed class ServerManagementTests : IDisposable
         Assert.Equal(ServerRuntimeState.Stopped, runtime.State);
         Assert.False(runtime.IsGameReady);
         Assert.Contains(runtime.Output, line => line.Message.Contains("live output", StringComparison.Ordinal));
+        Assert.Contains("dernière session", runtime.LogSource, StringComparison.Ordinal);
+        Assert.Contains("Serveur arrêté", runtime.LogStatus, StringComparison.Ordinal);
     }
 
     [Fact]

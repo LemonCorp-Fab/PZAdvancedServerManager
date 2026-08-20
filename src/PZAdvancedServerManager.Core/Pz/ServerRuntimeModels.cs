@@ -52,6 +52,32 @@ public sealed record ServerRuntimeLogLine(
     }
 }
 
+public sealed record ServerPlayerSnapshot(
+    string Name,
+    string? SteamId = null,
+    int? PingMilliseconds = null);
+
+public sealed record ServerRuntimeOverview(
+    int? PlayerCount,
+    int? MaxPlayers,
+    IReadOnlyList<ServerPlayerSnapshot> Players,
+    double? RconLatencyMilliseconds,
+    double? CpuPercent,
+    long? MemoryBytes,
+    long? MemoryLimitBytes,
+    long? DiskBytes,
+    long? DiskLimitBytes,
+    long? NetworkRxBytes,
+    long? NetworkTxBytes,
+    long? UptimeMilliseconds,
+    DateTimeOffset CapturedAt,
+    string PlayerSource)
+{
+    public static ServerRuntimeOverview Empty { get; } = new(
+        null, null, [], null, null, null, null, null, null, null, null, null,
+        DateTimeOffset.UtcNow, "unavailable");
+}
+
 public sealed record ServerRuntimeSnapshot(
     ServerRuntimeState State,
     bool IsRunning,
@@ -67,6 +93,9 @@ public sealed record ServerRuntimeSnapshot(
     public ServerRuntimeOrigin Origin { get; init; } = ServerRuntimeOrigin.Unknown;
     public IReadOnlyList<ServerRuntimeInstance> Instances { get; init; } = [];
     public int InactiveHostedHelperCount { get; init; }
+    public ServerRuntimeOverview Overview { get; init; } = ServerRuntimeOverview.Empty;
+    public string LogSource { get; init; } = string.Empty;
+    public string LogStatus { get; init; } = string.Empty;
 }
 
 public sealed record ForcedServerStopResult(

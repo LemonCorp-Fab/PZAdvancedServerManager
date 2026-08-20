@@ -14,6 +14,15 @@ public sealed class SshRemoteServerService
         return result.Output;
     }
 
+    public async Task<string> ReadTailAsync(RemoteServerConnection connection, string path, int maximumLines = 240, CancellationToken cancellationToken = default)
+    {
+        if (maximumLines is < 1 or > 1000) throw new ArgumentOutOfRangeException(nameof(maximumLines));
+        ValidateRemotePath(path);
+        var result = await RunAsync(connection, $"if [ -f {Quote(path)} ]; then tail -n {maximumLines} -- {Quote(path)}; fi", null, cancellationToken);
+        EnsureSuccess(result, "lecture du journal distant");
+        return result.Output;
+    }
+
     public async Task<string> WriteFileAsync(RemoteServerConnection connection, string content, CancellationToken cancellationToken = default)
     {
         ValidateRemoteIni(connection);
@@ -114,6 +123,11 @@ public sealed class SshRemoteServerService
     private static void ValidateRemoteIni(RemoteServerConnection connection)
     {
         if (string.IsNullOrWhiteSpace(connection.RemoteIniPath) || connection.RemoteIniPath.Any(char.IsControl)) throw new ArgumentException("Chemin INI distant invalide.");
+    }
+
+    private static void ValidateRemotePath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || path.Any(char.IsControl)) throw new ArgumentException("Chemin distant invalide.", nameof(path));
     }
 
     private static string Quote(string value) => "'" + value.Replace("'", "'\"'\"'", StringComparison.Ordinal) + "'";

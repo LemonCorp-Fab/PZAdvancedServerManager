@@ -142,6 +142,38 @@
                 <div><strong>Mod IDs</strong><span>@Model.Mods.Count</span><p>@string.Join(" · ", Model.Mods.Take(6))</p></div>
                 <div><strong>Cartes</strong><span>@Model.Maps.Count</span><p>@string.Join(" · ", Model.Maps.Take(6))</p></div>
             </div> }
+            <section class="server-overview" data-server-overview>
+                <div class="server-overview-heading">
+                    <div><span class="eyebrow">VUE D’ENSEMBLE TEMPS RÉEL</span><h3>Activité et ressources</h3></div>
+                    <small data-overview-captured>Mesure @(Model.SelectedRuntime.Overview.CapturedAt.ToLocalTime().ToString("T", CultureInfo.CurrentCulture))</small>
+                </div>
+                <div class="server-overview-grid">
+                    <article><span>Joueurs</span><strong data-overview-players>@(Model.SelectedRuntime.Overview.PlayerCount?.ToString(CultureInfo.InvariantCulture) ?? "—") / @(Model.SelectedRuntime.Overview.MaxPlayers?.ToString(CultureInfo.InvariantCulture) ?? "—")</strong><small data-overview-player-source>@(Model.SelectedRuntime.Overview.PlayerSource == "rcon" ? "Liste fournie par RCON" : Model.SelectedRuntime.Overview.PlayerSource == "pine-console" ? "Dernier résultat de la console Pine" : "RCON requis pour la liste")</small></article>
+                    <article><span>Ping administration</span><strong data-overview-latency>@IndexModel.FormatLatency(Model.SelectedRuntime.Overview.RconLatencyMilliseconds)</strong><small>Aller-retour RCON, pas le ping individuel</small></article>
+                    <article><span>Uptime</span><strong data-overview-uptime>@IndexModel.FormatDuration(Model.SelectedRuntime.Overview.UptimeMilliseconds)</strong><small>Processus du serveur</small></article>
+                    <article><span>CPU</span><strong data-overview-cpu>@IndexModel.FormatPercent(Model.SelectedRuntime.Overview.CpuPercent)</strong><small>@(Model.Selected.IsPineHosting ? "Mesure fournisseur" : "Non exposé par PZ")</small></article>
+                    <article><span>Mémoire</span><strong data-overview-memory>@IndexModel.FormatUsage(Model.SelectedRuntime.Overview.MemoryBytes, Model.SelectedRuntime.Overview.MemoryLimitBytes)</strong><small>Utilisée / limite</small></article>
+                    <article><span>Disque</span><strong data-overview-disk>@IndexModel.FormatUsage(Model.SelectedRuntime.Overview.DiskBytes, Model.SelectedRuntime.Overview.DiskLimitBytes)</strong><small>Utilisé / limite</small></article>
+                    <article><span>Réseau reçu</span><strong data-overview-network-rx>@(Model.SelectedRuntime.Overview.NetworkRxBytes is long rx ? IndexModel.FormatBytes(rx) : "—")</strong><small>Compteur du processus</small></article>
+                    <article><span>Réseau envoyé</span><strong data-overview-network-tx>@(Model.SelectedRuntime.Overview.NetworkTxBytes is long tx ? IndexModel.FormatBytes(tx) : "—")</strong><small>Compteur du processus</small></article>
+                </div>
+                <div class="server-player-overview">
+                    <div><strong>Joueurs connectés</strong><small data-player-list-status>@(Model.SelectedRuntime.Overview.PlayerSource is "rcon" or "pine-console" ? $"{Model.SelectedRuntime.Overview.PlayerCount ?? 0} joueur(s) signalé(s)" : "Configurez RCON pour interroger la liste sans lire les logs.")</small></div>
+                    <div class="server-player-list" data-overview-player-list>
+                        @if (Model.SelectedRuntime.Overview.Players.Count == 0)
+                        {
+                            <div class="server-player-empty">@(Model.SelectedRuntime.Overview.PlayerCount == 0 ? "Aucun joueur connecté." : "Liste détaillée indisponible.")</div>
+                        }
+                        else
+                        {
+                            @foreach (var player in Model.SelectedRuntime.Overview.Players)
+                            {
+                                <article><span class="player-avatar">@player.Name[..1].ToUpperInvariant()</span><span><strong>@player.Name</strong><small>@(player.SteamId ?? "Steam ID non fourni")</small></span><em>@(player.PingMilliseconds is int ping ? $"{ping} ms" : "ping non fourni")</em></article>
+                            }
+                        }
+                    </div>
+                </div>
+            </section>
             @if (Model.Selected.IsHostedLocal)
             {
                 <div class="info-callout host-profile-guidance"><strong>Profil Host local</strong><p>Ce profil se lance depuis « Host » dans le client Project Zomboid. Le manager supervise la session <code>-coop</code> lorsqu’elle ouvre réellement les ports du jeu ; le simple fait que le client Steam soit démarré ne compte pas comme un serveur.</p></div>
@@ -214,7 +246,7 @@
                 </div>
                 <div class="process-log-view" data-runtime-log-view>
                     <div class="process-log-toolbar">
-                        <div><span class="eyebrow">JOURNAL EN DIRECT</span><strong>@Model.RuntimeLogSource</strong><small data-runtime-log-summary>@Model.SelectedRuntime.Output.Count lignes récentes</small></div>
+                        <div><span class="eyebrow">JOURNAL SERVEUR</span><strong data-runtime-log-source>@Model.RuntimeLogSource</strong><small data-runtime-log-status>@Model.RuntimeLogStatus</small><small data-runtime-log-summary>@Model.SelectedRuntime.Output.Count lignes disponibles</small></div>
                         <label class="process-log-search"><span>Rechercher</span><input type="search" placeholder="texte, module, erreur…" data-runtime-log-search /></label>
                         <div class="process-log-filters" role="group" aria-label="Filtrer le journal">
                             <button type="button" class="is-active" data-log-filter="all">Tout <span data-log-count="all">@Model.SelectedRuntime.Output.Count</span></button>
@@ -271,15 +303,12 @@
             </section>
         }
 
-        @if (Model.SelectedControlAvailable)
+        @if (Model.SelectedConsoleConfigured)
         {
-            <section class="panel rcon-console-panel" id="rcon-console" data-server-view="network" hidden>
+            <section class="panel rcon-console-panel" id="rcon-console" data-server-view="network" data-rcon-console data-rcon-available="@Model.SelectedControlAvailable.ToString().ToLowerInvariant()" hidden>
                 <div class="panel-heading rcon-console-heading">
                     <div><span class="eyebrow">@(Model.Selected.IsPineHosting ? "CONSOLE PINE API" : "RCON AUTHENTIFIÉ")</span><h2>Console d’administration</h2><p>Historique des commandes envoyées depuis cette session du manager et de leurs réponses.</p></div>
-                    @if (Model.RconHistory.Count > 0)
-                    {
-                        <form method="post" asp-page-handler="ClearRconConsole" asp-route-name="@Model.Selected.Name" data-confirm-title="Effacer l’historique RCON ?" data-confirm-message="Les commandes et réponses conservées en mémoire pour ce profil seront supprimées. Aucun journal Project Zomboid ne sera effacé." data-confirm-action="Effacer l’historique"><button class="button ghost" type="submit">Effacer</button></form>
-                    }
+                    <form method="post" asp-page-handler="ClearRconConsole" asp-route-name="@Model.Selected.Name" data-loading-skip="true" data-rcon-clear data-rcon-json-endpoint="@Url.Page("/Server/Index", "ClearRconConsoleJson", new { name = Model.Selected.Name })" hidden="@(Model.RconHistory.Count == 0 ? "hidden" : null)"><button class="button ghost" type="submit">Effacer</button></form>
                 </div>
                 <div class="rcon-terminal" data-rcon-transcript aria-live="polite">
                     @if (Model.RconHistory.Count == 0)
@@ -298,10 +327,10 @@
                         }
                     }
                 </div>
-                <form method="post" asp-page-handler="RconCommand" asp-route-name="@Model.Selected.Name" class="rcon-command-form" data-loading-title="Commande serveur…" data-loading-detail="Envoi de la commande au processus Project Zomboid.">
-                    <label for="rcon-command">Commande @(Model.Selected.IsPineHosting ? "console Pine" : "RCON")</label>
-                    <div class="inline-command"><input id="rcon-command" name="command" required maxlength="256" autocomplete="off" placeholder="players, servermsg…, save…" data-rcon-command /><button class="button primary" type="submit">Envoyer</button></div>
-                    <small>@(Model.Selected.IsPineHosting ? "L'API confirme la transmission à la console. Le journal complet reste disponible dans le panel Pine." : "RCON retourne uniquement la réponse aux commandes envoyées ; il ne diffuse pas spontanément le fichier server-console.txt.")</small>
+                <form method="post" asp-page-handler="RconCommand" asp-route-name="@Model.Selected.Name" class="rcon-command-form" data-loading-skip="true" data-rcon-command-form data-rcon-json-endpoint="@Url.Page("/Server/Index", "RconCommandJson", new { name = Model.Selected.Name })">
+                    <label for="rcon-command">Commande @(Model.Selected.IsPineHosting ? "serveur Pine" : "RCON")</label>
+                    <div class="inline-command"><input id="rcon-command" name="command" required maxlength="256" autocomplete="off" placeholder="players, servermsg…, save…" data-rcon-command disabled="@(!Model.SelectedControlAvailable)" /><button class="button primary" type="submit" disabled="@(!Model.SelectedControlAvailable)">Envoyer</button></div>
+                    <small data-rcon-state>@(Model.SelectedControlAvailable ? Model.Selected.IsPineHosting && !Model.SelectedRuntime.IsRconAuthenticated ? "Console Pine prête. Les commandes sont transmises sans recharger cette page." : "RCON prêt. La réponse est ajoutée ici sans recharger cette page." : "Console configurée mais actuellement indisponible ; le manager la réactivera dès que le serveur répondra.")</small>
                 </form>
             </section>
         }

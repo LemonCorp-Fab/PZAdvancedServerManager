@@ -130,6 +130,71 @@ public sealed class ServerOrchestrationService(ApplicationPaths? paths = null)
         return await rcon.CommandAsync(command, cancellationToken);
     }
 
+    public async Task<ServerRuntimeOverview> ReadRconOverviewAsync(
+        string host,
+        int port,
+        string password,
+        int? maxPlayers,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(password))
+            return ServerRuntimeOverview.Empty with { MaxPlayers = maxPlayers, CapturedAt = DateTimeOffset.UtcNow };
+
+        var stopwatch = Stopwatch.StartNew();
+        await using var rcon = await PzRconClient.ConnectAsync(host, port, password, cancellationToken);
+        var response = await rcon.CommandAsync("players", cancellationToken);
+        stopwatch.Stop();
+        var parsed = ParsePlayersResponse(response);
+        return new ServerRuntimeOverview(
+            parsed.Count,
+            maxPlayers,
+            parsed.Players,
+            stopwatch.Elapsed.TotalMilliseconds,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            DateTimeOffset.UtcNow,
+            "rcon");
+    }
+
+    public static (int Count, IReadOnlyList<ServerPlayerSnapshot> Players) ParsePlayersResponse(string response)
+    {
+        response ??= string.Empty;
+        var lines = response.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        var players = new List<ServerPlayerSnapshot>();
+        foreach (var raw in lines)
+        {
+            var line = raw.Trim();
+            if (line.Length == 0 || line.Contains("Players connected", StringComparison.OrdinalIgnoreCase)) continue;
+            if (line.StartsWith("-", StringComparison.Ordinal)) line = line[1..].Trim();
+            else if (line.StartsWith("*", StringComparison.Ordinal)) line = line[1..].Trim();
+            else continue;
+            if (line.Length == 0) continue;
+
+            string? steamId = null;
+            int? ping = null;
+            var steamMatch = Regex.Match(line, @"(?<!\d)(7656119\d{10})(?!\d)", RegexOptions.CultureInvariant);
+            if (steamMatch.Success) steamId = steamMatch.Value;
+            var pingMatch = Regex.Match(line, @"(?i)\bping\s*[:=]?\s*(\d{1,5})\s*ms\b", RegexOptions.CultureInvariant);
+            if (pingMatch.Success && int.TryParse(pingMatch.Groups[1].Value, out var parsedPing)) ping = parsedPing;
+
+            var name = Regex.Replace(line, @"(?i)\s*[\[(].*?(?:ping\s*[:=]?\s*\d+\s*ms|7656119\d{10}).*?[\])]\s*$", string.Empty).Trim();
+            if (name.Length == 0) name = line;
+            players.Add(new ServerPlayerSnapshot(name, steamId, ping));
+        }
+
+        var countMatch = Regex.Match(response, @"(?i)players\s+connected\s*(?:\(|:)?\s*(\d+)", RegexOptions.CultureInvariant);
+        var count = countMatch.Success && int.TryParse(countMatch.Groups[1].Value, out var parsedCount)
+            ? parsedCount
+            : players.Count;
+        return (count, players);
+    }
+
     private static async Task SendSaveAndQuitAsync(string host, int port, string password, CancellationToken cancellationToken)
     {
         await using var rcon = await PzRconClient.ConnectAsync(host, port, password, cancellationToken);
@@ -484,6 +549,19 @@ public sealed class ServerOrchestrationService(ApplicationPaths? paths = null)
                         : processRunning
                             ? ServerRuntimeState.Starting
                             : ServerRuntimeState.Stopped;
+        var isHostedLog = primary?.Origin == ServerRuntimeOrigin.LocalHostedSession;
+        var logFileName = isHostedLog ? "coop-console.txt" : "server-console.txt";
+        var logIsLive = processRunning || rconAuthenticated;
+        var logSource = logIsLive
+            ? logFileName
+            : $"{logFileName} · dernière session";
+        var logStatus = logIsLive
+            ? output.Count > 0
+                ? $"Journal actif : {output.Count} lignes récentes disponibles."
+                : "Le serveur est actif, mais aucune ligne récente n'est encore disponible."
+            : output.Count > 0
+                ? $"Serveur arrêté : {output.Count} lignes archivées de la dernière session."
+                : "Serveur arrêté : aucun journal de session n'est disponible.";
 
         return new ServerRuntimeSnapshot(
             state,
@@ -499,7 +577,9 @@ public sealed class ServerOrchestrationService(ApplicationPaths? paths = null)
         {
             Origin = primary?.Origin ?? ServerRuntimeOrigin.Unknown,
             Instances = orderedInstances.Select(instance => (ServerRuntimeInstance)instance).ToArray(),
-            InactiveHostedHelperCount = inactiveHostedHelperCount
+            InactiveHostedHelperCount = inactiveHostedHelperCount,
+            LogSource = logSource,
+            LogStatus = logStatus
         };
     }
 

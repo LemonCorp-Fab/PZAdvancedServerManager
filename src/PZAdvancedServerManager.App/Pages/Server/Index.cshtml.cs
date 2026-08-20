@@ -49,6 +49,9 @@ public class IndexModel(
             || Selected.IsPineHosting
             || Selected.IsRemote && Selected.Remote!.HasSshConnection && !string.IsNullOrWhiteSpace(Selected.Remote.StartCommand));
     public bool SelectedControlAvailable => SelectedRconAvailable || Selected?.IsPineHosting == true && SelectedServerOnline;
+    public bool SelectedConsoleConfigured => Selected?.IsPineHosting == true
+        || RconPasswordConfigured
+        || Selected?.IsRemote == true && !string.IsNullOrWhiteSpace(Selected.Remote!.RconPassword);
     public bool SelectedServerCanForceStop => Selected is { IsRemote: false }
         && SelectedRuntime.IsRunning
         && !SelectedRuntime.IsRconAuthenticated
@@ -81,13 +84,8 @@ public class IndexModel(
                     : SelectedRuntime.IsRunning
                         ? "Processus serveur redécouvert sur la machine"
                         : "Aucun processus associé au profil";
-    public string RuntimeLogSource => SelectedRuntime.Origin == ServerRuntimeOrigin.LocalHostedSession
-        ? "coop-console.txt"
-        : Selected?.IsPineHosting == true
-            ? "État Pine Hosting API"
-            : Selected?.IsRemote == true
-            ? "RCON distant"
-            : "server-console.txt";
+    public string RuntimeLogSource => Selected is null ? "Journal indisponible" : RuntimeLogSourceFor(Selected, SelectedRuntime);
+    public string RuntimeLogStatus => RuntimeLogStatusFor(SelectedRuntime);
     [BindProperty] public string RawContent { get; set; } = string.Empty;
     [BindProperty] public GuidedServerForm Guided { get; set; } = new();
     [BindProperty] public RemoteServerForm Remote { get; set; } = new();
@@ -201,11 +199,31 @@ public class IndexModel(
                 runtime.IsRunning,
                 runtime.IsGameReady,
                 runtime.IsRconAuthenticated,
+                consoleAvailable = runtime.IsRconAuthenticated || profile.IsPineHosting && runtime.IsRunning,
                 runtime.RconBindFailed,
                 runtime.IsManagedByCurrentSession,
                 runtime.ProcessId,
                 runtime.InactiveHostedHelperCount,
+                logSource = RuntimeLogSourceFor(profile, runtime),
+                logStatus = RuntimeLogStatusFor(runtime),
                 origin = runtime.Origin.ToString(),
+                overview = new
+                {
+                    runtime.Overview.PlayerCount,
+                    runtime.Overview.MaxPlayers,
+                    players = runtime.Overview.Players.Select(player => new { player.Name, player.SteamId, player.PingMilliseconds }),
+                    runtime.Overview.RconLatencyMilliseconds,
+                    runtime.Overview.CpuPercent,
+                    runtime.Overview.MemoryBytes,
+                    runtime.Overview.MemoryLimitBytes,
+                    runtime.Overview.DiskBytes,
+                    runtime.Overview.DiskLimitBytes,
+                    runtime.Overview.NetworkRxBytes,
+                    runtime.Overview.NetworkTxBytes,
+                    runtime.Overview.UptimeMilliseconds,
+                    capturedAt = runtime.Overview.CapturedAt.ToString("O"),
+                    runtime.Overview.PlayerSource
+                },
                 instances = runtime.Instances.Select(instance => new
                 {
                     instance.ProcessId,
@@ -662,11 +680,39 @@ public class IndexModel(
         return RedirectToPage(new { name });
     }
 
+    public async Task<IActionResult> OnPostRconCommandJsonAsync(string name, [FromBody] RconCommandRequest request, CancellationToken cancellationToken)
+    {
+        Response.Headers.CacheControl = "no-store, no-cache";
+        var submittedCommand = request.Command?.Trim() ?? string.Empty;
+        try
+        {
+            if (submittedCommand.Length == 0) throw new ValidationException("Saisissez une commande RCON.");
+            var output = await servers.ExecuteRconCommandAsync(name, submittedCommand, cancellationToken);
+            var response = string.IsNullOrWhiteSpace(output)
+                ? "Commande acceptée sans réponse textuelle."
+                : output.Length <= 4000 ? output : output[..4000] + Environment.NewLine + "… réponse tronquée à 4 000 caractères";
+            var entry = rconConsole.Add(name, submittedCommand, response, succeeded: true);
+            return new JsonResult(new { ok = true, entry = RconEntryPayload(entry) });
+        }
+        catch (Exception exception)
+        {
+            var entry = rconConsole.Add(name, submittedCommand, exception.Message, succeeded: false);
+            return new BadRequestObjectResult(new { ok = false, error = exception.Message, entry = RconEntryPayload(entry) });
+        }
+    }
+
     public IActionResult OnPostClearRconConsole(string name)
     {
         rconConsole.Clear(name);
         TempData["Message"] = "Historique de la console RCON effacé.";
         return RedirectToPage(new { name });
+    }
+
+    public IActionResult OnPostClearRconConsoleJson(string name)
+    {
+        Response.Headers.CacheControl = "no-store, no-cache";
+        rconConsole.Clear(name);
+        return new JsonResult(new { ok = true });
     }
 
     public async Task<IActionResult> OnPostCreatePineBackupAsync(string name, CancellationToken cancellationToken)
@@ -924,12 +970,24 @@ public class IndexModel(
         public void Report(T value) => callback(value);
     }
 
+    private static object RconEntryPayload(RconConsoleEntry entry) => new
+    {
+        timestamp = entry.Timestamp.ToString("O"),
+        entry.Command,
+        entry.Response,
+        entry.Succeeded
+    };
+
+    public sealed record RconCommandRequest(string? Command);
+
     private static ServerRuntimeSnapshot StoppedRuntime()
         => new(ServerRuntimeState.Stopped, false, false, false, false, false, null, null, null, []);
 
     private static string RuntimeStatus(ServerRuntimeSnapshot runtime) => runtime.State switch
     {
         ServerRuntimeState.MultipleInstances => "CONFLIT · PLUSIEURS SERVEURS ACTIFS",
+        ServerRuntimeState.Online when runtime.Origin == ServerRuntimeOrigin.PineHostingApi && runtime.IsRconAuthenticated => "SERVEUR PINE EN LIGNE · RCON OK",
+        ServerRuntimeState.Online when runtime.Origin == ServerRuntimeOrigin.PineHostingApi => "SERVEUR PINE EN LIGNE · CONSOLE API OK",
         ServerRuntimeState.Online when runtime.Origin == ServerRuntimeOrigin.RemoteRcon => "SERVEUR DISTANT EN LIGNE · RCON OK",
         ServerRuntimeState.Online when runtime.Origin == ServerRuntimeOrigin.LocalHostedSession => "SESSION HÉBERGÉE ACTIVE · RCON OK",
         ServerRuntimeState.Online => "SERVEUR DÉDIÉ EN LIGNE · RCON OK",
@@ -944,6 +1002,8 @@ public class IndexModel(
     private static string RuntimeDetail(ServerRuntimeSnapshot runtime) => runtime.State switch
     {
         ServerRuntimeState.MultipleInstances => "Plusieurs processus serveur utilisent le même profil. Le serveur dédié et la session hébergée sont affichés séparément ci-dessous; leurs ports peuvent entrer en conflit.",
+        ServerRuntimeState.Online when runtime.Origin == ServerRuntimeOrigin.PineHostingApi && runtime.IsRconAuthenticated => "Pine Hosting confirme l'état du processus, la console en direct et l'authentification RCON.",
+        ServerRuntimeState.Online when runtime.Origin == ServerRuntimeOrigin.PineHostingApi => "Pine Hosting confirme l'état du processus et fournit la console en direct. Configurez RCON pour obtenir la liste des joueurs et sa latence.",
         ServerRuntimeState.Online when runtime.Origin == ServerRuntimeOrigin.RemoteRcon => "Le serveur distant répond et l'authentification RCON fonctionne.",
         ServerRuntimeState.Online when runtime.Origin == ServerRuntimeOrigin.LocalHostedSession => "La session multijoueur hébergée par le client Project Zomboid est prête.",
         ServerRuntimeState.Online => "Le serveur dédié local est prêt et l'authentification RCON fonctionne.",
@@ -964,6 +1024,24 @@ public class IndexModel(
         ServerRuntimeState.MultipleInstances => "conflict",
         _ => "offline"
     };
+
+    private static string RuntimeLogSourceFor(ServerConfigEntry profile, ServerRuntimeSnapshot runtime)
+        => !string.IsNullOrWhiteSpace(runtime.LogSource)
+            ? runtime.LogSource
+            : runtime.Origin == ServerRuntimeOrigin.LocalHostedSession
+                ? "coop-console.txt"
+                : profile.IsPineHosting
+                    ? "Pine Hosting · console Wings"
+                    : profile.IsRemote
+                        ? "RCON distant · aucun fichier journal"
+                        : "server-console.txt";
+
+    private static string RuntimeLogStatusFor(ServerRuntimeSnapshot runtime)
+        => !string.IsNullOrWhiteSpace(runtime.LogStatus)
+            ? runtime.LogStatus
+            : runtime.Output.Count > 0
+                ? $"{runtime.Output.Count} lignes récentes disponibles."
+                : "Aucune ligne récente n'est disponible pour cette source.";
 
     public static string RuntimeOriginLabel(ServerRuntimeOrigin origin) => origin switch
     {
@@ -1144,4 +1222,26 @@ public class IndexModel(
         >= 1024 => $"{bytes / 1024d:0.0} Kio",
         _ => $"{bytes} o"
     };
+
+    public static string FormatLatency(double? milliseconds)
+        => milliseconds is double value ? $"{value:0} ms" : "—";
+
+    public static string FormatPercent(double? percent)
+        => percent is double value ? $"{value:0.0} %" : "—";
+
+    public static string FormatUsage(long? used, long? limit)
+        => used is not long value ? "—" : limit is long maximum && maximum > 0
+            ? $"{FormatBytes(value)} / {FormatBytes(maximum)}"
+            : FormatBytes(value);
+
+    public static string FormatDuration(long? milliseconds)
+    {
+        if (milliseconds is not long value || value < 0) return "—";
+        var duration = TimeSpan.FromMilliseconds(value);
+        return duration.TotalDays >= 1
+            ? $"{(int)duration.TotalDays} j {duration.Hours} h"
+            : duration.TotalHours >= 1
+                ? $"{(int)duration.TotalHours} h {duration.Minutes} min"
+                : $"{duration.Minutes} min {duration.Seconds} s";
+    }
 }

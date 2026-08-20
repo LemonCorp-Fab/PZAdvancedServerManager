@@ -13,7 +13,7 @@ public sealed class RconConsoleStore(int capacity = 100)
         lock (buffer.Entries) return buffer.Entries.ToArray();
     }
 
-    public void Add(string serverName, string command, string response, bool succeeded)
+    public RconConsoleEntry Add(string serverName, string command, string response, bool succeeded)
     {
         var buffer = _buffers.GetOrAdd(serverName, _ => new ConsoleBuffer());
         var entry = new RconConsoleEntry(
@@ -27,6 +27,7 @@ public sealed class RconConsoleStore(int capacity = 100)
             if (buffer.Entries.Count > _capacity)
                 buffer.Entries.RemoveRange(0, buffer.Entries.Count - _capacity);
         }
+        return entry;
     }
 
     public void Clear(string serverName) => _buffers.TryRemove(serverName, out _);

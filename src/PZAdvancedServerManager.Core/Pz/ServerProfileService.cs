@@ -1,4 +1,7 @@
 using System.Text;
+using System.Collections.Concurrent;
+using System.Net.Sockets;
+using System.Diagnostics;
 using PZAdvancedServerManager.Core.Domain;
 using PZAdvancedServerManager.Core.Infrastructure;
 
@@ -13,6 +16,9 @@ public sealed class ServerProfileService(
     RemoteServerBackendRouter remoteBackends,
     PineHostingClient pine)
 {
+    private readonly ConcurrentDictionary<string, (int? MaxPlayers, DateTimeOffset CapturedAt)> _maxPlayersCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<int, (TimeSpan Cpu, DateTimeOffset CapturedAt)> _processSamples = new();
+
     public PzInstallation Installation => environment.Installation;
 
     public IReadOnlyList<ServerConfigEntry> List()
@@ -235,14 +241,121 @@ public sealed class ServerProfileService(
     public async Task<ServerRuntimeSnapshot> ReadRuntimeAsync(string name, CancellationToken cancellationToken = default)
     {
         var profile = Get(name);
+        ServerRuntimeSnapshot runtime;
         if (!profile.IsRemote)
         {
             var consolePath = Path.Combine(environment.Installation.UserZomboidRoot, "server-console.txt");
             var coopConsolePath = Path.Combine(environment.Installation.UserZomboidRoot, "coop-console.txt");
-            return await orchestration.InspectLocalRuntimeAsync(profile.Name, profile.Path, consolePath, coopConsolePath, cancellationToken);
+            runtime = await orchestration.InspectLocalRuntimeAsync(profile.Name, profile.Path, consolePath, coopConsolePath, cancellationToken);
+        }
+        else
+        {
+            runtime = await remoteBackends.Resolve(profile.Remote!).ReadRuntimeAsync(profile.Remote!, cancellationToken);
         }
 
-        return await remoteBackends.Resolve(profile.Remote!).ReadRuntimeAsync(profile.Remote!, cancellationToken);
+        var maxPlayers = await ReadCachedMaxPlayersAsync(profile, cancellationToken);
+        var overview = runtime.Overview with { MaxPlayers = maxPlayers, CapturedAt = DateTimeOffset.UtcNow };
+        if (runtime.IsRunning && runtime.Overview.PlayerSource != "rcon")
+        {
+            var endpoint = TryRconEndpoint(profile);
+            if (endpoint is not null)
+            {
+                try
+                {
+                    var rcon = await orchestration.ReadRconOverviewAsync(endpoint.Value.Host, endpoint.Value.Port, endpoint.Value.Password, maxPlayers, cancellationToken);
+                    overview = rcon with
+                    {
+                        CpuPercent = overview.CpuPercent,
+                        MemoryBytes = overview.MemoryBytes,
+                        MemoryLimitBytes = overview.MemoryLimitBytes,
+                        DiskBytes = overview.DiskBytes,
+                        DiskLimitBytes = overview.DiskLimitBytes,
+                        NetworkRxBytes = overview.NetworkRxBytes,
+                        NetworkTxBytes = overview.NetworkTxBytes,
+                        UptimeMilliseconds = overview.UptimeMilliseconds
+                    };
+                    runtime = runtime with { IsRconAuthenticated = true };
+                }
+                catch (Exception exception) when (exception is IOException or SocketException or TimeoutException or UnauthorizedAccessException or OperationCanceledException && !cancellationToken.IsCancellationRequested)
+                {
+                }
+            }
+        }
+
+        if (!profile.IsRemote && runtime.ProcessId is int processId)
+            overview = AddLocalProcessMetrics(processId, runtime.StartedAt, overview);
+
+        return runtime with { Overview = overview };
+    }
+
+    private ServerRuntimeOverview AddLocalProcessMetrics(int processId, DateTimeOffset? startedAt, ServerRuntimeOverview overview)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(processId);
+            process.Refresh();
+            var now = DateTimeOffset.UtcNow;
+            double? cpu = null;
+            if (_processSamples.TryGetValue(processId, out var previous))
+            {
+                var elapsed = now - previous.CapturedAt;
+                var cpuElapsed = process.TotalProcessorTime - previous.Cpu;
+                if (elapsed.TotalMilliseconds > 0 && cpuElapsed >= TimeSpan.Zero)
+                    cpu = Math.Max(0, cpuElapsed.TotalMilliseconds / elapsed.TotalMilliseconds / Environment.ProcessorCount * 100d);
+            }
+            _processSamples[processId] = (process.TotalProcessorTime, now);
+            return overview with
+            {
+                CpuPercent = cpu ?? overview.CpuPercent,
+                MemoryBytes = process.WorkingSet64,
+                UptimeMilliseconds = overview.UptimeMilliseconds ?? (long?)((startedAt is null ? now - process.StartTime.ToUniversalTime() : now - startedAt.Value).TotalMilliseconds)
+            };
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            return overview;
+        }
+    }
+
+    private async Task<int?> ReadCachedMaxPlayersAsync(ServerConfigEntry profile, CancellationToken cancellationToken)
+    {
+        if (_maxPlayersCache.TryGetValue(profile.Name, out var cached) && DateTimeOffset.UtcNow - cached.CapturedAt < TimeSpan.FromSeconds(30))
+            return cached.MaxPlayers;
+        int? maxPlayers = null;
+        if (profile.CanManageConfiguration)
+        {
+            try
+            {
+                var document = await ReadDocumentAsync(profile.Name, cancellationToken);
+                if (int.TryParse(document.Get("MaxPlayers"), out var parsed) && parsed > 0) maxPlayers = parsed;
+            }
+            catch (Exception exception) when (exception is IOException or InvalidOperationException or TimeoutException or OperationCanceledException && !cancellationToken.IsCancellationRequested)
+            {
+            }
+        }
+        _maxPlayersCache[profile.Name] = (maxPlayers, DateTimeOffset.UtcNow);
+        return maxPlayers;
+    }
+
+    private (string Host, int Port, string Password)? TryRconEndpoint(ServerConfigEntry profile)
+    {
+        if (profile.IsRemote)
+        {
+            var connection = profile.Remote!;
+            var host = RconHost(connection);
+            return string.IsNullOrWhiteSpace(host) || string.IsNullOrWhiteSpace(connection.RconPassword)
+                ? null
+                : (host, connection.RconPort, connection.RconPassword);
+        }
+        try
+        {
+            var endpoint = RconEndpoint(profile);
+            return string.IsNullOrWhiteSpace(endpoint.Password) ? null : endpoint;
+        }
+        catch (Exception exception) when (exception is IOException or InvalidDataException)
+        {
+            return null;
+        }
     }
 
     public ServerNetworkInfo ReadNetworkInfo(string name)

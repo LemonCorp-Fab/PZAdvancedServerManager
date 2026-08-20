@@ -68,4 +68,28 @@ public sealed class ServerNetworkAndRconConsoleTests
         Assert.Empty(console.List("main"));
         Assert.Single(console.List("secondary"));
     }
+
+    [Fact]
+    public void PlayersResponseParsesCountNamesAndOptionalMetadata()
+    {
+        const string response = "Players connected (2):\n- Alice\n- Bob (76561191234567890, ping: 47 ms)\n";
+
+        var result = ServerOrchestrationService.ParsePlayersResponse(response);
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal(["Alice", "Bob"], result.Players.Select(player => player.Name));
+        Assert.Equal("76561191234567890", result.Players[1].SteamId);
+        Assert.Equal(47, result.Players[1].PingMilliseconds);
+    }
+
+    [Theory]
+    [InlineData("Players connected (0):", 0)]
+    [InlineData("Players connected: 12", 12)]
+    public void PlayersResponseKeepsAuthoritativeCountWithoutDetailLines(string response, int expected)
+    {
+        var result = ServerOrchestrationService.ParsePlayersResponse(response);
+
+        Assert.Equal(expected, result.Count);
+        Assert.Empty(result.Players);
+    }
 }

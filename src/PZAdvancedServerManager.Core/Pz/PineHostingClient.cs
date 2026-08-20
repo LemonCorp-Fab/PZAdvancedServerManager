@@ -1,8 +1,12 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Net.WebSockets;
+using System.Buffers;
+using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using PZAdvancedServerManager.Core.Domain;
 
 namespace PZAdvancedServerManager.Core.Pz;
@@ -16,6 +20,8 @@ public sealed class PineHostingClient
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly HttpClient _http;
+    private readonly ConcurrentDictionary<string, PineConsoleCacheEntry> _consoleCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly SemaphoreSlim _consoleGate = new(1, 1);
 
     public PineHostingClient(HttpClient? httpClient = null)
     {
@@ -80,6 +86,28 @@ public sealed class PineHostingClient
     {
         if (string.IsNullOrWhiteSpace(command) || command.Any(char.IsControl)) throw new ArgumentException("Commande de console invalide.", nameof(command));
         using var response = await SendJsonAsync(connection, HttpMethod.Post, ServerPath(connection) + "/command", new { command = command.Trim() }, cancellationToken);
+    }
+
+    public async Task<PineConsoleSnapshot> ReadConsoleTailAsync(RemoteServerConnection connection, int maximumLines = 240, CancellationToken cancellationToken = default)
+    {
+        if (maximumLines is < 1 or > 1000) throw new ArgumentOutOfRangeException(nameof(maximumLines));
+        var key = connection.ApiServerIdentifier;
+        if (_consoleCache.TryGetValue(key, out var cached) && DateTimeOffset.UtcNow - cached.CapturedAt < TimeSpan.FromSeconds(2))
+            return cached.Snapshot;
+
+        await _consoleGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (_consoleCache.TryGetValue(key, out cached) && DateTimeOffset.UtcNow - cached.CapturedAt < TimeSpan.FromSeconds(2))
+                return cached.Snapshot;
+            var snapshot = await ReadConsoleTailCoreAsync(connection, maximumLines, cancellationToken);
+            _consoleCache[key] = new PineConsoleCacheEntry(snapshot, DateTimeOffset.UtcNow);
+            return snapshot;
+        }
+        finally
+        {
+            _consoleGate.Release();
+        }
     }
 
     public async Task SetPowerAsync(RemoteServerConnection connection, PinePowerSignal signal, CancellationToken cancellationToken = default)
@@ -206,6 +234,129 @@ public sealed class PineHostingClient
         using var body = new StringContent(content, Encoding.UTF8, "text/plain");
         using var response = await SendAsync(connection, HttpMethod.Post, ServerPath(connection) + "/files/write?file=" + Uri.EscapeDataString(path), body, cancellationToken);
     }
+
+    private async Task<PineConsoleSnapshot> ReadConsoleTailCoreAsync(RemoteServerConnection connection, int maximumLines, CancellationToken cancellationToken)
+    {
+        using var response = await SendAsync(connection, HttpMethod.Get, ServerPath(connection) + "/websocket", cancellationToken: cancellationToken);
+        var root = await ReadJsonAsync(response, cancellationToken);
+        var data = root.TryGetProperty("data", out var dataElement) ? dataElement : root;
+        var token = String(data, "token");
+        var socketValue = String(data, "socket");
+        if (string.IsNullOrWhiteSpace(token) || !Uri.TryCreate(socketValue, UriKind.Absolute, out var socketUri) || socketUri.Scheme != "wss")
+            throw new InvalidDataException("Pine Hosting n'a pas fourni une WebSocket console sécurisée valide.");
+
+        using var socket = new ClientWebSocket();
+        socket.Options.SetRequestHeader("Origin", connection.ApiBaseUrl.TrimEnd('/'));
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(6));
+        await socket.ConnectAsync(socketUri, timeout.Token);
+        await SendWebSocketEventAsync(socket, "auth", [token], timeout.Token);
+
+        var lines = new Queue<string>(maximumLines);
+        var authenticated = false;
+        var requestedLogs = false;
+        var receivedConsole = false;
+        while (socket.State == WebSocketState.Open && !timeout.IsCancellationRequested)
+        {
+            string? payload;
+            try
+            {
+                var receiveTask = ReceiveWebSocketTextAsync(socket, timeout.Token);
+                payload = receivedConsole
+                    ? await receiveTask.WaitAsync(TimeSpan.FromMilliseconds(650), timeout.Token)
+                    : await receiveTask;
+            }
+            catch (TimeoutException) when (receivedConsole)
+            {
+                break;
+            }
+
+            if (payload is null) break;
+            if (!TryParseConsoleEvent(payload, out var eventName, out var arguments)) continue;
+            if (eventName.Equals("auth success", StringComparison.OrdinalIgnoreCase))
+            {
+                authenticated = true;
+                if (!requestedLogs)
+                {
+                    requestedLogs = true;
+                    await SendWebSocketEventAsync(socket, "send logs", [null], timeout.Token);
+                }
+                continue;
+            }
+            if (eventName.Equals("console output", StringComparison.OrdinalIgnoreCase))
+            {
+                receivedConsole = true;
+                foreach (var argument in arguments)
+                    foreach (var rawLine in argument.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n'))
+                    {
+                        var line = StripAnsi(rawLine).TrimEnd();
+                        if (line.Length == 0) continue;
+                        if (lines.Count == maximumLines) lines.Dequeue();
+                        lines.Enqueue(line);
+                    }
+            }
+        }
+
+        if (!authenticated) throw new IOException("La WebSocket Pine Hosting n'a pas confirmé son authentification.");
+        try
+        {
+            if (socket.State == WebSocketState.Open)
+                await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "PZASM snapshot complete", CancellationToken.None);
+        }
+        catch (WebSocketException) { }
+
+        return new PineConsoleSnapshot(lines.ToArray(), DateTimeOffset.UtcNow, "Pine Hosting · console Wings");
+    }
+
+    public static bool TryParseConsoleEvent(string payload, out string eventName, out IReadOnlyList<string> arguments)
+    {
+        eventName = string.Empty;
+        arguments = [];
+        try
+        {
+            using var document = JsonDocument.Parse(payload);
+            var root = document.RootElement;
+            if (!root.TryGetProperty("event", out var eventElement) || eventElement.ValueKind != JsonValueKind.String) return false;
+            eventName = eventElement.GetString() ?? string.Empty;
+            if (root.TryGetProperty("args", out var args) && args.ValueKind == JsonValueKind.Array)
+                arguments = args.EnumerateArray().Where(value => value.ValueKind == JsonValueKind.String).Select(value => value.GetString() ?? string.Empty).ToArray();
+            return eventName.Length > 0;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static async Task SendWebSocketEventAsync(ClientWebSocket socket, string eventName, object?[] arguments, CancellationToken cancellationToken)
+    {
+        var payload = JsonSerializer.SerializeToUtf8Bytes(new { @event = eventName, args = arguments }, JsonOptions);
+        await socket.SendAsync(payload, WebSocketMessageType.Text, true, cancellationToken);
+    }
+
+    private static async Task<string?> ReceiveWebSocketTextAsync(ClientWebSocket socket, CancellationToken cancellationToken)
+    {
+        var rented = ArrayPool<byte>.Shared.Rent(16 * 1024);
+        try
+        {
+            using var stream = new MemoryStream();
+            while (true)
+            {
+                var result = await socket.ReceiveAsync(rented, cancellationToken);
+                if (result.MessageType == WebSocketMessageType.Close) return null;
+                if (result.MessageType != WebSocketMessageType.Text) continue;
+                stream.Write(rented, 0, result.Count);
+                if (stream.Length > 1024 * 1024) throw new IOException("Un message console Pine Hosting dépasse la limite de sécurité d'un mégaoctet.");
+                if (result.EndOfMessage) return Encoding.UTF8.GetString(stream.ToArray());
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(rented);
+        }
+    }
+
+    private static string StripAnsi(string value) => Regex.Replace(value, "\\x1B(?:[@-Z\\\\-_]|\\[[0-?]*[ -/]*[@-~])", string.Empty);
 
     private async Task<HttpResponseMessage> SendJsonAsync(RemoteServerConnection connection, HttpMethod method, string relativePath, object body, CancellationToken cancellationToken)
     {
@@ -335,7 +486,10 @@ public sealed record PineServerResources(string State, bool IsSuspended, long Me
 {
     public bool IsRunning => State is "running" or "starting" or "stopping";
 }
+public sealed record PineConsoleSnapshot(IReadOnlyList<string> Lines, DateTimeOffset CapturedAt, string Source);
 public sealed record PineBackupInfo(string Uuid, string Name, long Bytes, string Sha256, bool IsSuccessful, bool IsLocked, DateTimeOffset? CreatedAt, DateTimeOffset? CompletedAt);
+
+internal sealed record PineConsoleCacheEntry(PineConsoleSnapshot Snapshot, DateTimeOffset CapturedAt);
 
 public sealed class PineHostingApiException(HttpStatusCode statusCode, string message) : IOException($"Pine Hosting API ({(int)statusCode}) : {message}")
 {
